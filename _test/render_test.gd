@@ -5,7 +5,7 @@ var cam: Camera3D
 var gen: WorldGen
 var shots := []
 var frame := 0
-var out_dir := "/tmp/claude-0/shots"
+var out_dir := OS.get_user_data_dir() + "/shots"
 
 func _ready():
 	DirAccess.make_dir_recursive_absolute(out_dir)
@@ -39,6 +39,18 @@ func _ready():
 	for b in found:
 		var c: Vector2i = found[b]
 		shots.append([Vector3((c.x + 0.5) * 2.4, 1.6, (c.y + 0.5) * 2.4), 0.3, "biome%d" % b])
+	for r in range(5, 300):
+		var done := false
+		for k in 16:
+			var a := k * PI / 8
+			var c := gen.spawn_cell + Vector2i(int(cos(a)*r), int(sin(a)*r))
+			if gen.biome_at(c.x, c.y) == 1 and gen.pool_noise(c.x, c.y) and gen.biome_at(c.x+2,c.y)==1 and gen.biome_at(c.x-2,c.y)==1 and gen.biome_at(c.x,c.y+2)==1 and gen.biome_at(c.x,c.y-2)==1:
+				var p := Vector3((c.x+0.5)*2.4, 0.82, (c.y+0.5)*2.4)
+				shots.append([p, 0.0, "pool_in", -0.25])
+				shots.append([p + Vector3(0, 0.8, 4.0), 0.0, "pool_above", -0.5])
+				done = true
+				break
+		if done: break
 	print("shots: ", shots.size())
 	_next()
 
@@ -50,7 +62,7 @@ func _next():
 		get_tree().quit()
 		return
 	cam.global_position = shots[idx][0]
-	cam.rotation = Vector3(0, shots[idx][1], 0)
+	cam.rotation = Vector3(shots[idx][3] if shots[idx].size() > 3 else 0.0, shots[idx][1], 0)
 	wait = 0
 
 func _process(_d):

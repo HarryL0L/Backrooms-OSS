@@ -28,14 +28,13 @@ func _ready() -> void:
 	_post.material = _post_mat
 	add_child(_post)
 	_title = _label(40, HORIZONTAL_ALIGNMENT_CENTER)
-	_title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_title.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_title.offset_top = 90
 	_subtitle = _label(18, HORIZONTAL_ALIGNMENT_CENTER)
-	_subtitle.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_subtitle.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_subtitle.offset_top = 145
 	_subtitle.add_theme_color_override("font_color", Color(0.85, 0.82, 0.7))
 	for l in [_title, _subtitle]:
-		l.grow_horizontal = Control.GROW_DIRECTION_BOTH
 		l.modulate.a = 0.0
 	_fps = _label(16, HORIZONTAL_ALIGNMENT_LEFT)
 	_fps.position = Vector2(12, 8)

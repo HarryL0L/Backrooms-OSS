@@ -605,7 +605,7 @@ func _emit_edge_v(li: int, lj: int) -> void:
 			var lo := minf(fa, fb)
 			var hi := maxf(fa, fb)
 			var b := bio(ia if low_is_a else ib, lj)
-			_vface(WALL_MAT[b], 0, xw, 1.0 if low_is_a else -1.0, z0, z0 + CELL, lo, hi, lo, hi + 3.0)
+			_vface(WALL_MAT[b], 0, xw, -1.0 if low_is_a else 1.0, z0, z0 + CELL, lo, hi, lo, hi + 3.0)
 			_col_quad(Vector3(xw, lo, z0), Vector3(xw, lo, z0 + CELL), Vector3(xw, hi, z0 + CELL), Vector3(xw, hi, z0))
 		return
 	_emit_wall(0, xw, z0, e, bio(ia, lj), bio(ib, lj), fa, fb, ce(ia, lj), ce(ib, lj))
@@ -626,7 +626,7 @@ func _emit_edge_h(li: int, lj: int) -> void:
 			var lo := minf(fa, fb)
 			var hi := maxf(fa, fb)
 			var b := bio(li, ja if low_is_a else jb)
-			_vface(WALL_MAT[b], 2, zw, 1.0 if low_is_a else -1.0, x0, x0 + CELL, lo, hi, lo, hi + 3.0)
+			_vface(WALL_MAT[b], 2, zw, -1.0 if low_is_a else 1.0, x0, x0 + CELL, lo, hi, lo, hi + 3.0)
 			_col_quad(Vector3(x0, lo, zw), Vector3(x0 + CELL, lo, zw), Vector3(x0 + CELL, hi, zw), Vector3(x0, hi, zw))
 		return
 	_emit_wall(2, zw, x0, e, bio(li, ja), bio(li, jb), fa, fb, ce(li, ja), ce(li, jb))

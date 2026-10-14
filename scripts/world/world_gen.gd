@@ -34,7 +34,7 @@ const CEIL_H := [2.7, 4.4, 3.6, 2.7]
 const POOL_FLOOR := -0.8
 const WATER_Y := -0.16
 const LIGHT_COLOR := [Color(1.0, 0.92, 0.70), Color(0.90, 0.97, 1.0), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58)]
-const LIGHT_POWER := [3.0, 2.6, 5.0, 2.0]
+const LIGHT_POWER := [3.0, 3.3, 5.0, 2.0]
 const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0]
 const AMBIENT := [Color(0.06, 0.05, 0.03), Color(0.16, 0.18, 0.19), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003)]
 # Approximate colour of light after bouncing off the room surfaces.

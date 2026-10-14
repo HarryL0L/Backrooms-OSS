@@ -3,7 +3,7 @@ render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_sc
 #include "res://shaders/common.gdshaderinc"
 
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap, repeat_enable;
-uniform vec3 deep_color : source_color = vec3(0.32, 0.68, 0.74);
+uniform vec3 deep_color : source_color = vec3(0.36, 0.78, 0.84);
 uniform float ceiling_y = 4.4;
 
 varying vec3 v_light;
@@ -30,5 +30,5 @@ void fragment() {
 	ALPHA = clamp(0.22 + fres * 0.75, 0.0, 0.97);
 	ROUGHNESS = 0.03;
 	SPECULAR = 0.7;
-	EMISSION = deep_color * v_light * 0.35 * (1.0 - fres) + refl * min(fres * 1.6 + 0.04, 1.0) + dither(FRAGCOORD.xy);
+	EMISSION = deep_color * v_light * 0.5 * (1.0 - fres) + refl * min(fres * 1.6 + 0.04, 1.0) + dither(FRAGCOORD.xy);
 }

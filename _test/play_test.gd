@@ -1,7 +1,7 @@
 extends Node
 # Dev harness: drives the real game and saves screenshots.
 var game
-var out := "/tmp/claude-0/play"
+var out := OS.get_user_data_dir() + "/play"
 var step := 0
 var t := 0.0
 

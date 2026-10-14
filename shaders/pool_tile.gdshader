@@ -22,7 +22,7 @@ void vertex() {
 float caustics(vec2 p, float t) {
 	float n1 = texture(noise_fine, p * 0.33 + t * vec2(0.031, 0.022)).r;
 	float n2 = texture(noise_fine, p * 0.29 - t * vec2(0.024, 0.035) + 0.5).r;
-	return pow(clamp(1.0 - abs(n1 - n2) * 5.0, 0.0, 1.0), 5.0);
+	return pow(clamp(1.0 - abs(n1 - n2) * 3.5, 0.0, 1.0), 3.0);
 }
 
 void fragment() {
@@ -47,8 +47,9 @@ void fragment() {
 	float depth = water_y - v_wpos.y;
 	if (depth > 0.0) {
 		float d = clamp(depth / 0.8, 0.0, 1.0);
-		col *= mix(vec3(0.85, 0.97, 1.0), vec3(0.45, 0.78, 0.84), d);
-		emission_extra += caustics(v_wpos.xz + v_wpos.y * 0.3, world_time) * v_light * 0.9 * (0.5 + 0.5 * d);
+		col *= mix(vec3(0.82, 0.97, 1.0), vec3(0.62, 0.9, 0.95), d);
+		emission_extra += caustics(v_wpos.xz + v_wpos.y * 0.3, world_time) * v_light * vec3(0.8, 0.95, 1.0) * 0.6;
+		emission_extra += col * v_light * 0.25;
 	} else if (v_wnormal.y > 0.5) {
 		// Polished floor tiles mirror the lights above.
 		float fres = 0.04 + 0.5 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
