@@ -26,6 +26,9 @@ var _done := false
 var _stats_t := 0.0
 var _saved_settings := {}
 var _busy := false
+var _sv: SubViewport
+var _sv_cam: Camera3D
+var _sv_layer: CanvasLayer
 
 
 static func enabled() -> bool:
@@ -110,23 +113,21 @@ func _log_system() -> void:
 # ------------------------------------------------------------------- test ---
 
 func _build_steps() -> void:
-	# Round 2: the previous run showed the corruption is in the main render
-	# target itself (4-row blocks duplicated, even with only 2D drawn) and is
-	# independent of every effect. These steps vary the render target instead.
+	# Round 3. Round 2 showed: pure 2D is clean; as soon as Forward+ renders 3D
+	# into the root viewport, the whole root render target (2D included) reads
+	# back with 8-row strips duplicated, regardless of format/effects/scale.
+	# Test the workaround: render 3D into a SubViewport and show it as a 2D
+	# texture, so the root render target only ever sees pure 2D.
 	var off := {"graphics/lens_fx": false, "graphics/film_grain": false, "graphics/bloom": false,
 		"graphics/halos": false, "graphics/aa": 0, "graphics/ssr": false, "graphics/ssao": false,
-		"graphics/ssil": false, "graphics/volumetric_fog": false, "graphics/water_reflections": 0,
-		"graphics/render_scale": 1.0, "graphics/fsr": false}
+		"graphics/ssil": false, "graphics/volumetric_fog": false, "graphics/water_reflections": 0}
 	_steps = [
-		["01 baseline (as configured)", {}],
-		["02 all effects OFF", off],
-		["03 + HDR 2D ON (RGBA16F render target)", {"__hdr2d": true}],
-		["04 HDR 2D OFF + no 3D camera (pure 2D)", {"__hdr2d": false, "__camera": false}],
-		["05 HDR 2D ON + no 3D camera (pure 2D)", {"__hdr2d": true}],
-		["06 HDR 2D ON + 3D back on", {"__camera": true}],
-		["07 HDR 2D ON + render scale 0.7 bilinear", {"graphics/render_scale": 0.7}],
-		["08 HDR 2D ON + all effects back ON", {"__restore_effects": true}],
-		["09 HDR 2D OFF again (effects ON)", {"__hdr2d": false}],
+		["01 baseline (3D in root viewport)", {}],
+		["02 3D in SubViewport, shown as texture", {"__offscreen": true}],
+		["03 SubViewport + HDR 2D on the SubViewport", {"__sv_hdr": true}],
+		["04 SubViewport + all effects OFF", off.merged({"__sv_hdr": false})],
+		["05 SubViewport + effects back ON", {"__restore_effects": true}],
+		["06 back to 3D in root viewport (control)", {"__offscreen": false}],
 	]
 
 
@@ -141,6 +142,7 @@ func _process(delta: float) -> void:
 			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
 			Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0,
 			game.chunks.loaded_count() if game else -1, game.state if game else -1])
+	_sync_offscreen_camera()
 	if _done or game == null:
 		return
 	if not _started:
@@ -162,6 +164,50 @@ func _process(delta: float) -> void:
 		_busy = false
 
 
+## Workaround under test: 3D goes to an off-screen SubViewport, which the root
+## viewport only draws as a texture (pure 2D).
+func _set_offscreen(on: bool) -> void:
+	if on and _sv == null:
+		_sv_layer = CanvasLayer.new()
+		_sv_layer.layer = -10
+		add_child(_sv_layer)
+		_sv = SubViewport.new()
+		_sv.size = DisplayServer.window_get_size()
+		_sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		_sv.msaa_3d = get_tree().root.msaa_3d
+		_sv.screen_space_aa = get_tree().root.screen_space_aa
+		_sv.scaling_3d_scale = get_tree().root.scaling_3d_scale
+		_sv_layer.add_child(_sv)
+		_sv_cam = Camera3D.new()
+		_sv.add_child(_sv_cam)
+		_sv_cam.current = true
+		var tr := TextureRect.new()
+		tr.texture = _sv.get_texture()
+		tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_SCALE
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_sv_layer.add_child(tr)
+		game.player.camera.current = false
+		log_line("  offscreen 3D on: SubViewport %s" % _sv.size)
+	elif not on and _sv != null:
+		_sv_layer.queue_free()
+		_sv = null
+		_sv_cam = null
+		_sv_layer = null
+		game.player.camera.current = true
+		log_line("  offscreen 3D off")
+
+
+func _sync_offscreen_camera() -> void:
+	if _sv_cam and game:
+		var c: Camera3D = game.player.camera
+		_sv_cam.global_transform = c.global_transform
+		_sv_cam.fov = c.fov
+		_sv_cam.near = c.near
+		_sv_cam.far = c.far
+
+
 func _next_step() -> void:
 	_step += 1
 	_t = 0.0
@@ -179,6 +225,11 @@ func _next_step() -> void:
 				get_tree().root.use_hdr_2d = changes[k]
 			"__camera":
 				game.player.camera.current = changes[k]
+			"__offscreen":
+				_set_offscreen(changes[k])
+			"__sv_hdr":
+				if _sv:
+					_sv.use_hdr_2d = changes[k]
 			_:
 				if not (k as String).begins_with("__"):
 					Settings.values[k] = changes[k]
@@ -203,9 +254,20 @@ func _capture() -> void:
 	var small := a.duplicate() as Image
 	small.resize(int(a.get_width() * 0.5), int(a.get_height() * 0.5), Image.INTERPOLATE_BILINEAR)
 	small.save_png(name)
-	log_line("  result step %02d: size=%dx%d format=%d hdr2d=%s DUPLICATION=%.3f (%s) temporal_noise=%.4f fps=%d -> %s" % [
-		_step + 1, a.get_width(), a.get_height(), a.get_format(), get_tree().root.use_hdr_2d, dup,
+	log_line("  result step %02d: ROOT size=%dx%d format=%d DUPLICATION=%.3f (%s) temporal_noise=%.4f fps=%d -> %s" % [
+		_step + 1, a.get_width(), a.get_height(), a.get_format(), dup,
 		"CORRUPTED" if dup > 0.35 else "clean", noise, Engine.get_frames_per_second(), name])
+	if _sv:
+		var si := _sv.get_texture().get_image()
+		if si:
+			var sdup := _row_block_duplication(si)
+			var sname := "user://diag/step_%02d_subviewport.png" % (_step + 1)
+			var ss := si.duplicate() as Image
+			ss.resize(int(si.get_width() * 0.5), int(si.get_height() * 0.5), Image.INTERPOLATE_BILINEAR)
+			ss.save_png(sname)
+			log_line("  result step %02d: SUBVIEWPORT size=%dx%d format=%d hdr2d=%s DUPLICATION=%.3f (%s) -> %s" % [
+				_step + 1, si.get_width(), si.get_height(), si.get_format(), _sv.use_hdr_2d, sdup,
+				"CORRUPTED" if sdup > 0.35 else "clean", sname])
 
 
 ## Detects the corruption seen on Mali: each strip of N pixel rows (8 at full
@@ -261,6 +323,7 @@ func _temporal_noise(a: Image, b: Image) -> float:
 
 func _finish() -> void:
 	_done = true
+	_set_offscreen(false)
 	game.chunks.visible = true
 	game.player.camera.current = true
 	get_tree().root.use_hdr_2d = false
