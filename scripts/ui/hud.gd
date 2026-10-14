@@ -4,6 +4,7 @@ extends Control
 ## FPS counter, loading screen and fades. Deliberately minimal - no crosshair.
 
 var _post: ColorRect
+var _lens: ColorRect
 var _post_mat: ShaderMaterial
 var _title: Label
 var _subtitle: Label
@@ -20,13 +21,25 @@ var _vignette_boost := 0.0
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lens = ColorRect.new()
+	_lens.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_lens.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lm := ShaderMaterial.new()
+	lm.shader = load("res://shaders/lens.gdshader")
+	_lens.material = lm
+	# Lens + grain live on their own canvas layer below the UI, so they only
+	# affect the 3D view (not menus or touch buttons).
+	var fx := CanvasLayer.new()
+	fx.layer = 1
+	add_child(fx)
+	fx.add_child(_lens)
 	_post = ColorRect.new()
 	_post.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_post.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_post_mat = ShaderMaterial.new()
 	_post_mat.shader = load("res://shaders/post_overlay.gdshader")
 	_post.material = _post_mat
-	add_child(_post)
+	fx.add_child(_post)
 	_title = _label(40, HORIZONTAL_ALIGNMENT_CENTER)
 	_title.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_title.offset_top = 90
@@ -98,6 +111,7 @@ func _label(fs: int, align: HorizontalAlignment) -> Label:
 
 func _apply_settings() -> void:
 	_post.visible = Settings.get_value("graphics/film_grain")
+	_lens.visible = Settings.get_value("graphics/lens_fx")
 	_fps.visible = Settings.get_value("graphics/show_fps")
 
 

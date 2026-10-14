@@ -184,7 +184,7 @@ func surface_at() -> int:
 	match gen.biome_at(c.x, c.y):
 		WorldGen.POOL:
 			return SURF_TILE
-		WorldGen.CONCRETE:
+		WorldGen.CONCRETE, WorldGen.PIPES:
 			return SURF_CONCRETE
 	return SURF_CARPET
 

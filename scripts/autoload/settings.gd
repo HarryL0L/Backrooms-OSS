@@ -42,6 +42,8 @@ const TOUCH_DEFAULTS := {
 }
 
 var is_mobile := false
+## True when running the Forward+ ("Ultra") build: SSR, SSAO, SSIL, volumetric fog.
+var is_ultra := false
 var values := {}
 var keys := {}
 var pad := {}
@@ -50,13 +52,19 @@ var touch_layout := {}
 
 func defaults() -> Dictionary:
 	return {
-		"graphics/render_scale": 0.8 if is_mobile else 1.0,
+		"graphics/render_scale": (0.7 if is_ultra else 0.8) if is_mobile else 1.0,
 		"graphics/fsr": true,
-		"graphics/msaa": 1 if is_mobile else 2,
+		"graphics/aa": 3 if is_ultra else (1 if is_mobile else 2),
+		"graphics/ssr": true,
+		"graphics/ssao": true,
+		"graphics/ssil": not is_mobile,
+		"graphics/volumetric_fog": true,
 		"graphics/view_distance": 3 if is_mobile else 4,
 		"graphics/fps_cap": 1,
 		"graphics/bloom": true,
 		"graphics/film_grain": true,
+		"graphics/lens_fx": true,
+		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,
 		"graphics/head_bob": true,
@@ -79,6 +87,7 @@ func defaults() -> Dictionary:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	is_mobile = OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
+	is_ultra = RenderingServer.get_current_rendering_method() == "forward_plus"
 	values = defaults()
 	keys = DEFAULT_KEYS.duplicate(true)
 	pad = DEFAULT_PAD.duplicate(true)
@@ -163,7 +172,11 @@ func apply() -> void:
 	vp.scaling_3d_scale = clampf(get_value("graphics/render_scale"), 0.4, 1.0)
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if get_value("graphics/fsr") and vp.scaling_3d_scale < 0.99 \
 			else Viewport.SCALING_3D_MODE_BILINEAR
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][clampi(get_value("graphics/msaa"), 0, 2)]
+	# 0 off, 1 MSAA 2x, 2 MSAA 4x, 3 SMAA, 4 FXAA
+	var aa: int = clampi(get_value("graphics/aa"), 0, 4)
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED][aa]
+	vp.screen_space_aa = [Viewport.SCREEN_SPACE_AA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED,
+			Viewport.SCREEN_SPACE_AA_SMAA, Viewport.SCREEN_SPACE_AA_FXAA][aa]
 	_set_bus("Master", get_value("audio/master"))
 	_set_bus("Ambience", get_value("audio/ambience"))
 	_set_bus("World", get_value("audio/effects"))

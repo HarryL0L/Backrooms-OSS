@@ -4,12 +4,13 @@ render_mode diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
-uniform vec3 tile_color : source_color = vec3(0.86, 0.84, 0.74);
+uniform vec3 tile_color : source_color = vec3(0.84, 0.83, 0.74);
 uniform vec3 bar_color : source_color = vec3(0.60, 0.58, 0.52);
 
 varying vec3 v_light;
 
 void vertex() {
+	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 }
 
@@ -22,7 +23,10 @@ void fragment() {
 	float h = hash12(cell + 17.0);
 	vec3 tile = tile_color * (0.92 + 0.12 * h);
 	float sp = texture(noise_fine, uv * 5.0).r;
-	tile *= 0.86 + 0.18 * smoothstep(0.3, 0.7, sp);
+	tile *= 0.88 + 0.14 * smoothstep(0.3, 0.7, sp);
+	// Fissured acoustic tile: small dark pits.
+	float pits = texture(noise_fine, uv * 23.0 + h).r;
+	tile *= 1.0 - smoothstep(0.66, 0.78, pits) * 0.35;
 	// A few water-stained tiles.
 	if (h > 0.82) {
 		float st = texture(noise_blot, uv * 0.35 + h * 3.0).r;

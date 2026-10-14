@@ -16,9 +16,10 @@ const CHUNK := 8
 const CHUNK_SIZE := CELL * CHUNK
 const REGION := 34.0
 
-enum { LOBBY, POOL, CONCRETE, DARK }
-const BIOME_COUNT := 4
-const BIOME_NAMES := ["Level 0 - The Lobby", "Level 37 - The Poolrooms", "Level 1 - Habitable Zone", "Level 0.1 - The Unlit Halls"]
+enum { LOBBY, POOL, CONCRETE, DARK, PIPES }
+const BIOME_COUNT := 5
+const BIOME_NAMES := ["Level 0 - The Lobby", "Level 37 - The Poolrooms", "Level 1 - Habitable Zone",
+	"Level 0.1 - The Unlit Halls", "Level 2 - Pipe Dreams"]
 
 # Edge kinds.
 const E_OPEN := 0
@@ -30,21 +31,26 @@ const DOOR_W := [0.0, 0.0, 1.1, 1.7, 1.7]
 const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7]
 
 # Per-biome constants.
-const CEIL_H := [2.7, 4.4, 3.6, 2.7]
+const CEIL_H := [2.7, 4.8, 3.6, 2.7, 2.7]
 const POOL_FLOOR := -0.8
 const WATER_Y := -0.16
-const LIGHT_COLOR := [Color(1.0, 0.92, 0.70), Color(0.90, 0.97, 1.0), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58)]
-const LIGHT_POWER := [3.0, 3.3, 5.0, 2.0]
-const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0]
-const AMBIENT := [Color(0.06, 0.05, 0.03), Color(0.16, 0.18, 0.19), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003)]
+const LIGHT_COLOR := [Color(1.0, 0.97, 0.86), Color(1.0, 0.98, 0.94), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58), Color(1.0, 0.88, 0.7)]
+const LIGHT_POWER := [3.2, 4.3, 5.0, 2.0, 3.4]
+const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0, 7.0]
+const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.22, 0.23, 0.22), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008)]
 # Approximate colour of light after bouncing off the room surfaces.
-const BOUNCE_TINT := [Color(0.95, 0.80, 0.45), Color(0.85, 0.95, 1.0), Color(0.65, 0.65, 0.65), Color(0.9, 0.75, 0.45)]
+const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.65, 0.65, 0.65), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42)]
+# Skylights in the Poolrooms: warm "sunlight" pouring in from above.
+const SKY_COLOR := Color(1.0, 0.9, 0.72)
+const SKY_POWER := 7.0
+const SKY_RADIUS := 10.5
 
 # Light states.
 const L_NONE := 0
 const L_ON := 1
 const L_FLICKER := 2
 const L_DEAD := 3
+const L_SKY := 4
 
 var seed_value: int
 var spawn_cell: Vector2i
@@ -94,12 +100,14 @@ func region_biome(rx: int, rz: int) -> int:
 	if rx == 0 and rz == 0:
 		return LOBBY
 	var r := rnd(rx, rz, 13)
-	if r < 0.44:
+	if r < 0.40:
 		return LOBBY
-	if r < 0.65:
+	if r < 0.62:
 		return POOL
-	if r < 0.85:
+	if r < 0.77:
 		return CONCRETE
+	if r < 0.88:
+		return PIPES
 	return DARK
 
 
@@ -132,7 +140,20 @@ func near_spawn(gx: int, gz: int, r: int) -> bool:
 func pool_noise(gx: int, gz: int) -> bool:
 	if near_spawn(gx, gz, 3):
 		return false
-	return vnoise(gx * 0.19, gz * 0.19, 21) > 0.56
+	return vnoise(gx * 0.11, gz * 0.11, 21) > 0.47
+
+
+## Pipe Dreams is a maze of narrow service corridors cut through solid rock:
+## corridors run along every 4th row/column, with random segments missing.
+func is_solid(gx: int, gz: int, b: int) -> bool:
+	if b != PIPES or near_spawn(gx, gz, 1):
+		return false
+	var cx := posmod(gx, 4) == 0 and rnd(gx, floori(gz / 6.0), 81) < 0.82
+	var cz := posmod(gz, 4) == 0 and rnd(floori(gx / 6.0), gz, 82) < 0.82
+	if cx or cz:
+		return false
+	# Occasional small rooms where pipes gather.
+	return vnoise(gx * 0.3, gz * 0.3, 83) < 0.78
 
 
 func open_hall(gx: int, gz: int) -> bool:
@@ -151,6 +172,12 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 	if near_spawn(ex, ez, 1) or (near_spawn(ex, ez, 2) and ba == bb):
 		return E_OPEN
 	var salt := 0 if vertical else 500
+	var ax := line - 1 if vertical else along
+	var az := along if vertical else line - 1
+	var sa := is_solid(ax, az, ba)
+	var sb := is_solid(ex, ez, bb)
+	if sa or sb:
+		return E_OPEN if sa == sb else E_WALL
 	if ba != bb:
 		var seg := floori(along / 3.0)
 		# Guarantee at least one passage per 3 cells of border.
@@ -172,10 +199,13 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 				return E_DOOR
 			return E_WALL
 		POOL:
-			var dens := 0.08 + 0.3 * rnd(line, big, 46 + salt)
-			if rnd(line, floori(along / 4.0), 47 + salt) >= dens:
+			var dens := 0.06 + 0.3 * rnd(line, big, 46 + salt)
+			if rnd(line, floori(along / 5.0), 47 + salt) >= dens:
 				return E_OPEN
-			return E_ARCH if rnd(line, along, 48 + salt) < 0.4 else E_WALL
+			return E_ARCH if rnd(line, along, 48 + salt) < 0.6 else E_WALL
+		PIPES:
+			# Bulkhead doorways now and then.
+			return E_DOOR if rnd(line, along, 54 + salt) < 0.04 else E_OPEN
 		CONCRETE:
 			var dens := 0.04 + 0.22 * rnd(line, big, 49 + salt)
 			if rnd(line, floori(along / 2.0), 50 + salt) >= dens:
@@ -197,10 +227,11 @@ func pillar_at(vx: int, vz: int, b: int) -> float:
 			if open_hall(vx, vz) and posmod(vx, 2) == 0 and posmod(vz, 2) == 0:
 				return 0.42
 		POOL:
-			if vnoise(vx * 0.15, vz * 0.15, 52) > 0.62 and posmod(vx + vz, 2) == 0:
-				return 0.55
+			# Negative size = round column.
+			if vnoise(vx * 0.15, vz * 0.15, 52) > 0.55 and posmod(vx, 2) == 0 and posmod(vz, 2) == 0:
+				return -0.8
 			if rnd(vx, vz, 53) < 0.03:
-				return 0.55
+				return -0.8
 	return 0.0
 
 
@@ -220,7 +251,15 @@ func light_state(gx: int, gz: int, b: int) -> int:
 		POOL:
 			if posmod(gx + gz, 2) != 0:
 				return L_NONE
+			if posmod(gx, 4) == 0 and posmod(gz, 4) == 0 and vnoise(gx * 0.08, gz * 0.08, 33) > 0.55:
+				return L_SKY
 			return L_DEAD if r < 0.03 else L_ON
+		PIPES:
+			if is_solid(gx, gz, b) or posmod(gx + gz, 3) != 0:
+				return L_NONE
+			if r < 0.15:
+				return L_DEAD
+			return L_FLICKER if r < 0.25 else L_ON
 		CONCRETE:
 			if posmod(gx, 3) != 1 or posmod(gz, 3) != 1:
 				return L_NONE

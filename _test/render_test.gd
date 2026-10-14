@@ -23,6 +23,11 @@ func _ready():
 	cam.fov = 75
 	cam.far = 90
 	add_child(cam)
+	var refl := WaterReflection.new()
+	refl.source = cam
+	refl.material = mats.materials[ChunkBuilder.MAT_WATER]
+	add_child(refl)
+	refl.set_active(true)
 	cm.target = cam
 	# find shots: spawn + one per biome
 	var sp := gen.spawn_position()
@@ -34,7 +39,7 @@ func _ready():
 			var a := k * PI / 4.0
 			var c := gen.spawn_cell + Vector2i(int(cos(a) * r), int(sin(a) * r))
 			var b := gen.biome_at(c.x, c.y)
-			if b != 0 and not found.has(b) and gen.biome_at(c.x+3, c.y) == b and gen.biome_at(c.x-3, c.y) == b and gen.biome_at(c.x, c.y+3) == b and gen.biome_at(c.x, c.y-3) == b:
+			if b != 0 and not found.has(b) and not gen.is_solid(c.x, c.y, b) and (b != 4 or (posmod(c.x, 4) == 0 and not gen.is_solid(c.x, c.y - 1, b))) and gen.biome_at(c.x+3, c.y) == b and gen.biome_at(c.x-3, c.y) == b and gen.biome_at(c.x, c.y+3) == b and gen.biome_at(c.x, c.y-3) == b:
 				found[b] = c
 	for b in found:
 		var c: Vector2i = found[b]
@@ -66,6 +71,7 @@ func _next():
 	wait = 0
 
 func _process(_d):
+	RenderingServer.global_shader_parameter_set("world_time", Time.get_ticks_msec() / 1000.0)
 	if idx >= shots.size():
 		return
 	wait += 1

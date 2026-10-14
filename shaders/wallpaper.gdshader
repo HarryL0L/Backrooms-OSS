@@ -5,48 +5,47 @@ render_mode diffuse_burley, specular_schlick_ggx;
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform vec3 base_color : source_color = vec3(0.84, 0.74, 0.42);
-uniform vec3 stripe_color : source_color = vec3(0.76, 0.66, 0.36);
+uniform vec3 base_color : source_color = vec3(0.80, 0.79, 0.50);
+uniform vec3 stripe_color : source_color = vec3(0.62, 0.68, 0.64);
 
 varying vec3 v_light;
 
 void vertex() {
+	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 }
 
 void fragment() {
 	vec2 uv = UV;
 	float y = -uv.y;
-	// Paper strips 0.53 m wide with visible seams.
-	float strip = fract(uv.x / 0.53);
-	float seam = smoothstep(0.0, 0.004, strip) * smoothstep(1.0, 0.996, strip);
-	// Classic vertical stripe pattern with a faint chevron motif.
-	float aa = clamp(fwidth(uv.x * 7.5) * 2.0, 0.0, 1.0);
-	float band = smoothstep(0.42, 0.5, fract(uv.x * 7.5)) * smoothstep(1.0, 0.92, fract(uv.x * 7.5));
-	vec2 m = fract(vec2(uv.x * 15.0, y * 9.0)) - 0.5;
-	float motif = smoothstep(0.22, 0.16, abs(m.x) + abs(m.y) * 0.7) * (1.0 - band);
-	band = mix(band, 0.45, smoothstep(0.2, 0.8, aa));
-	motif *= 1.0 - smoothstep(0.1, 0.5, aa);
-	vec3 col = mix(base_color, stripe_color, band * 0.65);
-	col = mix(col, col * 0.9, motif * 0.35);
+	// Columns of stacked chevrons separated by thin double pinstripes,
+	// the classic Level 0 wallpaper.
+	const float COL_W = 0.21;
+	float cu = fract(uv.x / COL_W);
+	float aa = clamp(fwidth(uv.x / COL_W) * 3.0, 0.0, 1.0);
+	float chev_v = fract(y / 0.16 + abs(cu - 0.5) * 1.1);
+	float chev = smoothstep(0.0, 0.05, chev_v) * smoothstep(0.24, 0.17, chev_v);
+	chev *= smoothstep(0.08, 0.14, cu) * smoothstep(0.92, 0.86, cu);
+	float pin = smoothstep(0.012, 0.0, abs(cu - 0.015)) + smoothstep(0.012, 0.0, abs(cu - 0.045));
+	float pattern = mix(clamp(chev * 0.8 + pin * 0.7, 0.0, 1.0), 0.18, smoothstep(0.15, 0.6, aa));
+	vec3 col = mix(base_color, stripe_color, pattern);
 	float n = texture(noise_fine, uv * 1.7).r;
-	col *= 0.9 + 0.2 * n;
-	// Water damage blotches, worse near the floor.
+	col *= 0.92 + 0.14 * n;
+	// Paper strips with faint seams.
+	float strip = fract(uv.x / (COL_W * 3.0));
+	col *= mix(0.86, 1.0, smoothstep(0.0, 0.004, strip) * smoothstep(1.0, 0.996, strip));
+	// Water damage, worse near the floor.
 	float blot = texture(noise_blot, uv * vec2(0.12, 0.09)).r;
 	float low = smoothstep(1.3, 0.0, y);
-	float stain = smoothstep(0.56, 0.74, blot) * (low * 0.85 + 0.2);
-	col = mix(col, col * vec3(0.62, 0.52, 0.32), stain * 0.75);
-	float tide = smoothstep(0.025, 0.0, abs(blot - 0.58)) * low;
-	col = mix(col, col * vec3(0.52, 0.42, 0.24), tide * 0.55);
-	// Long vertical drip streaks.
-	float streak = texture(noise_fine, vec2(uv.x * 2.3, y * 0.06)).r;
-	col *= 1.0 - smoothstep(0.62, 0.8, streak) * 0.12;
-	col *= mix(0.72, 1.0, seam);
-	col *= mix(0.8, 1.0, smoothstep(0.0, 0.18, y));
+	float stain = smoothstep(0.6, 0.78, blot) * (low * 0.8 + 0.15);
+	col = mix(col, col * vec3(0.68, 0.62, 0.42), stain * 0.7);
+	float tide = smoothstep(0.02, 0.0, abs(blot - 0.62)) * low;
+	col = mix(col, col * vec3(0.55, 0.48, 0.3), tide * 0.45);
+	col *= mix(0.82, 1.0, smoothstep(0.0, 0.15, y));
 	ALBEDO = col;
-	ROUGHNESS = 0.82;
+	ROUGHNESS = 0.8;
 	SPECULAR = 0.3;
 	NORMAL_MAP = texture(noise_normal, uv * 1.3).rgb;
-	NORMAL_MAP_DEPTH = 0.35;
+	NORMAL_MAP_DEPTH = 0.3;
 	EMISSION = col * v_light + dither(FRAGCOORD.xy);
 }

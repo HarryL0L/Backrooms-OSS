@@ -8,6 +8,7 @@ uniform vec3 base_color : source_color = vec3(0.52, 0.40, 0.25);
 varying vec3 v_light;
 
 void vertex() {
+	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 }
 

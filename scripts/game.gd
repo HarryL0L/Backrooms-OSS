@@ -11,6 +11,7 @@ const SUBTITLES := [
 	"Warm water. White tiles. Nobody else.",
 	"Concrete, puddles and flickering tubes.",
 	"The lights have died here. Use your flashlight.",
+	"Narrow tunnels. Hot pipes. Something drips in the dark.",
 ]
 
 var state := State.BOOT
@@ -20,6 +21,8 @@ var chunks: ChunkManager
 var player: Player
 var ambience: Ambience
 var env: Environment
+var reflection: WaterReflection
+var fixtures: FixtureLights
 
 var hud: HUD
 var touch: TouchControls
@@ -46,6 +49,8 @@ var _world_seed := -1
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	print("Backrooms-OSS renderer: ", RenderingServer.get_current_rendering_method(),
+			" (configured ", ProjectSettings.get_setting("rendering/renderer/rendering_method"), ")")
 	mats = WorldMaterials.new()
 	var we := WorldEnvironment.new()
 	env = EnvironmentFactory.make()
@@ -60,6 +65,14 @@ func _ready() -> void:
 	player.set_physics_process(false)
 	ambience = Ambience.new()
 	add_child(ambience)
+	reflection = WaterReflection.new()
+	reflection.source = player.camera
+	reflection.material = mats.materials[ChunkBuilder.MAT_WATER]
+	add_child(reflection)
+	if Settings.is_ultra:
+		fixtures = FixtureLights.new()
+		fixtures.target = player
+		add_child(fixtures)
 	_build_ui()
 	_using_touch = Settings.is_mobile
 	Settings.changed.connect(_apply_settings)
@@ -149,6 +162,11 @@ func _apply_settings() -> void:
 	chunks.view_radius = int(Settings.get_value("graphics/view_distance"))
 	chunks.set_shadows(Settings.get_value("graphics/flashlight_shadows"))
 	env.glow_enabled = Settings.get_value("graphics/bloom")
+	if Settings.is_ultra:
+		EnvironmentFactory.apply_ultra(env, Settings.get_value("graphics/ssr"), Settings.get_value("graphics/ssao"),
+				Settings.get_value("graphics/ssil"), Settings.get_value("graphics/volumetric_fog"))
+	reflection.scale = [0.0, 0.34, 0.5][clampi(Settings.get_value("graphics/water_reflections"), 0, 2)]
+	_update_reflection()
 	env.tonemap_exposure = Settings.get_value("graphics/brightness")
 	_update_touch_visibility()
 
@@ -175,6 +193,8 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		chunks.setup(gen, mats)
 		player.gen = gen
 		ambience.attach(gen, player)
+		if fixtures:
+			fixtures.gen = gen
 		_biome = -1
 	chunks.target = player
 	player.teleport(pos, yaw, pitch)
@@ -450,6 +470,9 @@ func _process(delta: float) -> void:
 	var k := 1.0 - exp(-1.2 * delta)
 	env.fog_light_color = env.fog_light_color.lerp(_fog_color, k)
 	env.fog_density = lerpf(env.fog_density, _fog_density, k)
+	if env.volumetric_fog_enabled:
+		env.volumetric_fog_albedo = env.volumetric_fog_albedo.lerp(_fog_color, k)
+		env.volumetric_fog_density = lerpf(env.volumetric_fog_density, EnvironmentFactory.VOL_DENSITY[maxi(_biome, 0)], k)
 
 
 func _track_biome() -> void:
@@ -474,8 +497,13 @@ func _set_biome(b: int, announce: bool) -> void:
 	_biome_candidate = -1
 	_fog_color = EnvironmentFactory.FOG[b]
 	_fog_density = EnvironmentFactory.FOG_DENSITY[b]
+	_update_reflection()
 	if announce and state == State.PLAYING:
 		hud.show_level(WorldGen.BIOME_NAMES[b], SUBTITLES[b])
+
+
+func _update_reflection() -> void:
+	reflection.set_active(_biome == WorldGen.POOL and int(Settings.get_value("graphics/water_reflections")) > 0)
 
 
 # ----------------------------------------------------------------- save ---

@@ -160,16 +160,25 @@ func _build_graphics() -> void:
 	var p := _page("Graphics")
 	_slider(p, "Render scale", "graphics/render_scale", 0.4, 1.0, 0.05, "%.2f")
 	_toggle(p, "FSR upscaling (when scale < 1)", "graphics/fsr")
-	_option(p, "Anti-aliasing (MSAA)", "graphics/msaa", ["Off", "2x", "4x"])
+	_option(p, "Anti-aliasing", "graphics/aa", ["Off", "MSAA 2x", "MSAA 4x", "SMAA", "FXAA"])
 	_slider(p, "View distance (chunks)", "graphics/view_distance", 2, 6, 1, "%d")
 	_option(p, "Frame rate cap", "graphics/fps_cap", ["30 FPS", "60 FPS", "Unlimited"])
 	_slider(p, "Field of view", "graphics/fov", 60, 100, 1, "%d")
 	_slider(p, "Brightness", "graphics/brightness", 0.5, 2.0, 0.05, "%.2f")
 	_toggle(p, "Bloom", "graphics/bloom")
+	_option(p, "Water reflections", "graphics/water_reflections", ["Off (fake)", "Low", "High"])
 	_toggle(p, "Film grain & vignette", "graphics/film_grain")
+	_toggle(p, "Lens effects (chromatic aberration)", "graphics/lens_fx")
 	_toggle(p, "Flashlight shadows", "graphics/flashlight_shadows")
 	_toggle(p, "Head bob", "graphics/head_bob")
 	_toggle(p, "Show FPS", "graphics/show_fps")
+	if Settings.is_ultra:
+		_toggle(p, "Screen-space reflections (Ultra)", "graphics/ssr")
+		_toggle(p, "Ambient occlusion SSAO (Ultra)", "graphics/ssao")
+		_toggle(p, "Indirect light SSIL (Ultra)", "graphics/ssil")
+		_toggle(p, "Volumetric fog (Ultra)", "graphics/volumetric_fog")
+	else:
+		_note(p, "SSR, SSAO, SSIL and volumetric fog are available in the Ultra build (Forward+ renderer, for high-end devices).")
 	_note(p, "Lighting is pre-baked into the world as it generates, so the biggest performance levers are render scale, view distance and flashlight shadows.")
 
 

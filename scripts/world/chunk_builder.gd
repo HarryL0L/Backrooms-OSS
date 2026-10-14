@@ -18,12 +18,15 @@ const SPACING := 1.2             # target vertex spacing on walls
 
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
-	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE, MAT_COUNT
+	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE,
+	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_COUNT
 }
-const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER]
-const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET]
-const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE]
-const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(1.1, 1.1), Vector2(1.7, 0.24), Vector2(1.22, 0.62)]
+const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER, MAT_GRIME]
+const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_BRICK]
+const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME]
+const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(0.62, 0.62), Vector2(1.7, 0.24), Vector2(1.22, 0.62), Vector2(0.6, 0.6)]
+const SKY_SIZE := 1.8
+const SUN_DIR := Vector3(0.32, -1.0, 0.22)
 const EMIT_SCALE := 1.5
 
 
@@ -73,6 +76,7 @@ var biome := PackedByteArray()        # (W+2)^2, cells -1..W
 var floor_y := PackedFloat32Array()   # W*W
 var ceil_y := PackedFloat32Array()
 var pool := PackedByteArray()
+var solid := PackedByteArray()
 var ev := PackedByteArray()           # vertical edges   lx in 0..W, lz in 0..W-1
 var eh := PackedByteArray()           # horizontal edges lx in 0..W-1, lz in 0..W
 var light_at := PackedInt32Array()
@@ -157,9 +161,11 @@ func _compute_layout() -> void:
 	floor_y.resize(W * W)
 	ceil_y.resize(W * W)
 	pool.resize(W * W)
+	solid.resize(W * W)
 	for j in W:
 		for i in W:
 			var b := bio(i, j)
+			solid[i + j * W] = 1 if gen.is_solid(rx0 + i, rz0 + j, b) else 0
 			var p := b == WorldGen.POOL and bio(i - 1, j) == b and bio(i + 1, j) == b \
 					and bio(i, j - 1) == b and bio(i, j + 1) == b and gen.pool_noise(rx0 + i, rz0 + j)
 			pool[i + j * W] = 1 if p else 0
@@ -183,7 +189,13 @@ func _compute_lights() -> void:
 			light_at[i + j * W] = -1
 			var b := bio(i, j)
 			var s := gen.light_state(rx0 + i, rz0 + j, b)
-			if s == WorldGen.L_ON or s == WorldGen.L_FLICKER:
+			if s == WorldGen.L_SKY:
+				light_at[i + j * W] = lpos.size()
+				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
+				lcol.push_back(WorldGen.SKY_COLOR * WorldGen.SKY_POWER)
+				lrad.push_back(WorldGen.SKY_RADIUS)
+				lseed.push_back(0.0)
+			elif s == WorldGen.L_ON or s == WorldGen.L_FLICKER:
 				light_at[i + j * W] = lpos.size()
 				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
 				lcol.push_back(WorldGen.LIGHT_COLOR[b] * WorldGen.LIGHT_POWER[b])
@@ -519,6 +531,8 @@ func _emit_cell(li: int, lj: int) -> void:
 	var f := fl(li, lj)
 	var c := ce(li, lj)
 	var is_pool := pool[li + lj * W] == 1
+	if solid[li + lj * W] == 1:
+		return
 	var fr := PackedFloat32Array()
 	for k in SUB + 1:
 		fr.push_back(float(k) / SUB)
@@ -536,7 +550,9 @@ func _emit_cell(li: int, lj: int) -> void:
 				Vector3.UP, Vector3.RIGHT, 0, 1, f, c)
 	# Light fixture.
 	var s := gen.light_state(gx, gz, b)
-	if s != WorldGen.L_NONE:
+	if s == WorldGen.L_SKY:
+		_emit_skylight(xa + CELL * 0.5, za + CELL * 0.5, f, c)
+	elif s != WorldGen.L_NONE:
 		var sz: Vector2 = PANEL_SIZE[b]
 		var cx := xa + CELL * 0.5
 		var cz := za + CELL * 0.5
@@ -557,6 +573,8 @@ func _emit_cell(li: int, lj: int) -> void:
 					Vector2((o.x + 1.0) * 0.5, (o.y + 1.0) * 0.5) * sz, Vector2(sd, 1.0 if s != WorldGen.L_DEAD else 0.0), emit)
 		_tri_quad(pb, st, st + 1, st + 2, st + 3, Vector3(1, 0, 0).cross(Vector3(0, 0, 1)).dot(Vector3.DOWN) > 0.0)
 	# Props.
+	if b == WorldGen.PIPES:
+		_emit_pipes(li, lj, xa, za, c)
 	if b == WorldGen.CONCRETE and not is_pool and not gen.near_spawn(gx, gz, 2) and gen.rnd(gx, gz, 61) < 0.06:
 		_emit_crates(li, lj, xa, za, f, c)
 
@@ -607,6 +625,8 @@ func _emit_edge_v(li: int, lj: int) -> void:
 			var b := bio(ia if low_is_a else ib, lj)
 			_vface(WALL_MAT[b], 0, xw, -1.0 if low_is_a else 1.0, z0, z0 + CELL, lo, hi, lo, hi + 3.0)
 			_col_quad(Vector3(xw, lo, z0), Vector3(xw, lo, z0 + CELL), Vector3(xw, hi, z0 + CELL), Vector3(xw, hi, z0))
+			if gen.rnd(rx0 + li, rz0 + lj, 91) < 0.2:
+				_emit_ladder(0, xw, -1.0 if low_is_a else 1.0, z0 + CELL * 0.5, lo, hi)
 		return
 	_emit_wall(0, xw, z0, e, bio(ia, lj), bio(ib, lj), fa, fb, ce(ia, lj), ce(ib, lj))
 
@@ -628,6 +648,8 @@ func _emit_edge_h(li: int, lj: int) -> void:
 			var b := bio(li, ja if low_is_a else jb)
 			_vface(WALL_MAT[b], 2, zw, -1.0 if low_is_a else 1.0, x0, x0 + CELL, lo, hi, lo, hi + 3.0)
 			_col_quad(Vector3(x0, lo, zw), Vector3(x0 + CELL, lo, zw), Vector3(x0 + CELL, hi, zw), Vector3(x0, hi, zw))
+			if gen.rnd(rx0 + li, rz0 + lj, 92) < 0.2:
+				_emit_ladder(2, zw, -1.0 if low_is_a else 1.0, x0 + CELL * 0.5, lo, hi)
 		return
 	_emit_wall(2, zw, x0, e, bio(li, ja), bio(li, jb), fa, fb, ce(li, ja), ce(li, jb))
 
@@ -643,6 +665,9 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 	if e == WorldGen.E_WALL:
 		for sd in sides:
 			_vface(WALL_MAT[sd[2]], axis, sd[1], sd[0], a0, a1, sd[3], sd[4], sd[3], sd[4])
+			if (sd[2] == WorldGen.LOBBY or sd[2] == WorldGen.DARK) and gen.rnd(floori(plane * 10.0), floori(s0 * 10.0) + int(sd[0]), 93) < 0.08:
+				var at := s0 + 0.4 + 1.6 * gen.rnd(floori(plane * 10.0), floori(s0 * 10.0), 94)
+				_emit_outlet(axis, sd[1], sd[0], at, sd[3] + 0.32)
 		_col_wall(axis, plane, a0 - T, a1 + T, bottom, top)
 		return
 	var w: float = WorldGen.DOOR_W[e]
@@ -651,6 +676,9 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 	var o1 := mid + w * 0.5
 	var yb := maxf(fa, fb)
 	var yt := minf(yb + WorldGen.DOOR_H[e], minf(ca, cb) - 0.05)
+	if e == WorldGen.E_ARCH:
+		_emit_arch(axis, plane, a0, a1, o0, o1, yb, yt, sides, bb, bottom, top)
+		return
 	for sd in sides:
 		var m: int = WALL_MAT[sd[2]]
 		var f: float = sd[3]
@@ -699,6 +727,11 @@ func _emit_vertex(li: int, lj: int) -> void:
 	var c := maxf(maxf(ce(li - 1, lj - 1), ce(li, lj - 1)), maxf(ce(li - 1, lj), ce(li, lj)))
 	var b := bio(li, lj)
 	var size := gen.pillar_at(vx, vz, b)
+	if size < 0.0:
+		_emit_column(WALL_MAT[b], px, pz, -size * 0.5, f, c)
+		var hr := -size * 0.42
+		_col_box(Vector3(px - hr, f, pz - hr), Vector3(px + hr, c, pz + hr))
+		return
 	if size > 0.0:
 		var h := size * 0.5
 		var m: int = WALL_MAT[b]
@@ -720,3 +753,230 @@ func _emit_vertex(li: int, lj: int) -> void:
 		_vface(m2, 2, pz - T, -1.0, px - T, px + T, f, c, f, c)
 	if s_v == 0:
 		_vface(m2, 2, pz + T, 1.0, px - T, px + T, f, c, f, c)
+
+
+# ------------------------------------------------------------ curved bits ---
+
+## Emits a grid of vertices with individual normals (curved surfaces).
+## pos/nrm/uv are row-major with `nu` vertices per row.
+func _smooth_grid(mat: int, pos: PackedVector3Array, nrm: PackedVector3Array, uv: PackedVector2Array, nu: int,
+		f: float, c: float, ao: bool) -> void:
+	var b := buf(mat)
+	var start := b.v.size()
+	for k in pos.size():
+		var p := pos[k]
+		var n := nrm[k]
+		var light := shade(p + n * 0.05, n)
+		if ao:
+			var a := _ao_y(p.y, f, c)
+			light = Color(light.r * a, light.g * a, light.b * a, light.a)
+		var tan := Vector3.UP.cross(n)
+		if tan.length_squared() < 0.01:
+			tan = Vector3.RIGHT
+		b.add(p, n, tan.normalized(), uv[k], Vector2(_seed, 0.0), light)
+	var nv := pos.size() / nu
+	if nv < 2 or nu < 2:
+		return
+	var geo := (pos[1] - pos[0]).cross(pos[nu] - pos[0])
+	var flip := geo.dot(nrm[0] + nrm[nu + 1]) > 0.0
+	for jv in nv - 1:
+		for iu in nu - 1:
+			var a := start + iu + jv * nu
+			_tri_quad(b, a, a + 1, a + 1 + nu, a + nu, flip)
+
+
+## Round tiled column (Poolrooms).
+func _emit_column(mat: int, cx: float, cz: float, r: float, f: float, c: float) -> void:
+	var segs := 14
+	var ys := _rows(f, c)
+	var pos := PackedVector3Array()
+	var nrm := PackedVector3Array()
+	var uv := PackedVector2Array()
+	for y_frac in ys:
+		var y := lerpf(f, c, y_frac)
+		for k in segs + 1:
+			var a := TAU * k / segs
+			var n := Vector3(cos(a), 0.0, sin(a))
+			pos.push_back(Vector3(cx, y, cz) + n * r)
+			nrm.push_back(n)
+			uv.push_back(Vector2(a * r, -y))
+	_smooth_grid(mat, pos, nrm, uv, segs + 1, f, c, true)
+
+
+## Tube swept along a polyline (pool ladders, pipes).
+func _tube(mat: int, path: PackedVector3Array, r: float, segs: int, f: float, c: float) -> void:
+	var pos := PackedVector3Array()
+	var nrm := PackedVector3Array()
+	var uv := PackedVector2Array()
+	var dist := 0.0
+	for i in path.size():
+		var t: Vector3
+		if i == 0:
+			t = path[1] - path[0]
+		elif i == path.size() - 1:
+			t = path[i] - path[i - 1]
+		else:
+			t = path[i + 1] - path[i - 1]
+		t = t.normalized()
+		if i > 0:
+			dist += path[i].distance_to(path[i - 1])
+		var ref := Vector3.UP if absf(t.y) < 0.9 else Vector3.RIGHT
+		var u := t.cross(ref).normalized()
+		var v := t.cross(u).normalized()
+		for k in segs + 1:
+			var a := TAU * k / segs
+			var n := u * cos(a) + v * sin(a)
+			pos.push_back(path[i] + n * r)
+			nrm.push_back(n)
+			uv.push_back(Vector2(dist, a * r))
+	_smooth_grid(mat, pos, nrm, uv, segs + 1, f, c, false)
+
+
+## Maps (along, y, offset-from-plane) to world space for a wall on `axis`.
+static func _wp(axis: int, plane: float, along: float, y: float, off: float) -> Vector3:
+	return Vector3(plane + off, y, along) if axis == 0 else Vector3(along, y, plane + off)
+
+
+func _quad4(mat: int, a: Vector3, b2: Vector3, c2: Vector3, d: Vector3, nrm: Vector3, uv_mode: int, f: float, c: float) -> void:
+	var b := buf(mat)
+	var start := b.v.size()
+	for p in [a, b2, c2, d]:
+		var light := shade(p + nrm * 0.05, nrm)
+		var ao := _ao_y(p.y, f, c)
+		light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+		var t: Vector2
+		match uv_mode:
+			0:
+				t = Vector2(p.x, p.z)
+			1:
+				t = Vector2(p.z, -p.y)
+			_:
+				t = Vector2(p.x, -p.y)
+		var tan := Vector3.UP.cross(nrm)
+		if tan.length_squared() < 0.01:
+			tan = Vector3.RIGHT
+		b.add(p, nrm, tan.normalized(), t, Vector2(_seed, 0.0), light)
+	_tri_quad(b, start, start + 1, start + 2, start + 3, (b2 - a).cross(d - a).dot(nrm) > 0.0)
+
+
+## Doorway with a semicircular top and a curved soffit.
+func _emit_arch(axis: int, plane: float, a0: float, a1: float, o0: float, o1: float, yb: float, yt: float,
+		sides: Array, bb: int, bottom: float, top: float) -> void:
+	var r := (o1 - o0) * 0.5
+	var mid := (o0 + o1) * 0.5
+	var ys := yt - r
+	var n := 10
+	var uvm := 1 if axis == 0 else 2
+	for sd in sides:
+		var m: int = WALL_MAT[sd[2]]
+		var f: float = sd[3]
+		var c: float = sd[4]
+		var sgn: float = sd[0]
+		var pl: float = sd[1]
+		_vface(m, axis, pl, sgn, a0, o0, f, c, f, c)
+		_vface(m, axis, pl, sgn, o1, a1, f, c, f, c)
+		_vface(m, axis, pl, sgn, o0, o1, f, yb, f, c)
+		var nrm := Vector3(sgn, 0, 0) if axis == 0 else Vector3(0, 0, sgn)
+		for k in n:
+			var t0 := PI - PI * k / n
+			var t1 := PI - PI * (k + 1) / n
+			var x0 := mid + cos(t0) * r
+			var x1 := mid + cos(t1) * r
+			var y0 := ys + sin(t0) * r
+			var y1 := ys + sin(t1) * r
+			_quad4(m, _wp(axis, pl, 0, y0, 0) + _wp(axis, 0, x0, 0, 0), _wp(axis, pl, 0, y1, 0) + _wp(axis, 0, x1, 0, 0),
+					_wp(axis, pl, 0, c, 0) + _wp(axis, 0, x1, 0, 0), _wp(axis, pl, 0, c, 0) + _wp(axis, 0, x0, 0, 0), nrm, uvm, f, c)
+	# Jamb reveals up to the spring line, then the curved soffit.
+	var other := 2 if axis == 0 else 0
+	var mr: int = WALL_MAT[bb]
+	_vface(mr, other, o0, 1.0, plane - T, plane + T, yb, ys, yb, yt)
+	_vface(mr, other, o1, -1.0, plane - T, plane + T, yb, ys, yb, yt)
+	for k in n:
+		var t0 := PI - PI * k / n
+		var t1 := PI - PI * (k + 1) / n
+		var tm := (t0 + t1) * 0.5
+		var x0 := mid + cos(t0) * r
+		var x1 := mid + cos(t1) * r
+		var y0 := ys + sin(t0) * r
+		var y1 := ys + sin(t1) * r
+		var inward := Vector3(0, -sin(tm), 0) + _wp(axis, 0, -cos(tm), 0, 0) * Vector3(1, 0, 1)
+		inward = inward.normalized()
+		_quad4(mr, _wp(axis, plane, x0, y0, -T), _wp(axis, plane, x1, y1, -T), _wp(axis, plane, x1, y1, T),
+				_wp(axis, plane, x0, y0, T), inward, 0, yb, yt + 1.0)
+	if axis == 0:
+		_hface(FLOOR_MAT[bb], plane - T, plane + T, o0, o1, yb, true, 1, false)
+	else:
+		_hface(FLOOR_MAT[bb], o0, o1, plane - T, plane + T, yb, true, 1, false)
+	_col_wall(axis, plane, a0 - T, o0, bottom, top)
+	_col_wall(axis, plane, o1, a1 + T, bottom, top)
+	_col_wall(axis, plane, o0, o1, ys + r * 0.6, top)
+	if yb > bottom + 0.01:
+		_col_wall(axis, plane, o0, o1, bottom, yb)
+
+
+## Chrome pool ladder hooked over a rim. `dir` points from the rim into the pool.
+func _emit_ladder(axis: int, plane: float, dir: float, along: float, lo: float, hi: float) -> void:
+	var prof := [Vector2(0.16, lo + 0.08), Vector2(0.16, hi + 0.55), Vector2(0.12, hi + 0.78), Vector2(0.0, hi + 0.86),
+		Vector2(-0.12, hi + 0.8), Vector2(-0.24, hi + 0.62), Vector2(-0.28, hi + 0.35), Vector2(-0.29, hi)]
+	for side in [-0.26, 0.26]:
+		var path := PackedVector3Array()
+		for q in prof:
+			path.push_back(_wp(axis, plane, along + side, q.y, q.x * dir))
+		_tube(MAT_CHROME, path, 0.024, 8, lo, hi + 1.0)
+	for k in 3:
+		var y := lo + 0.2 + k * 0.22
+		var path2 := PackedVector3Array([_wp(axis, plane, along - 0.26, y, 0.14 * dir), _wp(axis, plane, along + 0.26, y, 0.14 * dir)])
+		_tube(MAT_CHROME, path2, 0.02, 6, lo, hi + 1.0)
+
+
+## Small wall socket plate.
+func _emit_outlet(axis: int, plane_face: float, sgn: float, along: float, y: float) -> void:
+	var off := sgn * 0.012
+	var hw := 0.04
+	var hh := 0.065
+	var nrm := Vector3(sgn, 0, 0) if axis == 0 else Vector3(0, 0, sgn)
+	var uvm := 1 if axis == 0 else 2
+	var p := plane_face
+	_quad4(MAT_OUTLET, _wp(axis, p, along - hw, y - hh, off), _wp(axis, p, along + hw, y - hh, off),
+			_wp(axis, p, along + hw, y + hh, off), _wp(axis, p, along - hw, y + hh, off), nrm, uvm, 0.0, 2.7)
+
+
+## Skylight: a bright opening pouring warm "sunlight" into the room.
+func _emit_skylight(cx: float, cz: float, _f: float, c: float) -> void:
+	var h := SKY_SIZE * 0.5
+	var pb := buf(MAT_LIGHT)
+	var st := pb.v.size()
+	var lc := WorldGen.SKY_COLOR * (WorldGen.SKY_POWER * EMIT_SCALE * 1.4)
+	var emit := Color(lc.r, lc.g, lc.b, 0.0)
+	var corners := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
+	for k in 4:
+		var o: Vector2 = corners[k]
+		pb.add(Vector3(cx + o.x * h, c - 0.01, cz + o.y * h), Vector3.DOWN, Vector3.RIGHT,
+				(o + Vector2.ONE) * h, Vector2(0.0, 1.0), emit)
+	_tri_quad(pb, st, st + 1, st + 2, st + 3, true)
+
+
+## Service pipes running along every wall of a Pipe Dreams corridor.
+func _emit_pipes(li: int, lj: int, xa: float, za: float, c: float) -> void:
+	# [edge kind, axis, plane, direction into corridor]
+	var walls := [
+		[edge_v(li, lj), 0, xa, 1.0], [edge_v(li + 1, lj), 0, xa + CELL, -1.0],
+		[edge_h(li, lj), 2, za, 1.0], [edge_h(li, lj + 1), 2, za + CELL, -1.0],
+	]
+	for w in walls:
+		if w[0] != WorldGen.E_WALL:
+			continue
+		var axis: int = w[1]
+		var plane: float = w[2]
+		var dir: float = w[3]
+		var s0 := za if axis == 0 else xa
+		var line := floori(plane / CELL + 0.5)
+		var big := [[0.11, c - 0.32, T + 0.14], [0.065, c - 0.6, T + 0.1]]
+		if gen.rnd(line, floori(s0 / CELL / 4.0), 95 + axis) < 0.6:
+			big.append([0.13, 0.3, T + 0.16])
+		for pp in big:
+			var r: float = pp[0]
+			var y: float = pp[1]
+			var o: float = (pp[2] as float) * dir
+			_tube(MAT_PIPE, PackedVector3Array([_wp(axis, plane, s0 - 0.02, y, o), _wp(axis, plane, s0 + CELL + 0.02, y, o)]), r, 8, 0.0, c)
+			_tube(MAT_PIPE, PackedVector3Array([_wp(axis, plane, s0 + 0.02, y, o), _wp(axis, plane, s0 + 0.1, y, o)]), r * 1.3, 8, 0.0, c)

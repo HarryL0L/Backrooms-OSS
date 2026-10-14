@@ -25,6 +25,13 @@ func _init() -> void:
 	materials[ChunkBuilder.MAT_CONC_CEIL] = _mat("concrete", {"kind": 2})
 	materials[ChunkBuilder.MAT_LIGHT] = _mat("light_panel")
 	materials[ChunkBuilder.MAT_CRATE] = _mat("crate")
+	materials[ChunkBuilder.MAT_CHROME] = _mat("metal", {"base_color": Color(0.8, 0.82, 0.85), "metal": 1.0, "rough": 0.12, "rust": 0.0})
+	materials[ChunkBuilder.MAT_PIPE] = _mat("metal", {"base_color": Color(0.22, 0.2, 0.18), "metal": 0.7, "rough": 0.55, "rust": 1.0})
+	materials[ChunkBuilder.MAT_OUTLET] = _mat("metal", {"base_color": Color(0.86, 0.84, 0.78), "metal": 0.0, "rough": 0.45, "rust": 0.0})
+	materials[ChunkBuilder.MAT_SHAFT] = _mat("light_shaft")
+	materials[ChunkBuilder.MAT_SHAFT].render_priority = 2
+	materials[ChunkBuilder.MAT_GRIME] = _mat("concrete", {"kind": 3})
+	materials[ChunkBuilder.MAT_BRICK] = _mat("concrete", {"kind": 4})
 
 
 func set_world_seed(seed_value: int) -> void:

@@ -4,16 +4,17 @@ render_mode diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
-uniform vec3 tile_color : source_color = vec3(0.90, 0.94, 0.95);
+uniform vec3 tile_color : source_color = vec3(0.93, 0.94, 0.91);
 uniform vec3 grout_color : source_color = vec3(0.62, 0.68, 0.69);
 uniform float water_y = -0.16;
-uniform float ceiling_y = 4.4;
+uniform float ceiling_y = 4.8;
 
 varying vec3 v_light;
 varying vec3 v_wpos;
 varying vec3 v_wnormal;
 
 void vertex() {
+	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wnormal = NORMAL;
@@ -27,18 +28,23 @@ float caustics(vec2 p, float t) {
 
 void fragment() {
 	vec2 uv = UV;
-	vec2 g = uv / 0.2;
+	const float TILE = 0.15;
+	vec2 g = uv / TILE;
 	vec2 cell = floor(g);
 	vec2 f = fract(g);
-	float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * 0.2;
+	float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * TILE;
 	float h = hash12(cell);
 	vec3 tile = tile_color * (0.95 + 0.07 * h);
 	if (h > 0.97) {
 		tile *= vec3(0.86, 0.95, 1.0);
 	}
+	// Dark green tiled band along the waterline on walls and columns.
+	if (abs(v_wnormal.y) < 0.5 && v_wpos.y < 0.33) {
+		tile = vec3(0.15, 0.40, 0.31) * (0.85 + 0.25 * h);
+	}
 	float grime = texture(noise_blot, uv * 0.2).r;
 	float aa = clamp((fwidth(g.x) + fwidth(g.y)) * 2.0, 0.0, 1.0);
-	float grout = mix(smoothstep(0.0055 + 0.2 * aa * 0.02, 0.0035, edge), 0.06, smoothstep(0.15, 0.6, aa));
+	float grout = mix(smoothstep(0.0045, 0.0025, edge), 0.07, smoothstep(0.15, 0.6, aa));
 	vec3 gc = grout_color * mix(1.0, 0.75, smoothstep(0.5, 0.75, grime));
 	vec3 col = mix(tile, gc, grout);
 	col *= 0.95 + 0.08 * texture(noise_fine, uv * 3.0).r;

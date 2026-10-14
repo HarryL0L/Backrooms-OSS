@@ -93,6 +93,23 @@ vec3 ceiling_reflection(vec3 wpos, vec3 cam, vec3 n, float ceil_y, int mode, flo
 	return col * mask * on / (1.0 + dist * 0.15);
 }
 
+// Height of the water surface in the Poolrooms (WorldGen.WATER_Y). The planar
+// reflection camera sits below it; for that camera everything under the plane is
+// squashed onto the plane so it can't block the reflected view. Done in the vertex
+// shader (not with discard) to keep early-Z intact on mobile GPUs.
+const float REFLECT_PLANE = -0.16;
+
+vec3 clip_below_water(vec3 v, vec3 cam) {
+	if (cam.y < REFLECT_PLANE) {
+		v.y = max(v.y, REFLECT_PLANE + 0.002);
+	}
+	return v;
+}
+
+bool below_reflection_plane(vec3 wpos, vec3 cam) {
+	return cam.y < REFLECT_PLANE && wpos.y < REFLECT_PLANE;
+}
+
 float dither(vec2 frag) {
 	return (hash12(frag) - 0.5) / 255.0;
 }

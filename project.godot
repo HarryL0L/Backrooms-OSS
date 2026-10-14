@@ -41,14 +41,20 @@ common/physics_ticks_per_second=60
 [rendering]
 
 renderer/rendering_method="mobile"
-renderer/rendering_method.mobile="mobile"
+renderer/rendering_method.ultra="forward_plus"
 rendering_device/fallback_to_opengl3=true
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0, 0, 0, 1)
 anti_aliasing/quality/msaa_3d=1
+anti_aliasing/quality/msaa_3d.ultra=0
+anti_aliasing/quality/screen_space_aa.ultra=2
 lights_and_shadows/positional_shadow/atlas_size=2048
 lights_and_shadows/positional_shadow/atlas_size.mobile=1024
 textures/default_filters/anisotropic_filtering_level=2
+environment/volumetric_fog/volume_size.mobile=48
+environment/volumetric_fog/volume_depth.mobile=48
+environment/ssao/quality.mobile=1
+environment/ssil/quality.mobile=1
 
 [shader_globals]
 

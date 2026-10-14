@@ -7,6 +7,7 @@ varying vec3 v_emit;
 varying float v_on;
 
 void vertex() {
+	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_emit = CUSTOM0.rgb * flicker(UV2.x, world_time);
 	v_on = UV2.y;
 }

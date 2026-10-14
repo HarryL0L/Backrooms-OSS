@@ -3,8 +3,11 @@ render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_sc
 #include "res://shaders/common.gdshaderinc"
 
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap, repeat_enable;
-uniform vec3 deep_color : source_color = vec3(0.36, 0.78, 0.84);
-uniform float ceiling_y = 4.4;
+uniform vec3 deep_color : source_color = vec3(0.30, 0.66, 0.66);
+uniform float ceiling_y = 4.8;
+// Planar reflection rendered by WaterReflection (mirrored camera), 0 = use the cheap fake.
+uniform sampler2D reflection_tex : hint_default_black, filter_linear, repeat_disable;
+uniform float reflection_on = 0.0;
 
 varying vec3 v_light;
 varying vec3 v_wpos;
@@ -26,9 +29,16 @@ void fragment() {
 	float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(wn, v), 0.0, 1.0), 5.0);
 	vec3 refl = ceiling_reflection(v_wpos, CAMERA_POSITION_WORLD, wn, ceiling_y, 0, world_time);
 	refl += v_light * vec3(0.85, 0.92, 0.95) * 0.6;
+	if (reflection_on > 0.5) {
+		// The reflection camera's image is mirrored horizontally (right-handed basis).
+		vec2 ruv = vec2(1.0 - SCREEN_UV.x, SCREEN_UV.y) + nm.xy * vec2(-0.025, 0.035);
+		vec3 planar = texture(reflection_tex, clamp(ruv, vec2(0.001), vec2(0.999))).rgb * 1.25;
+		refl = mix(refl, planar, 0.92);
+		fres = max(fres, 0.12);
+	}
 	ALBEDO = deep_color;
 	ALPHA = clamp(0.22 + fres * 0.75, 0.0, 0.97);
 	ROUGHNESS = 0.03;
 	SPECULAR = 0.7;
-	EMISSION = deep_color * v_light * 0.5 * (1.0 - fres) + refl * min(fres * 1.6 + 0.04, 1.0) + dither(FRAGCOORD.xy);
+	EMISSION = deep_color * v_light * 0.45 * (1.0 - fres) + refl * min(fres * 1.5 + 0.06, 1.0) + dither(FRAGCOORD.xy);
 }

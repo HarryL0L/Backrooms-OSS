@@ -79,20 +79,22 @@ jobs:
       - name: Export
         run: |
           mkdir -p build/linux build/windows
-          if [ "$RELEASE_SIGNING" = "1" ]; then
-            ~/godot/godot --headless --path . --export-release "Android" build/Backrooms-OSS.apk
-          else
-            ~/godot/godot --headless --path . --export-debug "Android" build/Backrooms-OSS.apk
-          fi
+          mode=--export-debug
+          if [ "$RELEASE_SIGNING" = "1" ]; then mode=--export-release; fi
+          ~/godot/godot --headless --path . $mode "Android" build/Backrooms-OSS.apk
+          ~/godot/godot --headless --path . $mode "Android Ultra" build/Backrooms-OSS-Ultra.apk
           ~/godot/godot --headless --path . --export-release "Linux" build/linux/Backrooms-OSS.x86_64
           ~/godot/godot --headless --path . --export-release "Windows" build/windows/Backrooms-OSS.exe
           test -s build/Backrooms-OSS.apk
+          test -s build/Backrooms-OSS-Ultra.apk
           cd build && zip -qr Backrooms-OSS-linux.zip linux && zip -qr Backrooms-OSS-windows.zip windows
 
       - uses: actions/upload-artifact@v4
         with:
           name: Backrooms-OSS-android
-          path: build/Backrooms-OSS.apk
+          path: |
+            build/Backrooms-OSS.apk
+            build/Backrooms-OSS-Ultra.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -107,5 +109,6 @@ jobs:
         with:
           files: |
             build/Backrooms-OSS.apk
+            build/Backrooms-OSS-Ultra.apk
             build/Backrooms-OSS-linux.zip
             build/Backrooms-OSS-windows.zip

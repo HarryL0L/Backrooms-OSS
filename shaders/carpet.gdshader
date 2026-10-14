@@ -5,11 +5,12 @@ render_mode diffuse_burley, specular_schlick_ggx;
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform vec3 base_color : source_color = vec3(0.62, 0.52, 0.27);
+uniform vec3 base_color : source_color = vec3(0.50, 0.46, 0.28);
 
 varying vec3 v_light;
 
 void vertex() {
+	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 }
 
@@ -17,8 +18,9 @@ void fragment() {
 	vec2 uv = UV;
 	float n1 = texture(noise_fine, uv * 2.1).r;
 	float n2 = texture(noise_fine, uv * 11.3 + 0.37).r;
+	float loops = texture(noise_fine, uv * 37.0 + 0.71).r;
 	float blot = texture(noise_blot, uv * 0.085).r;
-	vec3 col = base_color * (0.84 + 0.28 * n1) * (0.88 + 0.18 * n2);
+	vec3 col = base_color * (0.86 + 0.24 * n1) * (0.84 + 0.22 * n2) * (0.85 + 0.25 * loops);
 	// Damp, musty patches: darker, browner and slightly glossy.
 	float damp = smoothstep(0.62, 0.8, blot);
 	col = mix(col, col * vec3(0.66, 0.6, 0.46), damp * 0.6);

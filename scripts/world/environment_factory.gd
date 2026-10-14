@@ -4,8 +4,34 @@ extends RefCounted
 ## surface lighting is baked into vertices and emitted, real lights (the
 ## flashlight) are added on top.
 
-const FOG := [Color(0.42, 0.36, 0.20), Color(0.70, 0.80, 0.84), Color(0.10, 0.105, 0.11), Color(0.012, 0.010, 0.006)]
-const FOG_DENSITY := [0.030, 0.022, 0.034, 0.05]
+const FOG := [Color(0.42, 0.42, 0.26), Color(0.72, 0.80, 0.80), Color(0.10, 0.105, 0.11), Color(0.012, 0.010, 0.006), Color(0.03, 0.025, 0.02)]
+const FOG_DENSITY := [0.026, 0.02, 0.034, 0.05, 0.06]
+const VOL_DENSITY := [0.012, 0.008, 0.022, 0.02, 0.035]
+
+
+## Forward+ only effects. Ambient light stays black (baked lighting is emitted),
+## so SSIL picks up the bounce from those emissive surfaces.
+static func apply_ultra(e: Environment, ssr: bool, ssao: bool, ssil: bool, vol: bool) -> void:
+	e.ssr_enabled = ssr
+	e.ssr_max_steps = 56
+	e.ssr_fade_in = 0.1
+	e.ssr_fade_out = 2.0
+	e.ssr_depth_tolerance = 0.25
+	e.ssao_enabled = ssao
+	e.ssao_radius = 1.1
+	e.ssao_intensity = 1.8
+	e.ssao_power = 1.6
+	e.ssao_light_affect = 0.4
+	e.ssil_enabled = ssil
+	e.ssil_radius = 3.5
+	e.ssil_intensity = 0.9
+	e.volumetric_fog_enabled = vol
+	e.volumetric_fog_density = VOL_DENSITY[0]
+	e.volumetric_fog_albedo = FOG[0]
+	e.volumetric_fog_anisotropy = 0.55
+	e.volumetric_fog_length = 48.0
+	e.volumetric_fog_detail_spread = 2.0
+	e.volumetric_fog_ambient_inject = 0.0
 
 
 static func make() -> Environment:

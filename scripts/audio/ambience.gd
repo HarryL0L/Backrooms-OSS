@@ -9,6 +9,7 @@ const REVERB := [
 	{"room": 0.92, "damp": 0.25, "wet": 0.45},
 	{"room": 0.85, "damp": 0.45, "wet": 0.38},
 	{"room": 0.6, "damp": 0.6, "wet": 0.3},
+	{"room": 0.75, "damp": 0.3, "wet": 0.42},
 ]
 
 var gen: WorldGen

@@ -2,21 +2,28 @@
 
 An open source, infinite **Backrooms** exploration game for **Android** (and Linux/Windows), built with [Godot 4.5](https://godotengine.org).
 
-You noclipped out of reality. The hum of fluorescent lights, old moist carpet, and rooms that never end. Walk from the mono-yellow **Lobby** into the echoing **Poolrooms**, the concrete **Habitable Zone** and the pitch-black **Unlit Halls**, all part of one seamless, endless world with no loading screens.
+You noclipped out of reality. The hum of fluorescent lights, old moist carpet, and rooms that never end. Walk from the mono-yellow **Lobby** into the echoing **Poolrooms**, the concrete **Habitable Zone**, the cramped **Pipe Dreams** tunnels and the pitch-black **Unlit Halls**, all part of one seamless, endless world with no loading screens.
 
 ![Main menu](docs/screenshots/menu.jpg)
 
 | Level 0 - The Lobby | Level 37 - The Poolrooms |
 |---|---|
 | ![Lobby](docs/screenshots/lobby.jpg) | ![Poolrooms](docs/screenshots/poolrooms.jpg) |
-| **Open pillared halls (with touch controls)** | **Level 1 - Habitable Zone** |
+| **Poolrooms arches (with touch controls)** | **Level 2 - Pipe Dreams** |
+| ![Poolrooms arches](docs/screenshots/poolrooms_arches.jpg) | ![Pipe Dreams](docs/screenshots/pipe_dreams.jpg) |
+| **Open pillared halls** | **Level 1 - Habitable Zone** |
 | ![Lobby halls](docs/screenshots/lobby_touch.jpg) | ![Habitable Zone](docs/screenshots/habitable_zone.jpg) |
 
-*(Screenshots are from a software renderer; on a real GPU you also get MSAA, FSR and flashlight shadows.)*
+*(Screenshots are from a software renderer on the standard build; the Ultra build adds SSR, SSAO, SSIL and volumetric fog.)*
 
 ## Features
 
 - **Infinite, seamless world.** Minecraft-style chunk streaming: chunks are generated nearest-first on background threads and uploaded under a strict per-frame time budget, so you can't see the world being built. Generation is deterministic from a seed, so any seed can be shared.
+- **Two builds:**
+  - **Standard** (Mobile renderer): runs on most phones.
+  - **Ultra** (Forward+ renderer): for high-end phones and PCs. Adds screen-space reflections, SSAO, SSIL bounce light, volumetric fog with glowing light halos and flashlight beams, and SMAA.
+  - Both APKs install as the same app and share saves.
+- **Real-time planar water reflections**, round tiled columns, arched colonnades, chrome pool ladders, skylights and a dark-green waterline band in the Poolrooms.
 - **Interconnected levels.** Large meandering regions turn the Lobby into the Poolrooms, the Habitable Zone or the Unlit Halls. Borders always have doorways, so everything connects.
 - **Realistic lighting at mobile cost.** Each fixture's light is baked into the geometry as the chunk generates: direct light with wall occlusion through doorways, colored bounce light, and contact shadows. On top of that come bloom, fog, filmic tonemapping, mirror-like water reflections of the ceiling lights, underwater caustics, glossy puddles and a hand-held flashlight with optional real-time shadows. Faulty tubes flicker, and their buzzing is synced to the flicker.
 - **Zero binary assets.** Every texture (wallpaper, carpet, ceiling tiles, pool tiles, concrete) is procedural in shaders, and every sound (fluorescent hum, room tone, water, footsteps per surface, distant noises) is synthesized at startup. The whole game is readable source code.
@@ -33,7 +40,7 @@ No monsters in v0.1. The emptiness is the horror for now.
 
 ## Download
 
-Every push builds an APK plus Linux and Windows builds in GitHub Actions (**Actions → Build → Artifacts**). Pushing a tag like `v0.1.0` publishes them as a GitHub Release.
+Every push builds two APKs (`Backrooms-OSS.apk` standard, `Backrooms-OSS-Ultra.apk` for high-end devices) plus Linux and Windows builds in GitHub Actions (**Actions → Build → Artifacts**). Desktop builds use the Ultra renderer. Pushing a tag like `v0.1.0` publishes them as a GitHub Release.
 
 Debug-signed APKs install fine via sideloading. To get release-signed APKs, add the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_ALIAS` and `ANDROID_KEYSTORE_PASSWORD`.
 
@@ -77,7 +84,7 @@ Because every query is a pure function of `(seed, x, z)`, neighbouring chunks al
 
 ## Roadmap ideas
 
-More levels (Level 2 "Pipe Dreams", Level 4 office, Level 6 "Lights Out"), exits between levels via stairs and elevators, almond water and items, a sanity mechanic, and entities. Contributions are welcome!
+More levels (Level 4 office, Level 6 "Lights Out"), exits between levels via stairs and elevators, almond water and items, a sanity mechanic, and entities. Contributions are welcome!
 
 ## License
 
