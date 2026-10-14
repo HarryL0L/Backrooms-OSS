@@ -189,6 +189,7 @@ func _build_graphics() -> void:
 	_toggle(p, "Real-time lights (off = shader flashlight, for buggy GPU drivers)", "graphics/realtime_lights")
 	_toggle(p, "Flashlight shadows", "graphics/flashlight_shadows")
 	_toggle(p, "Head bob", "graphics/head_bob")
+	_toggle(p, "Entities (something in the walls)", "gameplay/entities")
 	_toggle(p, "Show FPS", "graphics/show_fps")
 	if Settings.is_ultra:
 		_toggle(p, "Screen-space reflections (Ultra)", "graphics/ssr")

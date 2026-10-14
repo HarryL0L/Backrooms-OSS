@@ -76,6 +76,7 @@ func defaults() -> Dictionary:
 		"graphics/lightmaps": true,
 		"graphics/preset": 2 if is_mobile else 3,
 		"graphics/auto_quality": true,
+		"gameplay/entities": true,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,

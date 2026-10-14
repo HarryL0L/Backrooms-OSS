@@ -25,6 +25,7 @@ var env: Environment
 var reflection: WaterReflection
 var fixtures: FixtureLights
 var ripples: WaterRipples
+var lining: LiningEntity
 var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
 var world_env: WorldEnvironment
@@ -86,6 +87,11 @@ func _ready() -> void:
 	ripples.material = mats.materials[ChunkBuilder.MAT_WATER]
 	ripples.player = player
 	add_child(ripples)
+	lining = LiningEntity.new()
+	lining.process_mode = Node.PROCESS_MODE_PAUSABLE
+	lining.player = player
+	lining.ambience = ambience
+	add_child(lining)
 	odd_doors = OddDoors.new()
 	odd_doors.process_mode = Node.PROCESS_MODE_PAUSABLE
 	odd_doors.target = player
@@ -230,6 +236,8 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		ripples.gen = gen
 		odd_doors.clear()
 		odd_doors.gen = gen
+		lining.gen = gen
+		lining.odd_doors = odd_doors
 		_biome = -1
 	chunks.target = player
 	player.teleport(pos, yaw, pitch)
@@ -561,6 +569,7 @@ func _process(delta: float) -> void:
 			_write_save()
 		hud.set_stamina(player.stamina, player.exhausted)
 		_perf_watch(delta)
+	lining.allowed = state == State.PLAYING and not _in_field and not _transition
 	if _in_field:
 		return
 	_scan_t -= delta

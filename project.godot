@@ -80,3 +80,19 @@ flash_params={
 "type": "vec4",
 "value": Vector4(0, 24, 0.88, 0.95)
 }
+lining_pos={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+lining_right={
+"type": "vec4",
+"value": Vector4(1, 0, 0, 0)
+}
+lining_normal={
+"type": "vec4",
+"value": Vector4(0, 0, 1, 0)
+}
+lining_tex={
+"type": "sampler2D",
+"value": ""
+}

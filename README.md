@@ -35,7 +35,7 @@ You noclipped out of reality. The hum of fluorescent lights, old moist carpet, a
 - **Settings:** render scale with FSR, MSAA, view distance, FPS cap, FOV, brightness, bloom, film grain/vignette, flashlight shadows, head bob, volumes and sensitivities.
 - **Autosave & continue.**
 
-No monsters in v0.1. The emptiness is the horror for now.
+There are no monsters that chase you. But something lives behind the Lobby wallpaper: **The Lining**. You only ever see its shape pressing out through the paper, and it only moves when you aren't looking. It's drawn by the wallpaper shader itself (a baked height map bends the wall's normals, shading and pattern), so it costs almost nothing. It can be turned off in Settings.
 
 ## Download
 

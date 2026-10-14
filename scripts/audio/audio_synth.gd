@@ -35,6 +35,8 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return wind()
 		"drip":
 			return drip()
+		"paper":
+			return paper()
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -275,6 +277,32 @@ static func wind() -> AudioStreamWAV:
 		hi.step(x)
 		s[i] = lo.low * (0.4 + g) + hi.band * g * g * 0.12
 	return to_wav(_normalize(_make_loop(s, length), 0.6), true)
+
+
+## Wallpaper stretching: a slow papery groan with crackles as it strains
+## (The Lining pressing through).
+static func paper() -> AudioStreamWAV:
+	var n := int(RATE * 1.8)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 91
+	var groan := _Svf.new(320.0, 0.35)
+	var crk := _Svf.new(2600.0, 1.2)
+	var burst := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var env := smoothstep(0.0, 0.5, t) * (1.0 - smoothstep(1.1, 1.8, t))
+		var x := rng.randf_range(-1.0, 1.0)
+		groan.f = 2.0 * sin(PI * (240.0 + 120.0 * sin(t * 3.1) + 60.0 * t) / RATE)
+		groan.step(x)
+		# Crackles: random tiny bursts, denser in the middle of the strain.
+		if rng.randf() < 0.0018 * env:
+			burst = rng.randf_range(0.4, 1.0)
+		burst *= 0.993
+		crk.step(x * burst)
+		s[i] = groan.band * env * 0.5 + crk.band * 1.4
+	return to_wav(_normalize(s, 0.6))
 
 
 ## Thin draught whistling through a door gap.

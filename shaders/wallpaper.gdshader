@@ -12,6 +12,14 @@ varying vec3 v_vlight;
 varying vec3 v_lm;
 varying vec3 v_wpos;
 
+// "The Lining": a figure pressed out through the wallpaper (LiningEntity).
+// pos.xyz = base centre on the wall surface, pos.w = how far it pushes (0 = off).
+global uniform vec4 lining_pos;
+global uniform vec4 lining_right;
+global uniform vec4 lining_normal;
+global uniform sampler2D lining_tex;   // r = height (m), g = cavity
+const vec2 LINING_SIZE = vec2(1.4, 2.7);
+
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
@@ -22,6 +30,33 @@ void vertex() {
 void fragment() {
 	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = UV;
+	float lin_k = 1.0;     // shading of The Lining's bulge (also applied to the flashlight)
+	if (lining_pos.w > 0.001) {
+		vec3 rel = v_wpos - lining_pos.xyz;
+		vec3 wn = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+		vec2 q = vec2(dot(rel, lining_right.xyz), rel.y);
+		vec2 tuv = vec2(q.x / LINING_SIZE.x + 0.5, 1.0 - q.y / LINING_SIZE.y);
+		if (abs(dot(rel, lining_normal.xyz)) < 0.03 && dot(wn, lining_normal.xyz) > 0.9
+				&& tuv.x > 0.0 && tuv.x < 1.0 && tuv.y > 0.0 && tuv.y < 1.0) {
+			float s = lining_pos.w;
+			vec2 px = 1.0 / vec2(textureSize(lining_tex, 0));
+			vec4 hm = texture(lining_tex, tuv);
+			float hx = (texture(lining_tex, tuv + vec2(px.x, 0.0)).r - texture(lining_tex, tuv - vec2(px.x, 0.0)).r)
+					/ (2.0 * px.x * LINING_SIZE.x) * s;
+			float hy = (texture(lining_tex, tuv - vec2(0.0, px.y)).r - texture(lining_tex, tuv + vec2(0.0, px.y)).r)
+					/ (2.0 * px.y * LINING_SIZE.y) * s;
+			vec3 up = vec3(0.0, 1.0, 0.0);
+			vec3 nb = normalize(lining_normal.xyz - hx * lining_right.xyz - hy * up);
+			// Shade the bulge as the room light (from above, in front) would.
+			vec3 L = normalize(lining_normal.xyz * 0.55 + up * 0.85);
+			float flat_l = 0.45 + 0.55 * max(dot(lining_normal.xyz, L), 0.0);
+			lin_k = (0.45 + 0.55 * max(dot(nb, L), 0.0)) / flat_l * (1.0 - hm.g * s);
+			v_light *= lin_k;
+			// The paper's pattern stretches over the shape.
+			uv += vec2(hx, -hy) * hm.r * s * 0.6;
+			NORMAL = normalize((VIEW_MATRIX * vec4(nb, 0.0)).xyz);
+		}
+	}
 	float y = -uv.y;
 	// Columns of stacked chevrons separated by thin double pinstripes,
 	// the classic Level 0 wallpaper.
@@ -52,5 +87,5 @@ void fragment() {
 	SPECULAR = 0.3;
 	NORMAL_MAP = texture(noise_normal, uv * 1.3).rgb;
 	NORMAL_MAP_DEPTH = 0.3;
-	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.15) + dither(FRAGCOORD.xy);
+	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.15) * mix(1.0, lin_k, 0.75) + dither(FRAGCOORD.xy);
 }
