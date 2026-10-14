@@ -749,9 +749,7 @@ func _emit_cell(li: int, lj: int) -> void:
 			Vector3.DOWN, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL_CEIL)
 	_col_quad(Vector3(xa, f, za), Vector3(xa + CELL, f, za), Vector3(xa + CELL, f, za + CELL), Vector3(xa, f, za + CELL))
 	if is_pool:
-		var half := PackedFloat32Array([0.0, 0.5, 1.0])
-		_grid(MAT_WATER, Vector3(xa, WorldGen.WATER_Y, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), half, half,
-				Vector3.UP, Vector3.RIGHT, 0, 1, f, c)
+		_emit_water(xa, za)
 	# Light fixture.
 	var s := gen.light_state(gx, gz, b)
 	if s == WorldGen.L_SKY:
@@ -783,6 +781,44 @@ func _emit_cell(li: int, lj: int) -> void:
 		_emit_pipes(li, lj, xa, za, c)
 	if b == WorldGen.CONCRETE and not is_pool and not gen.near_spawn(gx, gz, 2) and gen.rnd(gx, gz, 61) < 0.06:
 		_emit_crates(li, lj, xa, za, f, c)
+
+
+## Pool water surface. Dense (WATER_SUB x WATER_SUB quads per cell) so the
+## ripple simulation can displace it, but lit at only 3x3 points per cell and
+## interpolated, which keeps the bake cheap.
+const WATER_SUB := 16
+
+func _emit_water(xa: float, za: float) -> void:
+	var lit: Array[Color] = []
+	var sds := PackedFloat32Array()
+	for jv in 3:
+		for iu in 3:
+			var p := Vector3(xa + iu * CELL * 0.5, WorldGen.WATER_Y, za + jv * CELL * 0.5)
+			var sp := p + Vector3.UP * 0.05 + _nudge(p)
+			var light := shade(sp, Vector3.UP)
+			var ao := _ao_xz(sp)
+			lit.append(Color(light.r * ao, light.g * ao, light.b * ao, light.a))
+			sds.push_back(_seed)
+	var b := buf(MAT_WATER)
+	var start := b.v.size()
+	var n := WATER_SUB + 1
+	for jv in n:
+		var fv := float(jv) / WATER_SUB * 2.0
+		var j0 := mini(int(fv), 1)
+		var tv := fv - j0
+		for iu in n:
+			var fu := float(iu) / WATER_SUB * 2.0
+			var i0 := mini(int(fu), 1)
+			var tu := fu - i0
+			var l := lit[i0 + j0 * 3].lerp(lit[i0 + 1 + j0 * 3], tu).lerp(
+					lit[i0 + (j0 + 1) * 3].lerp(lit[i0 + 1 + (j0 + 1) * 3], tu), tv)
+			var sd := sds[roundi(fu) + roundi(fv) * 3]
+			var p := Vector3(xa + fu * CELL * 0.5, WorldGen.WATER_Y, za + fv * CELL * 0.5)
+			b.add(p, Vector3.UP, Vector3.RIGHT, Vector2(p.x, p.z), Vector2(sd, 0.0), l)
+	for jv in WATER_SUB:
+		for iu in WATER_SUB:
+			var a := start + iu + jv * n
+			_tri_quad(b, a, a + 1, a + 1 + n, a + n, false)
 
 
 func _emit_crates(li: int, lj: int, xa: float, za: float, f: float, c: float) -> void:

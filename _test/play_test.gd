@@ -5,6 +5,7 @@ var out := OS.get_user_data_dir() + "/play"
 var step := 0
 var t := 0.0
 var _frames := 0
+var _pool_pos := Vector3.ZERO
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -67,6 +68,7 @@ func _process(d):
 						var c = g.spawn_cell + Vector2i(int(cos(a)*r), int(sin(a)*r))
 						if g.biome_at(c.x, c.y) == 1 and g.pool_noise(c.x, c.y) and g.biome_at(c.x+1,c.y)==1 and g.biome_at(c.x-1,c.y)==1 and g.biome_at(c.x,c.y+1)==1 and g.biome_at(c.x,c.y-1)==1:
 							game.player.teleport(Vector3((c.x+0.5)*2.4, 0.5, (c.y+0.5)*2.4), 0.0)
+							_pool_pos = Vector3((c.x+0.5)*2.4, WorldGen.POOL_FLOOR + 0.02, (c.y+0.5)*2.4)
 							found = true
 							break
 					if found: break
@@ -81,8 +83,8 @@ func _process(d):
 				shot("pool_walk"); step = 10; t = 0
 				# Look down at the wake and drop a splash ahead.
 				var pl = game.player
-				pl.teleport(pl.global_position, pl.yaw, -0.75)
-				game.ripples.splash(pl.global_position - pl.global_basis.z * 2.0, 1.5)
+				pl.teleport(_pool_pos, pl.yaw, -0.85)
+				game.ripples.splash(_pool_pos - pl.global_basis.z * 1.0, 2.0)
 		10:
 			_frames += 1
 			if _frames > 40:

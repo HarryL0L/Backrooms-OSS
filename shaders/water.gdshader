@@ -19,6 +19,15 @@ varying vec3 v_wpos;
 void vertex() {
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// The surface really moves: lift it by the simulated ripple height.
+	if (ripple_on > 0.5) {
+		vec2 ruv = (v_wpos.xz - ripple_rect.xy) / ripple_rect.z;
+		if (ruv.x > 0.0 && ruv.y > 0.0 && ruv.x < 1.0 && ruv.y < 1.0) {
+			float h = clamp(textureLod(ripple_tex, ruv, 0.0).r, -0.25, 0.25);
+			VERTEX.y += h;
+			v_wpos.y += h;
+		}
+	}
 }
 
 void fragment() {
