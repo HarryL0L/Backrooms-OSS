@@ -1,0 +1,72 @@
+class_name WorldMaterials
+extends RefCounted
+## Creates the shared world materials. All textures are generated procedurally
+## from seamless noise at startup, so the game ships without image assets.
+
+var materials: Array[Material] = []
+var _noise_fine: NoiseTexture2D
+var _noise_blot: NoiseTexture2D
+var _noise_normal: NoiseTexture2D
+
+
+func _init() -> void:
+	_noise_fine = _noise(256, 0.035, 5, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, false, 1)
+	_noise_blot = _noise(256, 0.012, 4, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, false, 2)
+	_noise_normal = _noise(256, 0.05, 4, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, true, 3)
+	materials.resize(ChunkBuilder.MAT_COUNT)
+	materials[ChunkBuilder.MAT_WALLPAPER] = _mat("wallpaper")
+	materials[ChunkBuilder.MAT_CARPET] = _mat("carpet")
+	materials[ChunkBuilder.MAT_CEILING_TILE] = _mat("ceiling_tile")
+	materials[ChunkBuilder.MAT_POOL_TILE] = _mat("pool_tile")
+	materials[ChunkBuilder.MAT_WATER] = _mat("water")
+	materials[ChunkBuilder.MAT_WATER].render_priority = 1
+	materials[ChunkBuilder.MAT_CONC_WALL] = _mat("concrete", {"kind": 0})
+	materials[ChunkBuilder.MAT_CONC_FLOOR] = _mat("concrete", {"kind": 1})
+	materials[ChunkBuilder.MAT_CONC_CEIL] = _mat("concrete", {"kind": 2})
+	materials[ChunkBuilder.MAT_LIGHT] = _mat("light_panel")
+	materials[ChunkBuilder.MAT_CRATE] = _mat("crate")
+
+
+func set_world_seed(seed_value: int) -> void:
+	for m in materials:
+		(m as ShaderMaterial).set_shader_parameter("world_seed", seed_value & 0x7FFFFFFF)
+
+
+func are_textures_ready() -> bool:
+	for t in [_noise_fine, _noise_blot, _noise_normal]:
+		if t.get_image() == null:
+			return false
+	return true
+
+
+func _mat(shader_name: String, params := {}) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/%s.gdshader" % shader_name)
+	m.set_shader_parameter("noise_fine", _noise_fine)
+	m.set_shader_parameter("noise_blot", _noise_blot)
+	m.set_shader_parameter("noise_normal", _noise_normal)
+	for k in params:
+		m.set_shader_parameter(k, params[k])
+	return m
+
+
+static func _noise(size: int, freq: float, octaves: int, type: int, normal: bool, s: int) -> NoiseTexture2D:
+	var n := FastNoiseLite.new()
+	n.noise_type = type
+	n.frequency = freq
+	n.fractal_octaves = octaves
+	n.fractal_type = FastNoiseLite.FRACTAL_FBM
+	n.seed = 1337 + s
+	var t := NoiseTexture2D.new()
+	t.width = size
+	t.height = size
+	t.seamless = true
+	t.seamless_blend_skirt = 0.15
+	t.noise = n
+	t.generate_mipmaps = true
+	if normal:
+		t.as_normal_map = true
+		t.bump_strength = 6.0
+	else:
+		t.normalize = true
+	return t

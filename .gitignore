@@ -1,0 +1,15 @@
+# Godot
+.godot/
+*.import
+!icon.svg.import
+export_credentials.cfg
+*.translation
+
+# Builds
+build/
+*.apk
+*.aab
+*.keystore
+
+# Dev-only harness output
+_test/*.uid

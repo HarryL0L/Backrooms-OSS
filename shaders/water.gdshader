@@ -1,0 +1,34 @@
+shader_type spatial;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+#include "res://shaders/common.gdshaderinc"
+
+uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform vec3 deep_color : source_color = vec3(0.32, 0.68, 0.74);
+uniform float ceiling_y = 4.4;
+
+varying vec3 v_light;
+varying vec3 v_wpos;
+
+void vertex() {
+	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec2 p = v_wpos.xz;
+	vec3 n1 = texture(noise_normal, p * 0.21 + world_time * vec2(0.012, 0.008)).rgb;
+	vec3 n2 = texture(noise_normal, p * 0.17 - world_time * vec2(0.009, 0.013)).rgb;
+	vec3 nm = normalize((n1 + n2) - 1.0);
+	NORMAL_MAP = nm * 0.5 + 0.5;
+	NORMAL_MAP_DEPTH = 0.35;
+	vec3 wn = normalize(vec3(nm.x * 0.012, 1.0, nm.y * 0.012));
+	vec3 v = normalize(CAMERA_POSITION_WORLD - v_wpos);
+	float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(wn, v), 0.0, 1.0), 5.0);
+	vec3 refl = ceiling_reflection(v_wpos, CAMERA_POSITION_WORLD, wn, ceiling_y, 0, world_time);
+	refl += v_light * vec3(0.85, 0.92, 0.95) * 0.6;
+	ALBEDO = deep_color;
+	ALPHA = clamp(0.22 + fres * 0.75, 0.0, 0.97);
+	ROUGHNESS = 0.03;
+	SPECULAR = 0.7;
+	EMISSION = deep_color * v_light * 0.35 * (1.0 - fres) + refl * min(fres * 1.6 + 0.04, 1.0) + dither(FRAGCOORD.xy);
+}

@@ -1,0 +1,67 @@
+extends Node3D
+# Dev harness: renders views of the world to PNG files.
+var cm: ChunkManager
+var cam: Camera3D
+var gen: WorldGen
+var shots := []
+var frame := 0
+var out_dir := "/tmp/claude-0/shots"
+
+func _ready():
+	DirAccess.make_dir_recursive_absolute(out_dir)
+	var args := OS.get_cmdline_user_args()
+	gen = WorldGen.new(int(args[0]) if args.size() > 0 else 12345)
+	var mats := WorldMaterials.new()
+	var env := WorldEnvironment.new()
+	env.environment = load("res://scripts/world/environment_factory.gd").make()
+	add_child(env)
+	cm = ChunkManager.new()
+	add_child(cm)
+	cm.view_radius = 3
+	cm.setup(gen, mats)
+	cam = Camera3D.new()
+	cam.fov = 75
+	cam.far = 90
+	add_child(cam)
+	cm.target = cam
+	# find shots: spawn + one per biome
+	var sp := gen.spawn_position()
+	shots.append([sp + Vector3(0, 1.6, 0), 0.0, "spawn"])
+	shots.append([sp + Vector3(0, 1.6, 0), PI * 0.5, "spawn2"])
+	var found := {}
+	for r in range(1, 400):
+		for k in 8:
+			var a := k * PI / 4.0
+			var c := gen.spawn_cell + Vector2i(int(cos(a) * r), int(sin(a) * r))
+			var b := gen.biome_at(c.x, c.y)
+			if b != 0 and not found.has(b) and gen.biome_at(c.x+3, c.y) == b and gen.biome_at(c.x-3, c.y) == b and gen.biome_at(c.x, c.y+3) == b and gen.biome_at(c.x, c.y-3) == b:
+				found[b] = c
+	for b in found:
+		var c: Vector2i = found[b]
+		shots.append([Vector3((c.x + 0.5) * 2.4, 1.6, (c.y + 0.5) * 2.4), 0.3, "biome%d" % b])
+	print("shots: ", shots.size())
+	_next()
+
+var idx := -1
+var wait := 0
+func _next():
+	idx += 1
+	if idx >= shots.size():
+		get_tree().quit()
+		return
+	cam.global_position = shots[idx][0]
+	cam.rotation = Vector3(0, shots[idx][1], 0)
+	wait = 0
+
+func _process(_d):
+	if idx >= shots.size():
+		return
+	wait += 1
+	if cm.is_area_ready(cam.global_position, 2) and wait > 20:
+		var img := get_viewport().get_texture().get_image()
+		img.save_png("%s/%s.png" % [out_dir, shots[idx][2]])
+		print("saved ", shots[idx][2], " chunks=", cm.loaded_count(), " frames=", wait)
+		_next()
+	elif wait > 3000:
+		print("timeout ", shots[idx][2])
+		_next()
