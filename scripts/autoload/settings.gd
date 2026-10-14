@@ -44,6 +44,11 @@ const TOUCH_DEFAULTS := {
 var is_mobile := false
 ## True when running the Forward+ ("Ultra") build: SSR, SSAO, SSIL, volumetric fog.
 var is_ultra := false
+## Ultra crash guard: how many effect groups were switched off because a
+## previous launch died before reaching the menu (GPU driver crashes).
+var ultra_safe_level := 0
+const GUARD_PATH := "user://ultra_guard.cfg"
+const GUARD_MAX := 3
 var values := {}
 var keys := {}
 var pad := {}
@@ -95,6 +100,7 @@ func _ready() -> void:
 	touch_layout = TOUCH_DEFAULTS.duplicate(true)
 	_setup_audio_buses()
 	load_settings()
+	_ultra_guard_begin()
 	apply_bindings()
 	apply()
 
@@ -111,6 +117,58 @@ func set_value(key: String, v: Variant) -> void:
 
 
 # ------------------------------------------------------------ persistence ---
+
+## Some mobile GPU drivers crash while compiling Forward+ effect shaders (seen
+## on Mali-G77). Native crashes can't be caught, so every Ultra launch leaves a
+## "pending" marker that is only cleared once the game reaches its menu. If the
+## marker is still there on the next launch, one more group of effects is
+## disabled, so repeated launches converge on a configuration the driver survives.
+func _ultra_guard_begin() -> void:
+	if not is_ultra:
+		return
+	var cf := ConfigFile.new()
+	cf.load(GUARD_PATH)
+	var level: int = cf.get_value("guard", "level", 0)
+	if cf.get_value("guard", "pending", false):
+		level = mini(level + 1, GUARD_MAX)
+	ultra_safe_level = level
+	cf.set_value("guard", "level", level)
+	cf.set_value("guard", "pending", true)
+	cf.save(GUARD_PATH)
+	if level >= 1:
+		values["graphics/volumetric_fog"] = false
+		values["graphics/ssil"] = false
+	if level >= 2:
+		values["graphics/ssr"] = false
+		values["graphics/ssao"] = false
+	if level >= 3:
+		values["graphics/water_reflections"] = 0
+		values["graphics/lens_fx"] = false
+		values["graphics/aa"] = 0
+	if level > 0:
+		save_settings()
+
+
+## Called once the game has been running stably (menu reached).
+func mark_ultra_stable() -> void:
+	if not is_ultra:
+		return
+	var cf := ConfigFile.new()
+	cf.load(GUARD_PATH)
+	cf.set_value("guard", "pending", false)
+	cf.save(GUARD_PATH)
+
+
+func ultra_guard_message() -> String:
+	match ultra_safe_level:
+		1:
+			return "Ultra: volumetric fog and SSIL were turned off after a crash on this device."
+		2:
+			return "Ultra: volumetric fog, SSIL, SSR and SSAO were turned off after crashes on this device."
+		3:
+			return "Ultra: most effects were turned off after crashes. If it still crashes, use the standard APK."
+	return ""
+
 
 func load_settings() -> void:
 	var cf := ConfigFile.new()

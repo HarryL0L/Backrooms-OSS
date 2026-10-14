@@ -69,7 +69,7 @@ func _ready() -> void:
 	reflection.source = player.camera
 	reflection.material = mats.materials[ChunkBuilder.MAT_WATER]
 	add_child(reflection)
-	if Settings.is_ultra:
+	if Settings.is_ultra and Settings.ultra_safe_level < 2:
 		fixtures = FixtureLights.new()
 		fixtures.target = player
 		add_child(fixtures)
@@ -230,6 +230,11 @@ func _enter_menu() -> void:
 		state = State.MENU
 		player.set_physics_process(false)
 		main_menu.show()
+		if Settings.is_ultra:
+			get_tree().create_timer(6.0).timeout.connect(Settings.mark_ultra_stable)
+			var msg := Settings.ultra_guard_message()
+			if msg != "":
+				hud.show_level("Safe mode", msg)
 		hud.fade_to(0.0, 1.2)
 		_focus_first(main_menu))
 
