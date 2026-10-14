@@ -10,6 +10,7 @@ var _tabs: TabContainer
 var _bind_buttons := {}     # "action/slot" -> Button
 var _waiting := ""          # "action/slot" waiting for input
 var _first_focus: Control
+var _controls := {}         # setting key -> [control, value label or null]
 
 
 func _ready() -> void:
@@ -47,6 +48,7 @@ func _ready() -> void:
 	_build_bindings()
 	_build_touch()
 	Settings.changed.connect(_refresh_bindings)
+	Settings.changed.connect(_refresh_controls)
 
 
 func open() -> void:
@@ -119,6 +121,7 @@ func _slider(parent: Control, label: String, key: String, lo: float, hi: float, 
 		Settings.set_value(key, x if step < 1.0 or typeof(Settings.get_value(key)) == TYPE_FLOAT else int(x)))
 	h.add_child(s)
 	h.add_child(val)
+	_controls[key] = [s, val, fmt]
 	if _first_focus == null:
 		_first_focus = s
 
@@ -130,6 +133,7 @@ func _toggle(parent: Control, label: String, key: String) -> void:
 	c.custom_minimum_size = Vector2(120, 44)
 	c.toggled.connect(func(on: bool) -> void: Settings.set_value(key, on))
 	h.add_child(c)
+	_controls[key] = [c]
 	if _first_focus == null:
 		_first_focus = c
 
@@ -143,6 +147,7 @@ func _option(parent: Control, label: String, key: String, items: Array) -> void:
 	o.custom_minimum_size = Vector2(320, 48)
 	o.item_selected.connect(func(i: int) -> void: Settings.set_value(key, i))
 	h.add_child(o)
+	_controls[key] = [o]
 	if _first_focus == null:
 		_first_focus = o
 
@@ -158,6 +163,13 @@ func _note(parent: Control, text: String) -> void:
 
 func _build_graphics() -> void:
 	var p := _page("Graphics")
+	var h := _row(p, "Quality preset")
+	for i in 4:
+		var b := Button.new()
+		b.text = ["Low", "Medium", "High", "Max"][i]
+		b.custom_minimum_size = Vector2(110, 48)
+		b.pressed.connect(func() -> void: Settings.apply_preset(i))
+		h.add_child(b)
 	_slider(p, "Render scale", "graphics/render_scale", 0.4, 1.0, 0.05, "%.2f")
 	_toggle(p, "FSR upscaling (when scale < 1)", "graphics/fsr")
 	_option(p, "Anti-aliasing", "graphics/aa", ["Off", "MSAA 2x", "MSAA 4x", "SMAA", "FXAA"])
@@ -169,6 +181,7 @@ func _build_graphics() -> void:
 	_option(p, "Water reflections", "graphics/water_reflections", ["Off (fake)", "Low", "High"])
 	_toggle(p, "Film grain & vignette", "graphics/film_grain")
 	_toggle(p, "Lens effects (chromatic aberration)", "graphics/lens_fx")
+	_toggle(p, "Light halos (haze glow)", "graphics/halos")
 	_toggle(p, "Flashlight shadows", "graphics/flashlight_shadows")
 	_toggle(p, "Head bob", "graphics/head_bob")
 	_toggle(p, "Show FPS", "graphics/show_fps")
@@ -255,6 +268,20 @@ func _build_touch() -> void:
 	reset.pressed.connect(Settings.reset_touch_layout)
 	h.add_child(reset)
 	_note(p, "Automatic hides the on-screen controls while a keyboard, mouse or gamepad is in use. In the editor, drag any control to move it and use the slider to resize it.")
+
+
+func _refresh_controls() -> void:
+	for key in _controls:
+		var e: Array = _controls[key]
+		var v: Variant = Settings.get_value(key)
+		var c: Control = e[0]
+		if c is HSlider:
+			(c as HSlider).set_value_no_signal(v)
+			(e[1] as Label).text = e[2] % v
+		elif c is CheckButton:
+			(c as CheckButton).set_pressed_no_signal(v)
+		elif c is OptionButton:
+			(c as OptionButton).selected = int(v)
 
 
 # ------------------------------------------------------------- bindings ---

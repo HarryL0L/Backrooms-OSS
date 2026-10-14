@@ -64,6 +64,7 @@ func defaults() -> Dictionary:
 		"graphics/bloom": true,
 		"graphics/film_grain": true,
 		"graphics/lens_fx": true,
+		"graphics/halos": true,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,
@@ -147,6 +148,28 @@ func save_settings() -> void:
 	for id in touch_layout:
 		cf.set_value("touch_layout", id, touch_layout[id])
 	cf.save(PATH)
+
+
+const PRESETS := [
+	{"graphics/render_scale": 0.6, "graphics/aa": 0, "graphics/view_distance": 2, "graphics/water_reflections": 0,
+		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true},
+	{"graphics/render_scale": 0.75, "graphics/aa": 1, "graphics/view_distance": 3, "graphics/water_reflections": 1,
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true},
+	{"graphics/render_scale": 0.9, "graphics/aa": 1, "graphics/view_distance": 4, "graphics/water_reflections": 2,
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true},
+	{"graphics/render_scale": 1.0, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true},
+]
+
+
+## Applies a whole quality preset (0 Low .. 3 Max) at once.
+func apply_preset(i: int) -> void:
+	var p: Dictionary = PRESETS[clampi(i, 0, PRESETS.size() - 1)]
+	for k in p:
+		values[k] = p[k]
+	apply()
+	save_settings()
+	changed.emit()
 
 
 func reset_touch_layout() -> void:

@@ -162,6 +162,7 @@ func _apply_settings() -> void:
 	chunks.view_radius = int(Settings.get_value("graphics/view_distance"))
 	chunks.set_shadows(Settings.get_value("graphics/flashlight_shadows"))
 	env.glow_enabled = Settings.get_value("graphics/bloom")
+	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if Settings.get_value("graphics/halos") else 0.0)
 	if Settings.is_ultra:
 		EnvironmentFactory.apply_ultra(env, Settings.get_value("graphics/ssr"), Settings.get_value("graphics/ssao"),
 				Settings.get_value("graphics/ssil"), Settings.get_value("graphics/volumetric_fog"))
@@ -470,6 +471,7 @@ func _process(delta: float) -> void:
 	var k := 1.0 - exp(-1.2 * delta)
 	env.fog_light_color = env.fog_light_color.lerp(_fog_color, k)
 	env.fog_density = lerpf(env.fog_density, _fog_density, k)
+	env.fog_light_energy = lerpf(env.fog_light_energy, EnvironmentFactory.FOG_ENERGY[maxi(_biome, 0)], k)
 	if env.volumetric_fog_enabled:
 		env.volumetric_fog_albedo = env.volumetric_fog_albedo.lerp(_fog_color, k)
 		env.volumetric_fog_density = lerpf(env.volumetric_fog_density, EnvironmentFactory.VOL_DENSITY[maxi(_biome, 0)], k)

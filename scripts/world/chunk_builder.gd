@@ -19,13 +19,14 @@ const SPACING := 1.2             # target vertex spacing on walls
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
 	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE,
-	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_COUNT
+	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_COUNT
 }
 const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER, MAT_GRIME]
 const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_BRICK]
 const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME]
 const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(0.62, 0.62), Vector2(1.7, 0.24), Vector2(1.22, 0.62), Vector2(0.6, 0.6)]
 const SKY_SIZE := 1.8
+const HALO_SIZE := [1.7, 2.6, 3.0, 1.8, 1.6]
 const SUN_DIR := Vector3(0.32, -1.0, 0.22)
 const EMIT_SCALE := 1.5
 
@@ -572,6 +573,8 @@ func _emit_cell(li: int, lj: int) -> void:
 			pb.add(Vector3(cx + o.x * sz.x * 0.5, y, cz + o.y * sz.y * 0.5), Vector3.DOWN, Vector3.RIGHT,
 					Vector2((o.x + 1.0) * 0.5, (o.y + 1.0) * 0.5) * sz, Vector2(sd, 1.0 if s != WorldGen.L_DEAD else 0.0), emit)
 		_tri_quad(pb, st, st + 1, st + 2, st + 3, Vector3(1, 0, 0).cross(Vector3(0, 0, 1)).dot(Vector3.DOWN) > 0.0)
+		if s != WorldGen.L_DEAD:
+			_emit_halo(Vector3(cx, y - 0.05, cz), emit, sd, HALO_SIZE[b])
 	# Props.
 	if b == WorldGen.PIPES:
 		_emit_pipes(li, lj, xa, za, c)
@@ -954,6 +957,7 @@ func _emit_skylight(cx: float, cz: float, _f: float, c: float) -> void:
 		pb.add(Vector3(cx + o.x * h, c - 0.01, cz + o.y * h), Vector3.DOWN, Vector3.RIGHT,
 				(o + Vector2.ONE) * h, Vector2(0.0, 1.0), emit)
 	_tri_quad(pb, st, st + 1, st + 2, st + 3, true)
+	_emit_halo(Vector3(cx, c - 0.1, cz), emit * 0.6, 0.0, 5.0)
 
 
 ## Service pipes running along every wall of a Pipe Dreams corridor.
@@ -980,3 +984,12 @@ func _emit_pipes(li: int, lj: int, xa: float, za: float, c: float) -> void:
 			var o: float = (pp[2] as float) * dir
 			_tube(MAT_PIPE, PackedVector3Array([_wp(axis, plane, s0 - 0.02, y, o), _wp(axis, plane, s0 + CELL + 0.02, y, o)]), r, 8, 0.0, c)
 			_tube(MAT_PIPE, PackedVector3Array([_wp(axis, plane, s0 + 0.02, y, o), _wp(axis, plane, s0 + 0.1, y, o)]), r * 1.3, 8, 0.0, c)
+
+
+## Camera-facing glow quad (expanded in light_halo.gdshader).
+func _emit_halo(centre: Vector3, col: Color, sd: float, size: float) -> void:
+	var hb := buf(MAT_HALO)
+	var st := hb.v.size()
+	for uv in [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]:
+		hb.add(centre, Vector3.DOWN, Vector3.RIGHT, uv, Vector2(sd, size), col)
+	hb.idx.append_array([st, st + 1, st + 2, st, st + 2, st + 3])

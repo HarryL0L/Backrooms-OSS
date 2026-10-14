@@ -32,6 +32,8 @@ func _init() -> void:
 	materials[ChunkBuilder.MAT_SHAFT].render_priority = 2
 	materials[ChunkBuilder.MAT_GRIME] = _mat("concrete", {"kind": 3})
 	materials[ChunkBuilder.MAT_BRICK] = _mat("concrete", {"kind": 4})
+	materials[ChunkBuilder.MAT_HALO] = _mat("light_halo")
+	materials[ChunkBuilder.MAT_HALO].render_priority = 3
 
 
 func set_world_seed(seed_value: int) -> void:
