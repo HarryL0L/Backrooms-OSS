@@ -1,6 +1,6 @@
 # Backrooms-OSS
 
-An open source, infinite **Backrooms** exploration game for **Android** (and Linux/Windows), built with [Godot 4.5](https://godotengine.org).
+An open source, infinite **Backrooms** exploration game for **Android** (and Linux/Windows), built with [Godot 4.7](https://godotengine.org).
 
 You noclipped out of reality. The hum of fluorescent lights, old moist carpet, and rooms that never end. Walk from the mono-yellow **Lobby** into the echoing **Poolrooms**, the concrete **Habitable Zone**, the cramped **Pipe Dreams** tunnels and the pitch-black **Unlit Halls**, all part of one seamless, endless world with no loading screens.
 
@@ -20,7 +20,7 @@ You noclipped out of reality. The hum of fluorescent lights, old moist carpet, a
 
 - **Infinite, seamless world.** Minecraft-style chunk streaming: chunks are generated nearest-first on background threads and uploaded under a strict per-frame time budget, so you can't see the world being built. Generation is deterministic from a seed, so any seed can be shared.
 - **Graphics presets** (Low / Medium / High / Max), plus soft light halos and haze that imitate volumetric fog on the Mobile renderer.
-- **Experimental Ultra build** (Forward+ renderer): adds SSR, SSAO, SSIL bounce light, volumetric fog and SMAA. Desktop builds always use it. On Android it **crashes at startup on many phones** (notably Mali GPUs), because the Forward+ renderer fails to initialise before the game's code runs. Use the standard APK on phones unless you know your device handles Forward+.
+- **Ultra build** (Forward+ renderer): adds SSR, SSAO, SSIL bounce light, volumetric fog and SMAA. Desktop builds always use it. On phones it needs a fast GPU. Godot 4.5's old SSR shaders used 5 descriptor sets, more than the 4 Vulkan guarantees, which crashed Mali drivers at startup; Godot 4.6+ fixed that and this project now builds with 4.7. A crash guard also turns effects off automatically if a phone's driver still struggles.
 - **Real-time planar water reflections**, round tiled columns, arched colonnades, chrome pool ladders, skylights and a dark-green waterline band in the Poolrooms.
 - **Interconnected levels.** Large meandering regions turn the Lobby into the Poolrooms, the Habitable Zone or the Unlit Halls. Borders always have doorways, so everything connects.
 - **Realistic lighting at mobile cost.** Each fixture's light is baked into the geometry as the chunk generates: direct light with wall occlusion through doorways, colored bounce light, and contact shadows. On top of that come bloom, fog, filmic tonemapping, mirror-like water reflections of the ceiling lights, underwater caustics, glossy puddles and a hand-held flashlight with optional real-time shadows. Faulty tubes flicker, and their buzzing is synced to the flicker.
@@ -58,7 +58,7 @@ Everything except the sticks can be rebound in **Settings → Bindings**.
 
 ## Building from source
 
-1. Install [Godot 4.5.1](https://godotengine.org/download) (standard build, not .NET).
+1. Install [Godot 4.7](https://godotengine.org/download) (standard build, not .NET).
 2. Open `project.godot` and press **Play**.
 3. To build for Android, install the Android export templates and an Android SDK (see [Godot's Android export docs](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_android.html)), then use **Project → Export → Android**. The non-Gradle export is used, so no Android Studio is needed.
 

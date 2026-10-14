@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  GODOT_VERSION: 4.5.1
+  GODOT_VERSION: "4.7"
 
 jobs:
   build:
@@ -55,7 +55,7 @@ jobs:
           mkdir -p ~/.config/godot
           keytool -genkeypair -v -keystore ~/debug.keystore -storepass android -alias androiddebugkey \
             -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          cat > ~/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres <<EOT
+          cat > ~/.config/godot/editor_settings-$(echo "$GODOT_VERSION" | cut -d. -f1-2).tres <<EOT
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
