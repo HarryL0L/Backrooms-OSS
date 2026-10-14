@@ -105,6 +105,9 @@ func _ready() -> void:
 func _apply_settings() -> void:
 	camera.fov = Settings.get_value("graphics/fov")
 	flashlight.shadow_enabled = Settings.get_value("graphics/flashlight_shadows")
+	# Without real-time lights the flashlight is computed in the world shaders.
+	shader_flashlight = not Settings.get_value("graphics/realtime_lights")
+	set_flashlight(flashlight_on)
 
 
 func teleport(p: Vector3, p_yaw: float, p_pitch := 0.0) -> void:
@@ -118,11 +121,27 @@ func teleport(p: Vector3, p_yaw: float, p_pitch := 0.0) -> void:
 	flash_rig.global_transform = camera.global_transform
 
 
+var shader_flashlight := false
+
+
 func set_flashlight(on: bool) -> void:
+	var changed := on != flashlight_on
 	flashlight_on = on
-	flashlight.visible = on
-	flash_fill.visible = on
-	flashlight_toggled.emit(on)
+	flashlight.visible = on and not shader_flashlight
+	flash_fill.visible = on and not shader_flashlight
+	_push_flash_globals()
+	if changed:
+		flashlight_toggled.emit(on)
+
+
+## Feeds the shader flashlight (see flashlight() in common.gdshaderinc).
+func _push_flash_globals() -> void:
+	var active := flashlight_on and shader_flashlight
+	RenderingServer.global_shader_parameter_set("flash_params", Vector4(1.0 if active else 0.0, flashlight.spot_range,
+			cos(deg_to_rad(flashlight.spot_angle)), cos(deg_to_rad(flashlight.spot_angle * 0.55))))
+	if active:
+		RenderingServer.global_shader_parameter_set("flash_pos", flash_rig.global_position)
+		RenderingServer.global_shader_parameter_set("flash_dir", -flash_rig.global_basis.z)
 
 
 func toggle_flashlight() -> void:
@@ -359,3 +378,5 @@ func _update_flash_rig(delta: float) -> void:
 	var w := 1.0 - exp(-13.0 * delta)
 	var q := flash_rig.global_basis.get_rotation_quaternion().slerp(target.basis.get_rotation_quaternion(), w)
 	flash_rig.global_transform = Transform3D(Basis(q), target.origin)
+	if shader_flashlight and flashlight_on:
+		_push_flash_globals()

@@ -87,5 +87,5 @@ void fragment() {
 	SPECULAR = 0.4;
 	NORMAL_MAP = texture(noise_normal, uv * 0.9).rgb;
 	NORMAL_MAP_DEPTH = 0.6;
-	EMISSION = col * v_light + extra + dither(FRAGCOORD.xy);
+	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 1.0 - rough) + extra + dither(FRAGCOORD.xy);
 }

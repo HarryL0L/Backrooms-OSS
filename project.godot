@@ -67,3 +67,15 @@ world_time={
 "type": "float",
 "value": 0.0
 }
+flash_pos={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+flash_dir={
+"type": "vec3",
+"value": Vector3(0, 0, -1)
+}
+flash_params={
+"type": "vec4",
+"value": Vector4(0, 24, 0.88, 0.95)
+}

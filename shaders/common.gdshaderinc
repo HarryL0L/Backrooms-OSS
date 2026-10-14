@@ -110,6 +110,33 @@ bool below_reflection_plane(vec3 wpos, vec3 cam) {
 	return cam.y < REFLECT_PLANE && wpos.y < REFLECT_PLANE;
 }
 
+// Shader-based flashlight, used instead of a SpotLight3D when real-time lights
+// are disabled (some Mali drivers corrupt every Forward+ frame that processes
+// a light node). Set every frame by Player: flash_params = (on, range,
+// cos(outer angle), cos(inner angle)).
+global uniform vec3 flash_pos;
+global uniform vec3 flash_dir;
+global uniform vec4 flash_params;
+
+vec3 flashlight(vec3 wpos, vec3 n, vec3 cam, float gloss) {
+	if (flash_params.x < 0.5) {
+		return vec3(0.0);
+	}
+	vec3 to_light = flash_pos - wpos;
+	float d = length(to_light);
+	vec3 l = to_light / max(d, 0.0001);
+	float cone = smoothstep(flash_params.z, flash_params.w, dot(-l, flash_dir));
+	if (cone <= 0.0) {
+		return vec3(0.0);
+	}
+	float fall = 1.0 - clamp(d / flash_params.y, 0.0, 1.0);
+	float att = fall * fall / (1.0 + d * d * 0.06);
+	float ndl = max(dot(n, l), 0.0);
+	vec3 v = normalize(cam - wpos);
+	float spec = pow(max(dot(n, normalize(l + v)), 0.0), mix(8.0, 96.0, gloss)) * gloss * 1.5;
+	return vec3(1.0, 0.93, 0.80) * 5.0 * cone * att * (ndl + spec * ndl);
+}
+
 float dither(vec2 frag) {
 	return (hash12(frag) - 0.5) / 255.0;
 }

@@ -9,10 +9,12 @@ uniform vec3 base_color : source_color = vec3(0.80, 0.79, 0.50);
 uniform vec3 stripe_color : source_color = vec3(0.62, 0.68, 0.64);
 
 varying vec3 v_light;
+varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
@@ -47,5 +49,5 @@ void fragment() {
 	SPECULAR = 0.3;
 	NORMAL_MAP = texture(noise_normal, uv * 1.3).rgb;
 	NORMAL_MAP_DEPTH = 0.3;
-	EMISSION = col * v_light + dither(FRAGCOORD.xy);
+	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.15) + dither(FRAGCOORD.xy);
 }

@@ -8,10 +8,12 @@ uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap_anisotropic, 
 uniform vec3 base_color : source_color = vec3(0.50, 0.46, 0.28);
 
 varying vec3 v_light;
+varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
@@ -31,5 +33,5 @@ void fragment() {
 	SPECULAR = mix(0.2, 0.45, damp);
 	NORMAL_MAP = texture(noise_normal, uv * 3.0).rgb;
 	NORMAL_MAP_DEPTH = 0.8;
-	EMISSION = col * v_light + dither(FRAGCOORD.xy);
+	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.1) + dither(FRAGCOORD.xy);
 }

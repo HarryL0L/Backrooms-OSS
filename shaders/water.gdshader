@@ -40,5 +40,5 @@ void fragment() {
 	ALPHA = clamp(0.22 + fres * 0.75, 0.0, 0.97);
 	ROUGHNESS = 0.03;
 	SPECULAR = 0.7;
-	EMISSION = deep_color * v_light * 0.45 * (1.0 - fres) + refl * min(fres * 1.5 + 0.06, 1.0) + dither(FRAGCOORD.xy);
+	EMISSION = deep_color * v_light * 0.45 * (1.0 - fres) + refl * min(fres * 1.5 + 0.06, 1.0) + deep_color * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.95) + dither(FRAGCOORD.xy);
 }

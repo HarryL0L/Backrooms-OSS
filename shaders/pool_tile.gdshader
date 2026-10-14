@@ -64,5 +64,5 @@ void fragment() {
 	ALBEDO = col * mix(0.85, 1.0, bevel);
 	ROUGHNESS = mix(0.07, 0.7, grout);
 	SPECULAR = 0.6;
-	EMISSION = col * mix(0.85, 1.0, bevel) * v_light + emission_extra + dither(FRAGCOORD.xy);
+	EMISSION = col * mix(0.85, 1.0, bevel) * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.8) + emission_extra + dither(FRAGCOORD.xy);
 }

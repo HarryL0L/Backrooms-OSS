@@ -8,10 +8,12 @@ uniform vec3 tile_color : source_color = vec3(0.84, 0.83, 0.74);
 uniform vec3 bar_color : source_color = vec3(0.60, 0.58, 0.52);
 
 varying vec3 v_light;
+varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
@@ -45,5 +47,5 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = mix(0.95, 0.4, bar);
 	METALLIC = bar * 0.6;
-	EMISSION = col * v_light + dither(FRAGCOORD.xy);
+	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.05) + dither(FRAGCOORD.xy);
 }

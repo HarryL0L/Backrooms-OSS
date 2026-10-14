@@ -166,6 +166,10 @@ func _apply_settings() -> void:
 	chunks.view_radius = int(Settings.get_value("graphics/view_distance"))
 	chunks.set_shadows(Settings.get_value("graphics/flashlight_shadows"))
 	env.glow_enabled = Settings.get_value("graphics/bloom")
+	if fixtures:
+		fixtures.max_lights = FixtureLights.COUNT if Settings.get_value("graphics/realtime_lights") else 0
+		if fixtures.gen:
+			fixtures._place()
 	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if Settings.get_value("graphics/halos") else 0.0)
 	if Settings.is_ultra:
 		EnvironmentFactory.apply_ultra(env, Settings.get_value("graphics/ssr"), Settings.get_value("graphics/ssao"),
@@ -257,6 +261,18 @@ func _check_ultra_rendering() -> void:
 	print("Ultra render check: duplication score %.3f" % dup)
 	if dup < 0.8:
 		return
+	# Known cause (Mali-G77, driver r32p1): any real-time light node makes Forward+
+	# corrupt the frame. Switch to the shader flashlight and no light nodes, then re-check.
+	if Settings.get_value("graphics/realtime_lights"):
+		Settings.set_value("graphics/realtime_lights", false)
+		for i in 4:
+			await RenderingServer.frame_post_draw
+		img = get_viewport().get_texture().get_image()
+		dup = RenderCheck.row_block_duplication(img) if img else 1.0
+		print("Ultra render check after disabling real-time lights: %.3f" % dup)
+		if dup < 0.8:
+			hud.show_level("Compatibility mode", "This GPU driver garbles real-time lights, so they were switched off. The flashlight still works.")
+			return
 	var dlg := AcceptDialog.new()
 	dlg.title = "Graphics driver problem"
 	dlg.dialog_text = ("This phone's GPU driver (%s) corrupts the image with the Ultra renderer.\n\n"

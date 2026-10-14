@@ -40,5 +40,5 @@ void fragment() {
 	ALBEDO = col;
 	METALLIC = metal;
 	ROUGHNESS = r;
-	EMISSION = col * v_light * (1.0 - metal * 0.85) + spec * mix(vec3(1.0), col, metal) + dither(FRAGCOORD.xy);
+	EMISSION = col * v_light * (1.0 - metal * 0.85) + spec * mix(vec3(1.0), col, metal) + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 1.0 - r) + dither(FRAGCOORD.xy);
 }
