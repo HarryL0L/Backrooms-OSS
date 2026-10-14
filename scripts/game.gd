@@ -236,11 +236,36 @@ func _enter_menu() -> void:
 		main_menu.show()
 		if Settings.is_ultra:
 			get_tree().create_timer(6.0).timeout.connect(Settings.mark_ultra_stable)
+			get_tree().create_timer(3.0).timeout.connect(_check_ultra_rendering)
 			var msg := Settings.ultra_guard_message()
 			if msg != "":
 				hud.show_level("Safe mode", msg)
 		hud.fade_to(0.0, 1.2)
 		_focus_first(main_menu))
+
+
+## Detects the Forward+ driver corruption (see RenderCheck) once per launch
+## and points the player to the standard build.
+func _check_ultra_rendering() -> void:
+	if state != State.MENU or Diagnostics.enabled():
+		return
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	if img == null:
+		return
+	var dup := RenderCheck.row_block_duplication(img)
+	print("Ultra render check: duplication score %.3f" % dup)
+	if dup < 0.8:
+		return
+	var dlg := AcceptDialog.new()
+	dlg.title = "Graphics driver problem"
+	dlg.dialog_text = ("This phone's GPU driver (%s) corrupts the image with the Ultra renderer.\n\n"
+		+ "This is a driver bug, not your settings. Please install the standard Backrooms-OSS.apk instead,\n"
+		+ "which has the same game and works on this device.") % RenderingServer.get_video_adapter_name()
+	dlg.dialog_autowrap = true
+	dlg.min_size = Vector2i(900, 300)
+	main_menu.add_child(dlg)
+	dlg.popup_centered()
 
 
 func new_game() -> void:
