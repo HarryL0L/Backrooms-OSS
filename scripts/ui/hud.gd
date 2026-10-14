@@ -136,6 +136,11 @@ func set_fade(alpha: float) -> void:
 	_fade.color.a = alpha
 
 
+## Colour of the full-screen fade (black normally, white for the Field door).
+func set_fade_color(c: Color) -> void:
+	_fade.color = Color(c.r, c.g, c.b, _fade.color.a)
+
+
 func story(lines: Array, per_line := 2.6) -> void:
 	for line in lines:
 		_story.text = line

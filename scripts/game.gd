@@ -6,6 +6,7 @@ enum State { BOOT, MENU, LOADING, PLAYING, PAUSED, EDIT_TOUCH }
 
 const SAVE_PATH := "user://save.cfg"
 const MENU_SEED := 7355608
+const FIELD_NAME := "Level 10 - The Field"
 const SUBTITLES := [
 	"Mono-yellow wallpaper. Damp carpet. The hum.",
 	"Warm water. White tiles. Nobody else.",
@@ -24,6 +25,11 @@ var env: Environment
 var reflection: WaterReflection
 var fixtures: FixtureLights
 var ripples: WaterRipples
+var odd_doors: OddDoors
+var field: FieldLevel          # Level 10, only while you're in it
+var world_env: WorldEnvironment
+var _in_field := false
+var _transition := false
 
 var hud: HUD
 var touch: TouchControls
@@ -53,10 +59,10 @@ func _ready() -> void:
 	print("Backrooms-OSS renderer: ", RenderingServer.get_current_rendering_method(),
 			" (configured ", ProjectSettings.get_setting("rendering/renderer/rendering_method"), ")")
 	mats = WorldMaterials.new()
-	var we := WorldEnvironment.new()
+	world_env = WorldEnvironment.new()
 	env = EnvironmentFactory.make()
-	we.environment = env
-	add_child(we)
+	world_env.environment = env
+	add_child(world_env)
 	chunks = ChunkManager.new()
 	chunks.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(chunks)
@@ -74,6 +80,11 @@ func _ready() -> void:
 	ripples.material = mats.materials[ChunkBuilder.MAT_WATER]
 	ripples.player = player
 	add_child(ripples)
+	odd_doors = OddDoors.new()
+	odd_doors.process_mode = Node.PROCESS_MODE_PAUSABLE
+	odd_doors.target = player
+	odd_doors.door_entered.connect(_on_odd_door)
+	add_child(odd_doors)
 	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
 		fixtures.target = player
@@ -211,6 +222,8 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		if fixtures:
 			fixtures.gen = gen
 		ripples.gen = gen
+		odd_doors.clear()
+		odd_doors.gen = gen
 		_biome = -1
 	chunks.target = player
 	player.teleport(pos, yaw, pitch)
@@ -241,6 +254,8 @@ func _enter_menu() -> void:
 	var sv: int = save.get("seed", MENU_SEED)
 	var sg := WorldGen.new(sv)
 	var pos: Vector3 = save.get("pos", sg.spawn_position())
+	if save.has("field_exit"):
+		pos = sg.spawn_position()
 	_load_world(sv, pos, save.get("yaw", 0.0), 0.0, func() -> void:
 		state = State.MENU
 		player.set_physics_process(false)
@@ -303,6 +318,8 @@ func new_game() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	_play_time = 0.0
 	await hud.fade_to(1.0, 0.6)
+	if _in_field:
+		_leave_field()
 	_world_seed = -1
 	var g := WorldGen.new(seed_value)
 	_load_world(seed_value, g.spawn_position(), PI * 0.25, 0.0, func() -> void:
@@ -331,6 +348,16 @@ func continue_game() -> void:
 	main_menu.hide()
 	_play_time = save.get("time", 0.0)
 	await hud.fade_to(1.0, 0.4)
+	if save.has("field_exit"):
+		# Saved in the Field: load the Backrooms world (for the way back) at its
+		# spawn, then go straight to the Field.
+		var sg := WorldGen.new(save.seed)
+		_load_world(save.seed, sg.spawn_position(), 0.0, 0.0, func() -> void:
+			player.set_flashlight(false)
+			_start_playing()
+			_enter_field(save.field_exit, save.pos, save.yaw)
+			hud.fade_to(0.0, 1.0))
+		return
 	_load_world(save.seed, save.pos, save.yaw, save.get("pitch", 0.0), func() -> void:
 		player.set_flashlight(save.get("flashlight", false))
 		_start_playing()
@@ -356,7 +383,8 @@ func pause() -> void:
 	_update_touch_visibility()
 	var c := gen.cell_of(player.global_position)
 	var info := pause_menu.find_child("Info", true, false) as Label
-	info.text = "%s\nSeed %d  ·  %s explored" % [WorldGen.BIOME_NAMES[gen.biome_at(c.x, c.y)], gen.seed_value, _format_time(_play_time)]
+	var where: String = FIELD_NAME if _in_field else WorldGen.BIOME_NAMES[gen.biome_at(c.x, c.y)]
+	info.text = "%s\nSeed %d  ·  %s explored" % [where, gen.seed_value, _format_time(_play_time)]
 	pause_menu.show()
 	_focus_first(pause_menu)
 	_write_save()
@@ -379,6 +407,8 @@ func exit_to_menu() -> void:
 	pause_menu.hide()
 	get_tree().paused = false
 	await hud.fade_to(1.0, 0.5)
+	if _in_field:
+		_leave_field()
 	_enter_menu()
 
 
@@ -521,6 +551,8 @@ func _process(delta: float) -> void:
 			_autosave_t = 0.0
 			_write_save()
 		hud.set_stamina(player.stamina, player.exhausted)
+	if _in_field:
+		return
 	_scan_t -= delta
 	if _scan_t <= 0.0:
 		_scan_t = 0.25
@@ -569,6 +601,97 @@ func _update_reflection() -> void:
 	reflection.set_active(_biome == WorldGen.POOL and int(Settings.get_value("graphics/water_reflections")) > 0)
 
 
+# ---------------------------------------------------------------- field ---
+
+func _on_odd_door(door: OddDoor) -> void:
+	if state != State.PLAYING or _transition or _in_field:
+		return
+	_transition = true
+	player.controls_enabled = false
+	await door.open()
+	hud.set_fade_color(Color(1.0, 0.98, 0.94))
+	await hud.fade_to(1.0, 0.9)
+	_enter_field()
+	hud.show_level(FIELD_NAME, "Warm wind. Endless grass. The door is gone.")
+	await hud.fade_to(0.0, 2.2)
+	hud.set_fade_color(Color.BLACK)
+	player.controls_enabled = true
+	_transition = false
+
+
+## Swaps the Backrooms out and the Field in. With no arguments it's a fresh
+## arrival; a saved game passes the exit door and player position back.
+func _enter_field(exit_pos := Vector3.INF, pos := Vector3.INF, yaw := 0.0) -> void:
+	_in_field = true
+	field = FieldLevel.new()
+	field.process_mode = Node.PROCESS_MODE_PAUSABLE
+	field.player = player
+	add_child(field)
+	field.build(gen.hashi(int(_play_time * 10.0), gen.seed_value, 811), exit_pos)
+	field.exit_entered.connect(_on_field_exit)
+	world_env.environment = field.environment
+	chunks.visible = false
+	chunks.process_mode = Node.PROCESS_MODE_DISABLED
+	odd_doors.visible = false
+	odd_doors.process_mode = Node.PROCESS_MODE_DISABLED
+	if fixtures:
+		fixtures.max_lights = 0
+		fixtures._place()
+	ripples.active = false
+	reflection.set_active(false)
+	ambience.outdoor = true
+	player.field_mode = true
+	player.set_flashlight(false)
+	player.camera.far = 9000.0
+	if pos.is_finite():
+		player.teleport(pos, yaw)
+	else:
+		player.teleport(field.arrival(), 0.0)
+
+
+func _leave_field() -> void:
+	_in_field = false
+	if field:
+		field.queue_free()
+		field = null
+	world_env.environment = env
+	chunks.visible = true
+	chunks.process_mode = Node.PROCESS_MODE_PAUSABLE
+	odd_doors.visible = true
+	odd_doors.process_mode = Node.PROCESS_MODE_PAUSABLE
+	ambience.outdoor = false
+	player.field_mode = false
+	player.camera.far = 95.0
+	_apply_settings()
+
+
+func _on_field_exit() -> void:
+	if state != State.PLAYING or _transition:
+		return
+	_transition = true
+	player.controls_enabled = false
+	await field.open_exit()
+	await hud.fade_to(1.0, 0.8)
+	_leave_field()
+	# Back into the Backrooms, but somewhere else entirely.
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var g := gen
+	var c := g.cell_of(Vector3.ZERO)
+	for _try in 200:
+		var a := rng.randf() * TAU
+		var d := rng.randf_range(300.0, 900.0) / WorldGen.CELL
+		c = Vector2i(int(cos(a) * d), int(sin(a) * d)) + g.spawn_cell
+		var b := g.biome_at(c.x, c.y)
+		if b != WorldGen.POOL and not g.is_solid(c.x, c.y, b) and not g.pool_noise(c.x, c.y):
+			break
+	var pos := Vector3((c.x + 0.5) * WorldGen.CELL, 0.05, (c.y + 0.5) * WorldGen.CELL)
+	_load_world(g.seed_value, pos, rng.randf() * TAU, 0.0, func() -> void:
+		_start_playing()
+		_transition = false
+		hud.fade_to(0.0, 1.5))
+
+
 # ----------------------------------------------------------------- save ---
 
 func _write_save() -> void:
@@ -581,6 +704,8 @@ func _write_save() -> void:
 	cf.set_value("save", "pitch", player.pitch)
 	cf.set_value("save", "flashlight", player.flashlight_on)
 	cf.set_value("save", "time", _play_time)
+	if _in_field:
+		cf.set_value("save", "field_exit", field.exit_pos)
 	cf.save(SAVE_PATH)
 
 

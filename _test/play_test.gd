@@ -98,4 +98,54 @@ func _process(d):
 						mn = minf(mn, v)
 						mx = maxf(mx, v)
 				print("ripple tex format=", rimg.get_format(), " min=", mn, " max=", mx, " origin=", game.ripples._origin, " active=", game.ripples.active)
+				# Find a mysterious door and stand in front of it.
+				var od = game.odd_doors
+				var rc := Vector2i(floori(float(game.gen.spawn_cell.x) / od.REGION), floori(float(game.gen.spawn_cell.y) / od.REGION))
+				var dp := Vector3.INF
+				for rr in range(0, 12):
+					for dz in range(-rr, rr + 1):
+						for dx in range(-rr, rr + 1):
+							if dp == Vector3.INF:
+								var dr: Dictionary = od.door_in_region(rc + Vector2i(dx, dz))
+								if not dr.is_empty():
+									dp = dr.pos
+				print("odd door at ", dp)
+				game.player.teleport(dp + Vector3(2.2, 0.05, 0.0), PI * 0.5, 0.0)
+				step = 12; t = 0
+		12:
+			if t > 3.0 and game.chunks.is_area_ready(game.player.global_position, 1):
+				shot("odd_door"); step = 13; t = 0
+				Input.action_press("move_forward")
+		13:
+			if game._in_field or t > 8.0:
+				Input.action_release("move_forward")
+				print("in field: ", game._in_field)
+				step = 14; t = 0
+		14:
+			if t > 4.0:
+				shot("field_arrival"); step = 15; t = 0
+				var pl = game.player
+				pl.teleport(pl.global_position, pl.yaw + PI * 0.75, 0.05)
+		15:
+			if t > 1.0:
+				shot("field_side"); step = 16; t = 0
+				# Stand near the exit door, looking at it.
+				var ep: Vector3 = game.field.exit_pos
+				var to := Vector3(-ep.x, 0, -ep.z).normalized()
+				var stand := FieldLevel.ground_at(ep.x + to.x * 6.0, ep.z + to.z * 6.0) + Vector3(0, 0.1, 0)
+				game.player.teleport(stand, atan2(to.x, to.z), 0.0)
+				print("exit door at ", ep, " dist from arrival ", Vector2(ep.x, ep.z).length())
+		16:
+			if t > 2.0:
+				shot("field_exit_door"); step = 17; t = 0
+				Input.action_press("move_forward")
+		17:
+			if not game._in_field or t > 10.0:
+				Input.action_release("move_forward")
+				print("left field: ", not game._in_field)
+				step = 18; t = 0
+		18:
+			if t > 6.0:
+				shot("back_in_backrooms")
+				print("state=", game.state, " pos=", game.player.global_position)
 				get_tree().quit()

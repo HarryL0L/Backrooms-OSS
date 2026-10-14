@@ -7,7 +7,7 @@ extends CharacterBody3D
 signal footstep(surface: int, strength: float)
 signal flashlight_toggled(on: bool)
 
-enum { SURF_CARPET, SURF_TILE, SURF_CONCRETE, SURF_WATER }
+enum { SURF_CARPET, SURF_TILE, SURF_CONCRETE, SURF_WATER, SURF_GRASS }
 
 const WALK := 2.6
 const SPRINT := 4.9
@@ -55,6 +55,8 @@ var _climb_to := Vector3.ZERO
 var _roll := 0.0
 var _idle_t := 0.0
 var _safe_pos := Vector3.ZERO
+## True while in the outdoor Field level (grass, no pools, no Backrooms rules).
+var field_mode := false
 
 
 func _ready() -> void:
@@ -197,6 +199,8 @@ static func _is_emulated_mouse(event: InputEvent) -> bool:
 
 
 func surface_at() -> int:
+	if field_mode:
+		return SURF_GRASS
 	if global_position.y < WorldGen.WATER_Y - 0.05:
 		return SURF_WATER
 	var c := gen.cell_of(global_position)
@@ -209,7 +213,7 @@ func surface_at() -> int:
 
 
 func in_water() -> bool:
-	return global_position.y < WorldGen.WATER_Y - 0.1
+	return not field_mode and global_position.y < WorldGen.WATER_Y - 0.1
 
 
 func _physics_process(delta: float) -> void:
@@ -265,9 +269,9 @@ func _physics_process(delta: float) -> void:
 	_update_crouch(delta)
 	_update_bob(delta, input)
 	if is_on_floor():
-		if global_position.y > -1.0:
+		if global_position.y > -1.0 or field_mode:
 			_safe_pos = global_position
-	if global_position.y < -12.0:
+	if global_position.y < (_safe_pos.y - 30.0 if field_mode else -12.0):
 		teleport(_safe_pos + Vector3(0, 0.2, 0), yaw, pitch)
 	_update_flash_rig(delta)
 

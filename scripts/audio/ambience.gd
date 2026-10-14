@@ -15,6 +15,9 @@ const REVERB := [
 var gen: WorldGen
 var player: Player
 var enabled := false
+## Outdoors (the Field): Backrooms loops and distant noises go silent and the
+## reverb dries up; footsteps still play.
+var outdoor := false
 
 var _hum: AudioStreamPlayer
 var _drone: AudioStreamPlayer
@@ -74,7 +77,7 @@ func _generate() -> void:
 	g.buzz = AudioSynth.buzz()
 	g.click = AudioSynth.click()
 	var steps := []
-	for surf in 4:
+	for surf in 5:
 		var vs := []
 		for v in 4:
 			vs.append(AudioSynth.footstep(surf, v))
@@ -161,16 +164,17 @@ func _process(delta: float) -> void:
 			_buzz_seed = f[1]
 		_update_reverb()
 	var k := 1.0 - exp(-2.5 * delta)
-	var on := 1.0 if enabled else 0.0
-	_hum.volume_db = lerpf(_hum.volume_db, linear_to_db(0.02 + _hum_level * 0.5 * on + 0.0001), k)
+	var on := 1.0 if enabled and not outdoor else 0.0
+	var hum_v := 0.0 if outdoor else 0.02 + _hum_level * 0.5 * on
+	_hum.volume_db = lerpf(_hum.volume_db, linear_to_db(hum_v + 0.0001), k)
 	_drone.volume_db = lerpf(_drone.volume_db, linear_to_db(0.22 * on + 0.0001), k)
 	_water.volume_db = lerpf(_water.volume_db, linear_to_db(_water_level * 0.5 * on + 0.0001), k)
 	var fl := WorldGen.flicker(_buzz_seed, world_time()) if _buzz_seed > 0.0 else 1.0
 	var buzz_v := 0.0
-	if _buzz_seed > 0.0 and enabled:
+	if _buzz_seed > 0.0 and enabled and not outdoor:
 		buzz_v = 0.35 if fl > 0.0 and fl < 1.0 else (0.08 if fl >= 1.0 else 0.0)
 	_buzz.volume_db = linear_to_db(buzz_v + 0.0001)
-	if enabled:
+	if enabled and not outdoor:
 		_distant_t -= delta
 		if _distant_t <= 0.0:
 			_distant_t = _rng.randf_range(35.0, 90.0)
@@ -197,7 +201,7 @@ func _update_reverb() -> void:
 	var rev := AudioServer.get_bus_effect(idx, 0) as AudioEffectReverb
 	if rev == null:
 		return
-	var r: Dictionary = REVERB[_biome]
+	var r: Dictionary = {"room": 0.3, "damp": 0.9, "wet": 0.03} if outdoor else REVERB[_biome]
 	rev.room_size = lerpf(rev.room_size, r.room, 0.35)
 	rev.damping = lerpf(rev.damping, r.damp, 0.35)
 	rev.wet = lerpf(rev.wet, r.wet, 0.35)

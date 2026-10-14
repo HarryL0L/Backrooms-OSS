@@ -154,6 +154,8 @@ static func footstep(surface: int, variant: int) -> AudioStreamWAV:
 	rng.seed = 100 + surface * 17 + variant * 3
 	if surface == Player.SURF_WATER:
 		return _water_step(rng, variant)
+	if surface == Player.SURF_GRASS:
+		return _grass_step(rng)
 	var dur := 0.3
 	var n := int(RATE * dur)
 	var s := PackedFloat32Array()
@@ -195,6 +197,73 @@ static func footstep(surface: int, variant: int) -> AudioStreamWAV:
 	return to_wav(_normalize(s, 0.8))
 
 
+## Step on short grass: a soft, damped thump and a crisp rustle of blades.
+static func _grass_step(rng: RandomNumberGenerator) -> AudioStreamWAV:
+	var n := int(RATE * 0.32)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var th := _Svf.new(220.0 * rng.randf_range(0.85, 1.15), 1.0)
+	var ru := _Svf.new(4200.0 * rng.randf_range(0.8, 1.2), 1.6)
+	var toe := rng.randf_range(0.06, 0.09)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		th.step(x)
+		ru.step(x)
+		var tt := t - toe
+		var impact := exp(-t * 45.0) * minf(t * RATE / 40.0, 1.0) + (0.0 if tt < 0.0 else exp(-tt * 55.0) * 0.5)
+		# Rustle: many tiny blade contacts, swelling and dying over the roll.
+		var rustle := exp(-pow((t - 0.07) / 0.06, 2.0)) * (0.6 + 0.4 * rng.randf())
+		s[i] = th.low * impact * 2.5 + ru.band * rustle * 0.5
+	for i in 200:
+		s[n - 1 - i] *= float(i) / 200.0
+	return to_wav(_normalize(s, 0.7))
+
+
+## Outdoor wind: broadband noise whose colour and level drift in slow gusts.
+static func wind() -> AudioStreamWAV:
+	var length := RATE * 12
+	var n := length + RATE
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	var lo := _Svf.new(380.0, 0.9)
+	var hi := _Svf.new(1600.0, 2.5)
+	var g := 0.4
+	var gt := 0.5
+	for i in n:
+		if i % 4410 == 0:
+			gt = rng.randf_range(0.15, 1.0)
+		g += 0.00004 * (gt - g)
+		var x := rng.randf_range(-1.0, 1.0)
+		lo.f = 2.0 * sin(PI * (250.0 + 500.0 * g) / RATE)
+		lo.step(x)
+		hi.step(x)
+		s[i] = lo.low * (0.4 + g) + hi.band * g * g * 0.12
+	return to_wav(_normalize(_make_loop(s, length), 0.6), true)
+
+
+## Thin draught whistling through a door gap.
+static func draught() -> AudioStreamWAV:
+	var length := RATE * 6
+	var n := length + RATE / 2
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 78
+	var bp := _Svf.new(900.0, 0.12)
+	var lo := _Svf.new(300.0, 1.0)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		bp.f = 2.0 * sin(PI * (820.0 + 90.0 * sin(t * 0.7) + 40.0 * sin(t * 2.3)) / RATE)
+		bp.step(x)
+		lo.step(x)
+		s[i] = bp.band * (0.5 + 0.5 * sin(t * 0.9)) * 0.2 + lo.low * 0.6
+	return to_wav(_normalize(_make_loop(s, length), 0.5), true)
+
+
 static func _water_step(rng: RandomNumberGenerator, variant: int) -> AudioStreamWAV:
 	var n := int(RATE * 0.6)
 	var s := PackedFloat32Array()
@@ -221,7 +290,7 @@ static func _water_step(rng: RandomNumberGenerator, variant: int) -> AudioStream
 
 ## Chamberlin state-variable filter (low / band / high outputs).
 class _Svf:
-	var f := 0.0
+	var f := 0.0                       # writable: callers may sweep the cutoff
 	var q := 1.0
 	var low := 0.0
 	var band := 0.0
