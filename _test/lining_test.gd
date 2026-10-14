@@ -29,6 +29,8 @@ func _process(delta):
 				game.hud.set_fade(0.0)
 				# Face away from candidates: pick any wall 3-6 m away that's out of view.
 				var c: Array = L._candidates(3.0, 6.0)
+				if c.is_empty():
+					c = L._candidates(2.2, 16.0)
 				print("candidates: ", c.size())
 				if c.is_empty():
 					get_tree().quit(); return

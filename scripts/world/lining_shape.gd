@@ -40,42 +40,67 @@ func _relief(p: Vector2) -> float:
 
 
 func _face(p: Vector2) -> float:
-	var q := p - Vector2(0.035, 1.64)
-	q = Vector2(q.x * cos(0.12) - q.y * sin(0.12), q.x * sin(0.12) + q.y * cos(0.12))
+	# Head tilted hard to one side, jaw dropped far too low.
+	var q := p - Vector2(0.06, 1.70)
+	var ang := 0.42
+	q = Vector2(q.x * cos(ang) - q.y * sin(ang), q.x * sin(ang) + q.y * cos(ang))
 	var f := 0.0
-	f += 0.022 * exp(-pow(q.x / 0.014, 2.0) - pow((q.y + 0.005) / 0.032, 2.0))          # nose
-	f += 0.012 * exp(-pow(q.x / 0.06, 2.0) - pow((q.y - 0.045) / 0.012, 2.0))           # brow
+	f += 0.02 * exp(-pow(q.x / 0.012, 2.0) - pow((q.y + 0.0) / 0.03, 2.0))               # thin nose
+	f += 0.016 * exp(-pow(q.x / 0.055, 2.0) - pow((q.y - 0.05) / 0.011, 2.0))           # heavy brow
 	for sx in [-1.0, 1.0]:
-		f += 0.008 * exp(-pow((q.x - sx * 0.042) / 0.02, 2.0) - pow((q.y + 0.02) / 0.016, 2.0))   # cheeks
-		f -= 0.016 * exp(-pow((q.x - sx * 0.03) / 0.017, 2.0) - pow((q.y - 0.022) / 0.012, 2.0))  # eye hollows
-	f -= 0.03 * exp(-pow(q.x / 0.022, 2.0) - pow((q.y + 0.06) / 0.028, 2.0))           # open mouth
-	f += 0.01 * exp(-pow(q.x / 0.03, 2.0) - pow((q.y + 0.105) / 0.015, 2.0))           # chin
+		f += 0.012 * exp(-pow((q.x - sx * 0.045) / 0.016, 2.0) - pow((q.y + 0.03) / 0.014, 2.0))  # gaunt cheekbones
+		f -= 0.03 * exp(-pow((q.x - sx * 0.029) / 0.016, 2.0) - pow((q.y - 0.026) / 0.014, 2.0))  # deep eye sockets
+	# The scream: a tall gaping mouth pulled downward.
+	f -= 0.055 * exp(-pow(q.x / 0.02, 2.0) - pow((q.y + 0.11) / 0.06, 2.0))
+	f += 0.012 * exp(-pow(q.x / 0.026, 2.0) - pow((q.y + 0.2) / 0.016, 2.0))            # chin, far down
+	return f
+
+
+## Rib ridges and a sunken belly on the torso.
+func _ribs(p: Vector2) -> float:
+	var f := 0.0
+	if absf(p.x - 0.02) < 0.14:
+		var across := 1.0 - pow((p.x - 0.02) / 0.14, 2.0)
+		for k in 6:
+			var ry := 1.38 - k * 0.055 - absf(p.x - 0.02) * 0.35
+			f += 0.0045 * across * exp(-pow((p.y - ry) / 0.012, 2.0))
+		f -= 0.02 * across * exp(-pow((p.y - 0.98) / 0.09, 2.0))                         # sunken belly
 	return f
 
 
 func _build() -> Image:
-	_cap(Vector2(0.035, 1.62), Vector2(0.03, 1.69), 0.085, 0.1)     # head (pushed hardest)
-	_cap(Vector2(0.03, 1.47), Vector2(0.03, 1.55), 0.045, 0.045)    # neck
-	_cap(Vector2(0.02, 1.08), Vector2(0.02, 1.33), 0.15, 0.04)      # chest
-	_cap(Vector2(0.02, 0.85), Vector2(0.02, 1.05), 0.12, 0.022)     # belly
-	_cap(Vector2(-0.17, 1.39), Vector2(0.21, 1.39), 0.055, 0.04)    # shoulders
-	_cap(Vector2(-0.18, 1.38), Vector2(-0.33, 1.63), 0.04, 0.045)   # left upper arm
-	_cap(Vector2(-0.33, 1.63), Vector2(-0.29, 1.92), 0.035, 0.06)   # left forearm
-	_cap(Vector2(0.22, 1.38), Vector2(0.38, 1.66), 0.04, 0.045)     # right upper arm
-	_cap(Vector2(0.38, 1.66), Vector2(0.36, 2.02), 0.035, 0.065)    # right forearm (higher)
-	for side in [-1.0, 1.0]:
-		var palm: Vector2 = Vector2(-0.29, 1.98) if side < 0.0 else Vector2(0.36, 2.08)
-		_cap(palm - Vector2(0, 0.035), palm + Vector2(0, 0.025), 0.042, 0.085)
+	# Almost human, but wrong: stretched neck and limbs, skeletal chest, tilted
+	# head, one shoulder hiked up, fingers far too long, and a third hand.
+	_cap(Vector2(0.05, 1.63), Vector2(0.075, 1.78), 0.08, 0.1)      # head (elongated, tilted)
+	_cap(Vector2(0.02, 1.43), Vector2(0.045, 1.6), 0.035, 0.04)     # long thin neck
+	_cap(Vector2(0.02, 1.08), Vector2(0.02, 1.36), 0.13, 0.035)     # narrow chest
+	_cap(Vector2(0.02, 0.82), Vector2(0.02, 1.02), 0.09, 0.015)     # hollow belly
+	_cap(Vector2(-0.16, 1.36), Vector2(0.2, 1.44), 0.045, 0.035)    # shoulders, right one hiked up
+	_cap(Vector2(-0.16, 1.35), Vector2(-0.31, 1.66), 0.032, 0.04)   # left upper arm
+	_cap(Vector2(-0.31, 1.66), Vector2(-0.27, 2.06), 0.026, 0.055)  # left forearm, too long
+	_cap(Vector2(0.2, 1.43), Vector2(0.37, 1.74), 0.032, 0.04)      # right upper arm
+	_cap(Vector2(0.37, 1.74), Vector2(0.34, 2.2), 0.026, 0.06)      # right forearm, too long
+	var palms := [[Vector2(-0.27, 2.12), -1.0, 1.0], [Vector2(0.34, 2.26), 1.0, 1.0],
+			[Vector2(0.31, 1.52), 1.0, 0.8]]                         # third hand beside the head
+	for pd in palms:
+		var palm: Vector2 = pd[0]
+		var side: float = pd[1]
+		var sc: float = pd[2]
+		_cap(palm - Vector2(0, 0.03) * sc, palm + Vector2(0, 0.025) * sc, 0.036 * sc, 0.08)
 		for f in 5:
-			var ang: float = deg_to_rad(-48.0 + f * 24.0) * side
+			var ang: float = deg_to_rad(-40.0 + f * 20.0) * side
 			var dirv := Vector2(sin(ang), cos(ang))
-			var flen: float = [0.075, 0.105, 0.115, 0.105, 0.085][f]
+			var flen: float = [0.13, 0.17, 0.19, 0.17, 0.14][f] * sc
 			if f == 0:
-				dirv = Vector2(-side * 0.95, 0.1).normalized()
-				flen = 0.08
-			_cap(palm + dirv * 0.035, palm + dirv * (0.035 + flen), 0.015, 0.075)
-	_cap(Vector2(-0.06, 0.2), Vector2(-0.05, 0.85), 0.06, 0.012)     # legs, barely there
-	_cap(Vector2(0.1, 0.2), Vector2(0.09, 0.85), 0.06, 0.012)
+				dirv = Vector2(-side * 0.9, 0.3).normalized()
+				flen = 0.11 * sc
+			# Two joints per finger, the tip bent slightly: spidery.
+			var mid := palm + dirv * (0.03 + flen * 0.55)
+			var tip := mid + dirv.rotated(0.18 * side) * flen * 0.45
+			_cap(palm + dirv * 0.03, mid, 0.011 * sc, 0.075)
+			_cap(mid, tip, 0.009 * sc, 0.07)
+	_cap(Vector2(-0.05, 0.15), Vector2(-0.045, 0.8), 0.045, 0.01)    # legs, barely there
+	_cap(Vector2(0.09, 0.15), Vector2(0.085, 0.8), 0.045, 0.01)
 
 	var nu := RES.x
 	var nv := RES.y
@@ -95,7 +120,7 @@ func _build() -> Image:
 		hgt = nh
 	for j in nv:
 		for i in nu:
-			hgt[i + j * nu] = maxf(hgt[i + j * nu] + _face(_pos(i, j)), 0.0)
+			hgt[i + j * nu] = maxf(hgt[i + j * nu] + _face(_pos(i, j)) + _ribs(_pos(i, j)), 0.0)
 	# Fade to exactly zero at the border so the wall around it is untouched.
 	var img := Image.create(nu, nv, false, Image.FORMAT_RGF)
 	for j in nv:
@@ -105,11 +130,26 @@ func _build() -> Image:
 			if i >= 2 and j >= 2 and i < nu - 2 and j < nv - 2:
 				b = (hgt[k - 2] + hgt[k + 2] + hgt[k - 2 * nu] + hgt[k + 2 * nu] + hgt[k]) * 0.2
 			var cav := clampf((b - hgt[k]) * 40.0, 0.0, 0.6)
+			# Damp, darkened paper spreading around it, and small dark tears
+			# where the fingertips strain the paper.
+			var pp := _pos(i, j)
+			var damp := clampf(raw[k] * 6.0, 0.0, 0.18) + 0.1 * exp(-pow((pp.y - 1.4) / 0.7, 2.0) - pow(pp.x / 0.45, 2.0))
+			cav = clampf(cav + damp + _tears(pp), 0.0, 0.85)
 			var edge := minf(minf(i, nu - 1 - i), minf(j, nv - 1 - j))
 			var fade := clampf(edge / 3.0, 0.0, 1.0)
 			# Image rows go top to bottom; the shader maps y up accordingly.
 			img.set_pixel(i, nv - 1 - j, Color(hgt[k] * fade, cav * fade, 0.0))
 	return img
+
+
+func _tears(p: Vector2) -> float:
+	var t := 0.0
+	for c in [Vector2(-0.33, 2.33), Vector2(-0.18, 2.3), Vector2(0.43, 2.47), Vector2(0.27, 2.45), Vector2(0.45, 1.72)]:
+		var d: Vector2 = p - c
+		# Thin slits, a little slanted.
+		var u: Vector2 = d.rotated(0.6)
+		t += 0.6 * exp(-pow(u.x / 0.03, 2.0) - pow(u.y / 0.0035, 2.0))
+	return t
 
 
 func _pos(i: int, j: int) -> Vector2:
