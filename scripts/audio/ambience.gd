@@ -20,6 +20,7 @@ var enabled := false
 var outdoor := false
 ## Multiplier on the fluorescent hum (The Lining makes it fade out near it).
 var hum_duck := 1.0
+var hum_duck_figure := 1.0
 
 var _hum: AudioStreamPlayer
 var _drone: AudioStreamPlayer
@@ -80,7 +81,7 @@ func _generate() -> void:
 	g.click = AudioSynth.click()
 	# Shared by the doors, the Field and the Poolroom drips; made here, off the
 	# main thread, so they never cause a hitch later.
-	for fn in ["draught", "hum", "wind", "drip", "paper"]:
+	for fn in ["draught", "hum", "wind", "drip", "paper", "exhale"]:
 		AudioSynth.cached(fn)
 	var steps := []
 	for surf in 5:
@@ -171,7 +172,7 @@ func _process(delta: float) -> void:
 		_update_reverb()
 	var k := 1.0 - exp(-2.5 * delta)
 	var on := 1.0 if enabled and not outdoor else 0.0
-	var hum_v := 0.0 if outdoor else (0.02 + _hum_level * 0.5 * on) * hum_duck
+	var hum_v := 0.0 if outdoor else (0.02 + _hum_level * 0.5 * on) * hum_duck * hum_duck_figure
 	_hum.volume_db = lerpf(_hum.volume_db, linear_to_db(hum_v + 0.0001), k)
 	_drone.volume_db = lerpf(_drone.volume_db, linear_to_db(0.22 * on + 0.0001), k)
 	_water.volume_db = lerpf(_water.volume_db, linear_to_db(_water_level * 0.5 * on + 0.0001), k)

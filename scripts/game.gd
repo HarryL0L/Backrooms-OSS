@@ -26,6 +26,7 @@ var reflection: WaterReflection
 var fixtures: FixtureLights
 var ripples: WaterRipples
 var lining: LiningEntity
+var hall_figure: HallFigure
 var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
 var world_env: WorldEnvironment
@@ -92,6 +93,11 @@ func _ready() -> void:
 	lining.player = player
 	lining.ambience = ambience
 	add_child(lining)
+	hall_figure = HallFigure.new()
+	hall_figure.process_mode = Node.PROCESS_MODE_PAUSABLE
+	hall_figure.player = player
+	hall_figure.ambience = ambience
+	add_child(hall_figure)
 	odd_doors = OddDoors.new()
 	odd_doors.process_mode = Node.PROCESS_MODE_PAUSABLE
 	odd_doors.target = player
@@ -237,6 +243,7 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		odd_doors.clear()
 		odd_doors.gen = gen
 		lining.gen = gen
+		hall_figure.gen = gen
 		lining.odd_doors = odd_doors
 		_biome = -1
 	chunks.target = player
@@ -570,6 +577,7 @@ func _process(delta: float) -> void:
 		hud.set_stamina(player.stamina, player.exhausted)
 		_perf_watch(delta)
 	lining.allowed = state == State.PLAYING and not _in_field and not _transition
+	hall_figure.allowed = lining.allowed
 	if _in_field:
 		return
 	_scan_t -= delta

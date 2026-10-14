@@ -37,6 +37,8 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return drip()
 		"paper":
 			return paper()
+		"exhale":
+			return exhale()
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -303,6 +305,27 @@ static func paper() -> AudioStreamWAV:
 		crk.step(x * burst)
 		s[i] = groan.band * env * 0.5 + crk.band * 1.4
 	return to_wav(_normalize(s, 0.6))
+
+
+## A long, low, breathy exhale far down a dark hall.
+static func exhale() -> AudioStreamWAV:
+	var n := int(RATE * 1.6)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 92
+	var f1 := _Svf.new(420.0, 0.6)
+	var f2 := _Svf.new(1100.0, 0.9)
+	for i in n:
+		var t := float(i) / RATE
+		var env := smoothstep(0.0, 0.25, t) * pow(1.0 - t / 1.6, 1.5)
+		var x := rng.randf_range(-1.0, 1.0)
+		# Formants sliding down a little, like air leaving a big chest.
+		f1.f = 2.0 * sin(PI * (420.0 - 120.0 * t) / RATE)
+		f1.step(x)
+		f2.step(x)
+		s[i] = (f1.band * 0.9 + f2.band * 0.25) * env
+	return to_wav(_normalize(s, 0.5))
 
 
 ## Thin draught whistling through a door gap.
