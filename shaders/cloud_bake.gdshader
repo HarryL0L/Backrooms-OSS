@@ -13,11 +13,18 @@ uniform vec3 horizon_color = vec3(0.42, 0.58, 0.82);
 uniform float strip_u0 = 0.0;
 uniform float strip_du = 1.0;
 
-const int NC = 9;
-// x, z of the base centre (m), width radius (m), height (m)
-const vec4 CL[9] = vec4[](
-	vec4(0.0, -15000.0, 5600.0, 9000.0),      // the giant tower ahead, far away
-	vec4(-7500.0, -17500.0, 3600.0, 2600.0),  // its foothills
+const int NC = 13;
+// x, z of the base centre (m), width radius (m), height (m).
+// The giant tower ahead is built like a real cumulonimbus: ordinary cumulus
+// cells stacked and leaning on each other, so it has the same billow size
+// and shading as the smaller clouds around it.
+const vec4 CL[13] = vec4[](
+	vec4(0.0, -15000.0, 4600.0, 2600.0),      // tower: wide base cell
+	vec4(-1500.0, -15400.0, 3300.0, 2900.0),  //        second tier
+	vec4(1300.0, -14800.0, 3000.0, 2700.0),
+	vec4(-300.0, -15200.0, 2800.0, 3000.0),   //        third tier
+	vec4(500.0, -15000.0, 2300.0, 2500.0),    //        top
+	vec4(-7500.0, -17500.0, 3600.0, 2600.0),  // foothills
 	vec4(7800.0, -16500.0, 3900.0, 3000.0),
 	vec4(-7600.0, -6500.0, 1700.0, 1300.0),
 	vec4(8200.0, -5600.0, 1600.0, 1200.0),
@@ -26,7 +33,8 @@ const vec4 CL[9] = vec4[](
 	vec4(1500.0, 11000.0, 2600.0, 2100.0),
 	vec4(-4500.0, 10500.0, 1500.0, 1100.0)
 );
-const float BASE[9] = float[](700.0, 650.0, 700.0, 800.0, 900.0, 780.0, 820.0, 760.0, 900.0);
+const float BASE[13] = float[](700.0, 2300.0, 2500.0, 4300.0, 6200.0,
+		650.0, 700.0, 800.0, 900.0, 780.0, 820.0, 760.0, 900.0);
 
 float hash13(vec3 p) {
 	p = fract(p * 0.1031);
@@ -84,7 +92,7 @@ float density(int i, vec3 p) {
 	vec3 pp = p / (c.z * 0.16) + fi;
 	float n1 = fbm(pp);
 	float n2 = vnoise(pp * 3.7 + 5.0);
-	float dens = d * 3.0 + (n1 - 0.47) * 1.6 + (n2 - 0.5) * 0.35;
+	float dens = d * 3.0 + (n1 - 0.47) * 1.6 + (n2 - 0.5) * 0.2;
 	dens *= smoothstep(0.0, 0.025, y);
 	return clamp(dens * 5.0, 0.0, 1.0);
 }
