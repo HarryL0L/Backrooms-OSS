@@ -110,32 +110,23 @@ func _log_system() -> void:
 # ------------------------------------------------------------------- test ---
 
 func _build_steps() -> void:
-	# Each step changes one more thing; the name says what was just changed.
+	# Round 2: the previous run showed the corruption is in the main render
+	# target itself (4-row blocks duplicated, even with only 2D drawn) and is
+	# independent of every effect. These steps vary the render target instead.
+	var off := {"graphics/lens_fx": false, "graphics/film_grain": false, "graphics/bloom": false,
+		"graphics/halos": false, "graphics/aa": 0, "graphics/ssr": false, "graphics/ssao": false,
+		"graphics/ssil": false, "graphics/volumetric_fog": false, "graphics/water_reflections": 0,
+		"graphics/render_scale": 1.0, "graphics/fsr": false}
 	_steps = [
-		["01 baseline (all effects as configured)", {}],
-		["02 lens effects OFF", {"graphics/lens_fx": false}],
-		["03 film grain OFF", {"graphics/film_grain": false}],
-		["04 bloom OFF", {"graphics/bloom": false}],
-		["05 light halos OFF", {"graphics/halos": false}],
-		["06 anti-aliasing OFF", {"graphics/aa": 0}],
-		["07 render scale 1.0 (no FSR)", {"graphics/render_scale": 1.0, "graphics/fsr": false}],
-		["08 SSR OFF", {"graphics/ssr": false}],
-		["09 SSAO OFF", {"graphics/ssao": false}],
-		["10 SSIL OFF", {"graphics/ssil": false}],
-		["11 volumetric fog OFF", {"graphics/volumetric_fog": false}],
-		["12 water reflections OFF", {"graphics/water_reflections": 0}],
-		["13 flashlight shadows OFF", {"graphics/flashlight_shadows": false}],
-		["14 3D world hidden (2D only)", {"__hide_world": true}],
-		["15 restore: lens effects ON only", {"__restore": true, "graphics/film_grain": false, "graphics/bloom": false,
-				"graphics/halos": false, "graphics/aa": 0, "graphics/ssr": false, "graphics/ssao": false, "graphics/ssil": false,
-				"graphics/volumetric_fog": false}],
-		["16 + bloom ON", {"graphics/bloom": true}],
-		["17 + SMAA ON", {"graphics/aa": 3}],
-		["18 + FXAA instead of SMAA", {"graphics/aa": 4}],
-		["19 + MSAA 2x instead", {"graphics/aa": 1}],
-		["20 + volumetric fog ON", {"graphics/volumetric_fog": true}],
-		["21 + SSR ON", {"graphics/ssr": true}],
-		["22 + SSAO + SSIL ON", {"graphics/ssao": true, "graphics/ssil": true}],
+		["01 baseline (as configured)", {}],
+		["02 all effects OFF", off],
+		["03 + HDR 2D ON (RGBA16F render target)", {"__hdr2d": true}],
+		["04 HDR 2D OFF + no 3D camera (pure 2D)", {"__hdr2d": false, "__camera": false}],
+		["05 HDR 2D ON + no 3D camera (pure 2D)", {"__hdr2d": true}],
+		["06 HDR 2D ON + 3D back on", {"__camera": true}],
+		["07 HDR 2D ON + render scale 0.7 bilinear", {"graphics/render_scale": 0.7}],
+		["08 HDR 2D ON + all effects back ON", {"__restore_effects": true}],
+		["09 HDR 2D OFF again (effects ON)", {"__hdr2d": false}],
 	]
 
 
@@ -179,13 +170,18 @@ func _next_step() -> void:
 		return
 	var s: Array = _steps[_step]
 	var changes: Dictionary = s[1]
-	if changes.has("__restore"):
-		game.chunks.visible = true
+	if changes.has("__restore_effects"):
+		for k in _saved_settings:
+			Settings.values[k] = _saved_settings[k]
 	for k in changes:
-		if k == "__hide_world":
-			game.chunks.visible = false
-		elif not (k as String).begins_with("__"):
-			Settings.values[k] = changes[k]
+		match k:
+			"__hdr2d":
+				get_tree().root.use_hdr_2d = changes[k]
+			"__camera":
+				game.player.camera.current = changes[k]
+			_:
+				if not (k as String).begins_with("__"):
+					Settings.values[k] = changes[k]
 	Settings.apply()
 	Settings.changed.emit()
 	_label.text = "TEST STEP " + s[0]
@@ -194,8 +190,6 @@ func _next_step() -> void:
 
 
 func _capture() -> void:
-	# Two frames 3 frames apart: the scene is static, so a big difference is noise
-	# (film grain, when enabled, also contributes).
 	var a := get_viewport().get_texture().get_image()
 	for i in 3:
 		await RenderingServer.frame_post_draw
@@ -203,34 +197,73 @@ func _capture() -> void:
 	if a == null or b == null:
 		log_line("  capture failed")
 		return
-	var w := 320
-	var h := int(320.0 * a.get_height() / maxf(a.get_width(), 1.0))
-	a.resize(w, h, Image.INTERPOLATE_BILINEAR)
-	b.resize(w, h, Image.INTERPOLATE_BILINEAR)
-	var diff := 0.0
-	var luma := 0.0
-	var hf := 0.0
-	for y in range(0, h, 2):
-		for x in range(0, w - 1, 2):
-			var ca := a.get_pixel(x, y)
-			var cb := b.get_pixel(x, y)
-			diff += absf(ca.get_luminance() - cb.get_luminance())
-			luma += ca.get_luminance()
-			# High-frequency energy: neighbouring-pixel differences (blocky noise raises it).
-			hf += absf(ca.get_luminance() - a.get_pixel(x + 1, y).get_luminance())
-	var n := float((h / 2) * (w / 2))
 	var name := "user://diag/step_%02d.png" % (_step + 1)
-	var full := get_viewport().get_texture().get_image()
-	if full:
-		full.resize(int(full.get_width() * 0.5), int(full.get_height() * 0.5), Image.INTERPOLATE_BILINEAR)
-		full.save_png(name)
-	log_line("  result step %02d: mean_luma=%.3f temporal_noise=%.4f high_freq=%.4f fps=%d  -> %s" % [
-		_step + 1, luma / n, diff / n, hf / n, Engine.get_frames_per_second(), name])
+	var dup := _row_block_duplication(a)
+	var noise := _temporal_noise(a, b)
+	var small := a.duplicate() as Image
+	small.resize(int(a.get_width() * 0.5), int(a.get_height() * 0.5), Image.INTERPOLATE_BILINEAR)
+	small.save_png(name)
+	log_line("  result step %02d: size=%dx%d format=%d hdr2d=%s DUPLICATION=%.3f (%s) temporal_noise=%.4f fps=%d -> %s" % [
+		_step + 1, a.get_width(), a.get_height(), a.get_format(), get_tree().root.use_hdr_2d, dup,
+		"CORRUPTED" if dup > 0.35 else "clean", noise, Engine.get_frames_per_second(), name])
+
+
+## Detects the corruption seen on Mali: each strip of N pixel rows (8 at full
+## resolution on a Mali-G77) is an exact copy of the strip above it. Returns the
+## fraction of non-flat strips that repeat, best over strip sizes and
+## alignments. Validated offline: corrupted captures score 1.0, clean ~0.004.
+func _row_block_duplication(img: Image) -> float:
+	var g := img.duplicate() as Image
+	if g.get_format() != Image.FORMAT_L8:
+		g.convert(Image.FORMAT_RGBA8)
+		g.convert(Image.FORMAT_L8)
+	var w := g.get_width()
+	var h := g.get_height()
+	var d := g.get_data()
+	var best := 0.0
+	for blk in [4, 8]:
+		for phase in range(0, 2 * blk, 2):
+			var informative := 0
+			var matches := 0
+			var y: int = phase
+			while y + 2 * blk <= h:
+				for x in range(0, w, 11):
+					var flat := true
+					var same := true
+					var v0 := d[y * w + x]
+					for i in blk:
+						var px := d[(y + i) * w + x]
+						if absi(px - v0) > 6:
+							flat = false
+						if absi(px - d[(y + blk + i) * w + x]) > 2:
+							same = false
+					if not flat:
+						informative += 1
+						if same:
+							matches += 1
+				y += 2 * blk
+			if informative > 50:
+				best = maxf(best, float(matches) / informative)
+	return best
+
+
+func _temporal_noise(a: Image, b: Image) -> float:
+	var x := a.duplicate() as Image
+	var y := b.duplicate() as Image
+	x.resize(320, 144, Image.INTERPOLATE_BILINEAR)
+	y.resize(320, 144, Image.INTERPOLATE_BILINEAR)
+	var diff := 0.0
+	for j in range(0, 144, 2):
+		for i in range(0, 320, 2):
+			diff += absf(x.get_pixel(i, j).get_luminance() - y.get_pixel(i, j).get_luminance())
+	return diff / (72.0 * 160.0)
 
 
 func _finish() -> void:
 	_done = true
 	game.chunks.visible = true
+	game.player.camera.current = true
+	get_tree().root.use_hdr_2d = false
 	Settings.values = _saved_settings
 	Settings.apply()
 	Settings.changed.emit()

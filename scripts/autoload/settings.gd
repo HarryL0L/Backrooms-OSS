@@ -382,7 +382,9 @@ static func binding_label(s: String) -> String:
 	var v := s.substr(2).to_int()
 	match s.substr(0, 2):
 		"k:":
-			var kc := DisplayServer.keyboard_get_keycode_from_physical(v)
+			# Physical->logical key mapping isn't available on every display server (e.g. Android).
+			var kc := v if OS.has_feature("mobile") or DisplayServer.get_name() == "headless" \
+					else DisplayServer.keyboard_get_keycode_from_physical(v)
 			var label := OS.get_keycode_string(kc if kc != 0 else v)
 			return label if label != "" else "Key %d" % v
 		"m:":
