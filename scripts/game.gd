@@ -29,6 +29,12 @@ var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
 var world_env: WorldEnvironment
 var _in_field := false
+# Frame-rate watchdog (auto quality): seconds of steady play measured, frames
+# counted, and how many times it has stepped quality down this session.
+var _perf_t := 0.0
+var _perf_frames := 0
+var _perf_drops := 0
+var _perf_wait := 20.0
 var _transition := false
 
 var hud: HUD
@@ -366,6 +372,9 @@ func continue_game() -> void:
 
 func _start_playing() -> void:
 	state = State.PLAYING
+	_perf_wait = 20.0
+	_perf_t = 0.0
+	_perf_frames = 0
 	_biome = -1
 	player.controls_enabled = true
 	ambience.enabled = true
@@ -551,6 +560,7 @@ func _process(delta: float) -> void:
 			_autosave_t = 0.0
 			_write_save()
 		hud.set_stamina(player.stamina, player.exhausted)
+		_perf_watch(delta)
 	if _in_field:
 		return
 	_scan_t -= delta
@@ -599,6 +609,37 @@ func _set_biome(b: int, announce: bool) -> void:
 func _update_reflection() -> void:
 	ripples.active = _biome == WorldGen.POOL and gen != null and Settings.get_value("graphics/water_ripples")
 	reflection.set_active(_biome == WorldGen.POOL and int(Settings.get_value("graphics/water_reflections")) > 0)
+
+
+# ----------------------------------------------------------- performance ---
+
+## If play is consistently slow, step the quality preset down (at most twice a
+## session, never below Potato). Skips the first seconds after loading and any
+## transition, which have legitimately slow frames.
+func _perf_watch(delta: float) -> void:
+	if not Settings.get_value("graphics/auto_quality") or _transition or _perf_drops >= 2:
+		return
+	if _perf_wait > 0.0:
+		_perf_wait -= delta
+		return
+	_perf_t += delta
+	_perf_frames += 1
+	if _perf_t < 15.0:
+		return
+	var fps := _perf_frames / _perf_t
+	_perf_t = 0.0
+	_perf_frames = 0
+	var cap: int = Settings.get_value("graphics/fps_cap")
+	var target := 20.0 if cap == 0 else 26.0
+	var preset: int = Settings.get_value("graphics/preset")
+	if fps >= target or preset <= 0:
+		return
+	_perf_drops += 1
+	_perf_wait = 10.0
+	Settings.apply_preset(preset - 1)
+	print("Auto quality: %.1f FPS, lowered to %s" % [fps, Settings.PRESET_NAMES[preset - 1]])
+	hud.show_level("Graphics lowered to " + Settings.PRESET_NAMES[preset - 1],
+			"The game was running slowly (%d FPS). Settings > Graphics to change." % int(fps))
 
 
 # ---------------------------------------------------------------- field ---

@@ -164,10 +164,10 @@ func _note(parent: Control, text: String) -> void:
 func _build_graphics() -> void:
 	var p := _page("Graphics")
 	var h := _row(p, "Quality preset")
-	for i in 4:
+	for i in Settings.PRESETS.size():
 		var b := Button.new()
-		b.text = ["Low", "Medium", "High", "Max"][i]
-		b.custom_minimum_size = Vector2(110, 48)
+		b.text = Settings.PRESET_NAMES[i]
+		b.custom_minimum_size = Vector2(96, 48)
 		b.pressed.connect(func() -> void: Settings.apply_preset(i))
 		h.add_child(b)
 	_slider(p, "Render scale", "graphics/render_scale", 0.4, 1.0, 0.05, "%.2f")
@@ -183,6 +183,8 @@ func _build_graphics() -> void:
 	_toggle(p, "Film grain & vignette", "graphics/film_grain")
 	_toggle(p, "Lens effects (chromatic aberration)", "graphics/lens_fx")
 	_toggle(p, "Light halos (haze glow)", "graphics/halos")
+	_toggle(p, "Auto-lower quality if the game runs slowly", "graphics/auto_quality")
+	_toggle(p, "Per-pixel lighting (off = faster world generation)", "graphics/lightmaps")
 	_toggle(p, "Real-time light highlights (shine on tiles and water)", "graphics/light_highlights")
 	_toggle(p, "Real-time lights (off = shader flashlight, for buggy GPU drivers)", "graphics/realtime_lights")
 	_toggle(p, "Flashlight shadows", "graphics/flashlight_shadows")

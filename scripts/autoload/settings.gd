@@ -73,6 +73,9 @@ func defaults() -> Dictionary:
 		"graphics/realtime_lights": true,
 		"graphics/light_highlights": true,
 		"graphics/water_ripples": true,
+		"graphics/lightmaps": true,
+		"graphics/preset": 2 if is_mobile else 3,
+		"graphics/auto_quality": true,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,
@@ -102,10 +105,41 @@ func _ready() -> void:
 	pad = DEFAULT_PAD.duplicate(true)
 	touch_layout = TOUCH_DEFAULTS.duplicate(true)
 	_setup_audio_buses()
+	var first_run := not FileAccess.file_exists(PATH)
 	load_settings()
+	if first_run:
+		var tier := detect_tier()
+		print("Backrooms-OSS: first launch, detected quality tier ", PRESET_NAMES[tier], " (", device_summary(), ")")
+		apply_preset(tier)
 	_ultra_guard_begin()
 	apply_bindings()
 	apply()
+
+
+## Guesses a quality preset from the hardware on first launch:
+## Potato for very weak devices, Low for weak ones, else the platform default.
+## The in-game frame-rate watchdog (Game) corrects it later if it's wrong.
+func detect_tier() -> int:
+	var default_tier: int = defaults()["graphics/preset"]
+	if not is_mobile:
+		return default_tier
+	var gpu := RenderingServer.get_video_adapter_name()
+	var cores := OS.get_processor_count()
+	var mem_gb := float(OS.get_memory_info().get("physical", 0)) / 1073741824.0
+	var compat := RenderingServer.get_current_rendering_method() == "gl_compatibility"
+	var potato_gpu := RegEx.create_from_string("(?i)(mali-(4\\d\\d|t[678]\\d\\d|g31|g51)|adreno.*\\b(3\\d\\d|4\\d\\d|50\\d)\\b|powervr.*(sgx|ge8))")
+	var low_gpu := RegEx.create_from_string("(?i)(mali-(g52|g57|g68)|adreno.*\\b(51\\d|6[01]\\d)\\b|powervr)")
+	if compat or (mem_gb > 0.0 and mem_gb < 2.5) or cores <= 4 or potato_gpu.search(gpu) != null:
+		return 0
+	if (mem_gb > 0.0 and mem_gb < 4.5) or low_gpu.search(gpu) != null:
+		return 1
+	return default_tier
+
+
+func device_summary() -> String:
+	return "%s, %s, %d cores, %.1f GB RAM" % [RenderingServer.get_video_adapter_name(),
+			RenderingServer.get_current_rendering_method(), OS.get_processor_count(),
+			float(OS.get_memory_info().get("physical", 0)) / 1073741824.0]
 
 
 func get_value(key: String) -> Variant:
@@ -211,23 +245,32 @@ func save_settings() -> void:
 	cf.save(PATH)
 
 
+const PRESET_NAMES := ["Potato", "Low", "Medium", "High", "Max"]
 const PRESETS := [
-	{"graphics/render_scale": 0.6, "graphics/aa": 0, "graphics/view_distance": 2, "graphics/water_reflections": 0,
+	# Potato: for very weak phones. Everything optional is off, half-res render,
+	# per-vertex lighting (cheaper world generation), 30 FPS cap.
+	{"graphics/render_scale": 0.5, "graphics/fsr": false, "graphics/aa": 0, "graphics/view_distance": 2,
+		"graphics/water_reflections": 0, "graphics/water_ripples": false, "graphics/lens_fx": false,
+		"graphics/film_grain": false, "graphics/flashlight_shadows": false, "graphics/halos": false,
+		"graphics/bloom": false, "graphics/light_highlights": false, "graphics/lightmaps": false, "graphics/fps_cap": 0},
+	{"graphics/render_scale": 0.6, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 0, "graphics/view_distance": 2, "graphics/water_reflections": 0,
 		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": false},
-	{"graphics/render_scale": 0.75, "graphics/aa": 1, "graphics/view_distance": 3, "graphics/water_reflections": 1,
+	{"graphics/render_scale": 0.75, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 1, "graphics/view_distance": 3, "graphics/water_reflections": 1,
 		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
-	{"graphics/render_scale": 0.9, "graphics/aa": 1, "graphics/view_distance": 4, "graphics/water_reflections": 2,
+	{"graphics/render_scale": 0.9, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 1, "graphics/view_distance": 4, "graphics/water_reflections": 2,
 		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
-	{"graphics/render_scale": 1.0, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
+	{"graphics/render_scale": 1.0, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
 		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
 ]
 
 
-## Applies a whole quality preset (0 Low .. 3 Max) at once.
+## Applies a whole quality preset (0 Potato .. 4 Max) at once.
 func apply_preset(i: int) -> void:
-	var p: Dictionary = PRESETS[clampi(i, 0, PRESETS.size() - 1)]
+	i = clampi(i, 0, PRESETS.size() - 1)
+	var p: Dictionary = PRESETS[i]
 	for k in p:
 		values[k] = p[k]
+	values["graphics/preset"] = i
 	apply()
 	save_settings()
 	changed.emit()
@@ -250,6 +293,8 @@ func reset_bindings() -> void:
 # ---------------------------------------------------------------- apply ---
 
 func apply() -> void:
+	ChunkBuilder.lightmaps = get_value("graphics/lightmaps")
+	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
 	var fps: int = get_value("graphics/fps_cap")
 	Engine.max_fps = [30, 60, 0][clampi(fps, 0, 2)]
 	var vp := get_tree().root

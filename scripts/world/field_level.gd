@@ -189,7 +189,8 @@ func _make_ground_mesh() -> ArrayMesh:
 
 func _bake_clouds(sun_dir: Vector3) -> Texture2D:
 	var vp := SubViewport.new()
-	vp.size = Vector2i(2048, 512)
+	# Smaller bake on the Potato preset (weak GPUs).
+	vp.size = Vector2i(1024, 256) if int(Settings.get_value("graphics/preset")) == 0 else Vector2i(2048, 512)
 	vp.use_hdr_2d = true
 	vp.transparent_bg = true
 	vp.disable_3d = true

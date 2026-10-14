@@ -15,6 +15,10 @@ const W := N + 2 * M
 const SUB := 3                   # floor / ceiling subdivisions per cell
 const T := 0.07                  # half wall thickness
 const SPACING := 1.2             # target vertex spacing on walls
+## Per-pixel lightmaps (off in the Potato preset: cheaper generation).
+static var lightmaps := true
+## Pool water grid per cell (displaceable by ripples); 4 in Potato.
+static var water_sub := 16
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
@@ -458,7 +462,7 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 	var lm_at := Vector2i(-1, -1)
 	var lm_n := Vector2i.ZERO
 	var face_seed := 0.0
-	if not LIGHTMAPPED.has(mat):
+	if not LIGHTMAPPED.has(mat) or not lightmaps:
 		lm_texel = 0.0
 	if lm_texel > 0.0:
 		lm_n = Vector2i(maxi(2, ceili(du.length() / lm_texel - 0.01) + 1), maxi(2, ceili(dv.length() / lm_texel - 0.01) + 1))
@@ -783,11 +787,9 @@ func _emit_cell(li: int, lj: int) -> void:
 		_emit_crates(li, lj, xa, za, f, c)
 
 
-## Pool water surface. Dense (WATER_SUB x WATER_SUB quads per cell) so the
+## Pool water surface. Dense (water_sub x water_sub quads per cell) so the
 ## ripple simulation can displace it, but lit at only 3x3 points per cell and
 ## interpolated, which keeps the bake cheap.
-const WATER_SUB := 16
-
 func _emit_water(xa: float, za: float) -> void:
 	var lit: Array[Color] = []
 	var sds := PackedFloat32Array()
@@ -799,15 +801,16 @@ func _emit_water(xa: float, za: float) -> void:
 			var ao := _ao_xz(sp)
 			lit.append(Color(light.r * ao, light.g * ao, light.b * ao, light.a))
 			sds.push_back(_seed)
+	var sub_n := water_sub
 	var b := buf(MAT_WATER)
 	var start := b.v.size()
-	var n := WATER_SUB + 1
+	var n := sub_n + 1
 	for jv in n:
-		var fv := float(jv) / WATER_SUB * 2.0
+		var fv := float(jv) / sub_n * 2.0
 		var j0 := mini(int(fv), 1)
 		var tv := fv - j0
 		for iu in n:
-			var fu := float(iu) / WATER_SUB * 2.0
+			var fu := float(iu) / sub_n * 2.0
 			var i0 := mini(int(fu), 1)
 			var tu := fu - i0
 			var l := lit[i0 + j0 * 3].lerp(lit[i0 + 1 + j0 * 3], tu).lerp(
@@ -815,8 +818,8 @@ func _emit_water(xa: float, za: float) -> void:
 			var sd := sds[roundi(fu) + roundi(fv) * 3]
 			var p := Vector3(xa + fu * CELL * 0.5, WorldGen.WATER_Y, za + fv * CELL * 0.5)
 			b.add(p, Vector3.UP, Vector3.RIGHT, Vector2(p.x, p.z), Vector2(sd, 0.0), l)
-	for jv in WATER_SUB:
-		for iu in WATER_SUB:
+	for jv in sub_n:
+		for iu in sub_n:
 			var a := start + iu + jv * n
 			_tri_quad(b, a, a + 1, a + 1 + n, a + n, false)
 
