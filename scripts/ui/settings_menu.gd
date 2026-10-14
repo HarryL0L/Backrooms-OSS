@@ -182,6 +182,7 @@ func _build_graphics() -> void:
 	_toggle(p, "Film grain & vignette", "graphics/film_grain")
 	_toggle(p, "Lens effects (chromatic aberration)", "graphics/lens_fx")
 	_toggle(p, "Light halos (haze glow)", "graphics/halos")
+	_toggle(p, "Real-time light highlights (shine on tiles and water)", "graphics/light_highlights")
 	_toggle(p, "Real-time lights (off = shader flashlight, for buggy GPU drivers)", "graphics/realtime_lights")
 	_toggle(p, "Flashlight shadows", "graphics/flashlight_shadows")
 	_toggle(p, "Head bob", "graphics/head_bob")

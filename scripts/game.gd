@@ -69,7 +69,7 @@ func _ready() -> void:
 	reflection.source = player.camera
 	reflection.material = mats.materials[ChunkBuilder.MAT_WATER]
 	add_child(reflection)
-	if Settings.is_ultra and Settings.ultra_safe_level < 2:
+	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
 		fixtures.target = player
 		add_child(fixtures)
@@ -167,7 +167,8 @@ func _apply_settings() -> void:
 	chunks.set_shadows(Settings.get_value("graphics/flashlight_shadows"))
 	env.glow_enabled = Settings.get_value("graphics/bloom")
 	if fixtures:
-		fixtures.max_lights = FixtureLights.COUNT if Settings.get_value("graphics/realtime_lights") else 0
+		var on: bool = Settings.get_value("graphics/realtime_lights") and Settings.get_value("graphics/light_highlights")
+		fixtures.max_lights = FixtureLights.COUNT if on else 0
 		if fixtures.gen:
 			fixtures._place()
 	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if Settings.get_value("graphics/halos") else 0.0)

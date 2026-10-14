@@ -71,6 +71,7 @@ func defaults() -> Dictionary:
 		"graphics/lens_fx": true,
 		"graphics/halos": true,
 		"graphics/realtime_lights": true,
+		"graphics/light_highlights": true,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,
@@ -211,13 +212,13 @@ func save_settings() -> void:
 
 const PRESETS := [
 	{"graphics/render_scale": 0.6, "graphics/aa": 0, "graphics/view_distance": 2, "graphics/water_reflections": 0,
-		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true},
+		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": false},
 	{"graphics/render_scale": 0.75, "graphics/aa": 1, "graphics/view_distance": 3, "graphics/water_reflections": 1,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
 	{"graphics/render_scale": 0.9, "graphics/aa": 1, "graphics/view_distance": 4, "graphics/water_reflections": 2,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
 	{"graphics/render_scale": 1.0, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
 ]
 
 
