@@ -101,7 +101,7 @@ func build(seed_value: int, exit_override := Vector3.INF) -> void:
 	_door.entered.connect(func() -> void: exit_entered.emit())
 	# Sound: wind always, the music now and then.
 	_wind = AudioStreamPlayer.new()
-	_wind.stream = AudioSynth.wind()
+	_wind.stream = AudioSynth.cached("wind")
 	_wind.volume_db = -14.0
 	_wind.bus = "World"
 	add_child(_wind)

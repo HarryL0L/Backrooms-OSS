@@ -91,7 +91,7 @@ func _ready() -> void:
 		add_child(body)
 	# A sound that gives it away when you're close.
 	_audio = AudioStreamPlayer3D.new()
-	_audio.stream = AudioSynth.draught() if not outdoor else AudioSynth.hum()
+	_audio.stream = AudioSynth.cached("draught" if not outdoor else "hum")
 	_audio.unit_size = 1.6 if not outdoor else 3.0
 	_audio.max_distance = 14.0 if not outdoor else 40.0
 	_audio.volume_db = -6.0 if not outdoor else -2.0
@@ -116,8 +116,16 @@ func open() -> void:
 	await tw.finished
 
 
+static var _mats := {}
+
+
 func _mat(c: Color, rough: float) -> StandardMaterial3D:
+	# Shared between doors (same colours every time) so spawning one is cheap.
+	var key := "%s|%s|%s" % [c, rough, outdoor]
+	if _mats.has(key):
+		return _mats[key]
 	var m := StandardMaterial3D.new()
+	_mats[key] = m
 	m.albedo_color = c
 	m.roughness = rough
 	if not outdoor:

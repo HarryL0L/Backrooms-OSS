@@ -6,6 +6,39 @@ extends RefCounted
 const RATE := 22050
 
 
+static var _cache := {}
+static var _cache_lock := Mutex.new()
+
+
+## Returns a sound by synth function name, generating it only once. Ambience
+## pre-warms these on a worker thread, so the game never synthesizes on the
+## main thread mid-play (a door's draught took ~100+ ms: a visible hitch).
+static func cached(fn: String) -> AudioStreamWAV:
+	_cache_lock.lock()
+	var s: AudioStreamWAV = _cache.get(fn)
+	_cache_lock.unlock()
+	if s == null:
+		s = _make(fn)
+		_cache_lock.lock()
+		_cache[fn] = s
+		_cache_lock.unlock()
+	return s
+
+
+static func _make(fn: String) -> AudioStreamWAV:
+	match fn:
+		"draught":
+			return draught()
+		"hum":
+			return hum()
+		"wind":
+			return wind()
+		"drip":
+			return drip()
+	push_error("AudioSynth.cached: unknown sound " + fn)
+	return null
+
+
 static func to_wav(s: PackedFloat32Array, loop := false) -> AudioStreamWAV:
 	var data := PackedByteArray()
 	data.resize(s.size() * 2)

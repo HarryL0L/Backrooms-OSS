@@ -76,6 +76,10 @@ func _generate() -> void:
 	g.water = AudioSynth.water_loop()
 	g.buzz = AudioSynth.buzz()
 	g.click = AudioSynth.click()
+	# Shared by the doors, the Field and the Poolroom drips; made here, off the
+	# main thread, so they never cause a hitch later.
+	for fn in ["draught", "hum", "wind", "drip"]:
+		AudioSynth.cached(fn)
 	var steps := []
 	for surf in 5:
 		var vs := []

@@ -54,7 +54,7 @@ func _ready() -> void:
 	_splash = _make_splash()
 	add_child(_splash)
 	_drip_audio = AudioStreamPlayer3D.new()
-	_drip_audio.stream = AudioSynth.drip()
+	_drip_audio.stream = AudioSynth.cached("drip")
 	_drip_audio.bus = "Ambience" if AudioServer.get_bus_index("Ambience") >= 0 else "Master"
 	_drip_audio.unit_size = 4.0
 	add_child(_drip_audio)
