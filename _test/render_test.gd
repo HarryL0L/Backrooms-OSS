@@ -62,6 +62,29 @@ func _ready():
 		for k in 12:
 			var o := Vector3(float(k % 3 - 1) * 2.4, 1.6, float(k / 3 - 1) * 2.4)
 			shots.append([sp + o, k * PI / 6.0, "close%02d" % k, -0.35 if k % 2 == 0 else 0.0])
+	# `-- <seed> pipes`: views inside Pipe Dreams (pipe joints, corners, wall bends).
+	if args.size() > 1 and args[1] == "pipes":
+		shots.clear()
+		var pc := Vector2i.ZERO
+		for r in range(5, 400):
+			var hit := false
+			for k in 16:
+				var a := k * PI / 8
+				var cc := gen.spawn_cell + Vector2i(int(cos(a) * r), int(sin(a) * r))
+				var b := gen.biome_at(cc.x, cc.y)
+				if b == 4 and not gen.is_solid(cc.x, cc.y, b) and gen.biome_at(cc.x + 3, cc.y) == 4 and gen.biome_at(cc.x - 3, cc.y) == 4:
+					pc = cc
+					hit = true
+					break
+			if hit:
+				break
+		var n := 0
+		for dz in range(-3, 4):
+			for dx in range(-3, 4):
+				var cc := pc + Vector2i(dx, dz)
+				if n < 10 and not gen.is_solid(cc.x, cc.y, 4) and gen.biome_at(cc.x, cc.y) == 4 and (dx + dz) % 2 == 0:
+					shots.append([Vector3((cc.x + 0.5) * 2.4, 1.6, (cc.y + 0.5) * 2.4), n * 1.3, "pipes%02d" % n, -0.15])
+					n += 1
 	print("shots: ", shots.size())
 	_next()
 

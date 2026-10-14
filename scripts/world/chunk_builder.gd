@@ -1214,11 +1214,21 @@ func _emit_skylight(cx: float, cz: float, _f: float, c: float) -> void:
 
 
 ## Service pipes running along every wall of a Pipe Dreams corridor.
+## Pipe runs along the walls of a Pipe Dreams cell. Each wall section draws
+## its stretch of every pipe and decides what happens at both ends: carry on
+## straight into the next section (with a coupling), meet the pipe on the
+## perpendicular wall at an inside corner (elbow fitting), or, where the wall
+## stops, bend 90 degrees into the wall through a flange. No open pipe ends.
+const PIPE_SPECS := [[0.11, -0.32, 0.14], [0.065, -0.6, 0.1], [0.13, 0.3, 0.16]]   # radius, y (neg = from ceiling), offset
+
 func _emit_pipes(li: int, lj: int, xa: float, za: float, c: float) -> void:
-	# [edge kind, axis, plane, direction into corridor]
+	# [edge, axis, plane, dir, along cell index (local), [prev, next] run edges,
+	#  [start, end] corner edges]
 	var walls := [
-		[edge_v(li, lj), 0, xa, 1.0], [edge_v(li + 1, lj), 0, xa + CELL, -1.0],
-		[edge_h(li, lj), 2, za, 1.0], [edge_h(li, lj + 1), 2, za + CELL, -1.0],
+		[edge_v(li, lj), 0, xa, 1.0, lj, [edge_v(li, lj - 1), edge_v(li, lj + 1)], [edge_h(li, lj), edge_h(li, lj + 1)], [li, lj - 1, li, lj + 1]],
+		[edge_v(li + 1, lj), 0, xa + CELL, -1.0, lj, [edge_v(li + 1, lj - 1), edge_v(li + 1, lj + 1)], [edge_h(li, lj), edge_h(li, lj + 1)], [li, lj - 1, li, lj + 1]],
+		[edge_h(li, lj), 2, za, 1.0, li, [edge_h(li - 1, lj), edge_h(li + 1, lj)], [edge_v(li, lj), edge_v(li + 1, lj)], [li - 1, lj, li + 1, lj]],
+		[edge_h(li, lj + 1), 2, za + CELL, -1.0, li, [edge_h(li - 1, lj + 1), edge_h(li + 1, lj + 1)], [edge_v(li, lj), edge_v(li + 1, lj)], [li - 1, lj, li + 1, lj]],
 	]
 	for w in walls:
 		if w[0] != WorldGen.E_WALL:
@@ -1227,16 +1237,141 @@ func _emit_pipes(li: int, lj: int, xa: float, za: float, c: float) -> void:
 		var plane: float = w[2]
 		var dir: float = w[3]
 		var s0 := za if axis == 0 else xa
-		var line := floori(plane / CELL + 0.5)
-		var big := [[0.11, c - 0.32, T + 0.14], [0.065, c - 0.6, T + 0.1]]
-		if gen.rnd(line, floori(s0 / CELL / 4.0), 95 + axis) < 0.6:
-			big.append([0.13, 0.3, T + 0.16])
-		for pp in big:
-			var r: float = pp[0]
-			var y: float = pp[1]
-			var o: float = (pp[2] as float) * dir
-			_tube(MAT_PIPE, PackedVector3Array([_wp(axis, plane, s0 - 0.02, y, o), _wp(axis, plane, s0 + CELL + 0.02, y, o)]), r, 8, 0.0, c)
-			_tube(MAT_PIPE, PackedVector3Array([_wp(axis, plane, s0 + 0.02, y, o), _wp(axis, plane, s0 + 0.1, y, o)]), r * 1.3, 8, 0.0, c)
+		var gline := floori(plane / CELL + 0.5)
+		var galong: int = (rz0 if axis == 0 else rx0) + int(w[4])
+		var nb: Array = w[7]
+		for k in PIPE_SPECS.size():
+			if not _pipe_on(k, axis, gline, galong):
+				continue
+			var spec: Array = PIPE_SPECS[k]
+			var r: float = spec[0]
+			var y: float = c + spec[1] if spec[1] < 0.0 else spec[1]
+			var d: float = T + spec[2]             # distance from the wall line
+			var ends := []                        # per end: 0 straight, 1 corner, 2 free
+			for e in 2:
+				var run_ok: bool = w[5][e] == WorldGen.E_WALL and _pipe_cell(nb[e * 2], nb[e * 2 + 1]) \
+						and _pipe_on(k, axis, gline, galong + (1 if e == 1 else -1))
+				# Partner pipe on the perpendicular wall at this corner.
+				var pline: int = (rz0 + lj + e) if axis == 0 else (rx0 + li + e)
+				var palong: int = (rx0 + li) if axis == 0 else (rz0 + lj)
+				if run_ok:
+					ends.append(0)
+				elif w[6][e] == WorldGen.E_WALL and _pipe_on(k, 2 - axis, pline, palong):
+					ends.append(1)
+				else:
+					ends.append(2)
+			_pipe_run(axis, plane, dir, s0, y, d, r, ends)
+
+
+## Whether pipe k exists along a wall section (the floor pipe comes and goes
+## in runs of 4 cells; the two ceiling pipes are always there).
+func _pipe_on(k: int, axis: int, gline: int, galong: int) -> bool:
+	if k < 2:
+		return true
+	return gen.rnd(gline, floori(galong / 4.0), 95 + axis) < 0.6
+
+
+func _pipe_cell(i: int, j: int) -> bool:
+	return bio(i, j) == WorldGen.PIPES and (i < 0 or j < 0 or i >= W or j >= W or solid[i + j * W] == 0)
+
+
+## One pipe along one wall section, in (along, distance-from-wall) terms.
+func _pipe_run(axis: int, plane: float, dir: float, s0: float, y: float, d: float, r: float, ends: Array) -> void:
+	var pts := []                     # Vector2(along, distance)
+	var rb := r * 1.1                 # bend radius for pipes turning into the wall
+	var inset := 0.32
+	# Start end.
+	match ends[0]:
+		0:
+			pts.append(Vector2(s0, d))
+			_collar(axis, plane, dir, Vector2(s0, d), y, r)
+		1:
+			pts.append(Vector2(s0 + d, d))
+			_ball(_wp(axis, plane, s0 + d, y, d * dir), r * 1.18)
+		2:
+			# Out of the wall at `e`, then a quarter bend (centre e + rb, d - rb)
+			# into the run along the wall.
+			var e := s0 + inset
+			pts.append(Vector2(e, T - 0.02))
+			for q in 5:
+				var ph := PI - PI * 0.5 * q / 4.0
+				pts.append(Vector2(e + rb + rb * cos(ph), d - rb + rb * sin(ph)))
+			_flange(axis, plane, dir, e, y, r)
+	# End end.
+	match ends[1]:
+		0:
+			pts.append(Vector2(s0 + CELL, d))
+		1:
+			pts.append(Vector2(s0 + CELL - d, d))
+		2:
+			var e := s0 + CELL - inset
+			for q in 5:
+				var ph := PI * 0.5 - PI * 0.5 * q / 4.0
+				pts.append(Vector2(e - rb + rb * cos(ph), d - rb + rb * sin(ph)))
+			pts.append(Vector2(e, T - 0.02))
+			_flange(axis, plane, dir, e, y, r)
+	var path := PackedVector3Array()
+	for p2 in pts:
+		var wp := _wp(axis, plane, p2.x, y, p2.y * dir)
+		if path.is_empty() or path[path.size() - 1].distance_to(wp) > 0.002:
+			path.push_back(wp)
+	if path.size() >= 2:
+		_tube(MAT_PIPE, path, r, 10, 0.0, y + 1.0)
+
+
+## Coupling ring where two sections of a straight run meet.
+func _collar(axis: int, plane: float, dir: float, at: Vector2, y: float, r: float) -> void:
+	var a := _wp(axis, plane, at.x - 0.05, y, at.y * dir)
+	var b2 := _wp(axis, plane, at.x + 0.05, y, at.y * dir)
+	_tube(MAT_PIPE, PackedVector3Array([a, b2]), r * 1.22, 10, 0.0, y + 1.0)
+	var t := (b2 - a).normalized()
+	_annulus(a, -t, r, r * 1.22)
+	_annulus(b2, t, r, r * 1.22)
+
+
+## Round mounting plate where a pipe goes into the wall.
+func _flange(axis: int, plane: float, dir: float, along: float, y: float, r: float) -> void:
+	var n := (_wp(axis, plane, along, y, dir) - _wp(axis, plane, along, y, 0.0)).normalized()
+	var base := _wp(axis, plane, along, y, (T + 0.002) * dir)
+	var top := base + n * 0.025
+	_tube(MAT_PIPE, PackedVector3Array([base, top]), r * 1.7, 12, 0.0, y + 1.0)
+	_annulus(top, n, r * 0.95, r * 1.7)
+
+
+## Flat ring (or disc when r0 = 0) facing `n`.
+func _annulus(centre: Vector3, n: Vector3, r0: float, r1: float) -> void:
+	var ref := Vector3.UP if absf(n.y) < 0.9 else Vector3.RIGHT
+	var u := n.cross(ref).normalized()
+	var v := n.cross(u).normalized()
+	var segs := 12
+	var pos := PackedVector3Array()
+	var nrm := PackedVector3Array()
+	var uv := PackedVector2Array()
+	for ring in [r0, r1]:
+		for k in segs + 1:
+			var a := TAU * k / segs
+			pos.push_back(centre + (u * cos(a) + v * sin(a)) * ring)
+			nrm.push_back(n)
+			uv.push_back(Vector2(a * ring, ring))
+	_smooth_grid(MAT_PIPE, pos, nrm, uv, segs + 1, 0.0, centre.y + 1.0, false)
+
+
+## Ball fitting (elbow joint at inside corners).
+func _ball(centre: Vector3, r: float) -> void:
+	var segs := 10
+	var rings := 6
+	var pos := PackedVector3Array()
+	var nrm := PackedVector3Array()
+	var uv := PackedVector2Array()
+	for j in rings + 1:
+		var th := PI * j / rings
+		for k in segs + 1:
+			var a := TAU * k / segs
+			var n := Vector3(sin(th) * cos(a), cos(th), sin(th) * sin(a))
+			pos.push_back(centre + n * r)
+			nrm.push_back(n)
+			uv.push_back(Vector2(a * r, th * r))
+	_smooth_grid(MAT_PIPE, pos, nrm, uv, segs + 1, 0.0, centre.y + 1.0, false)
 
 
 ## Camera-facing glow quad (expanded in light_halo.gdshader).
