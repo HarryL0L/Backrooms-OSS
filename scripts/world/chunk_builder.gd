@@ -341,25 +341,46 @@ func _occl(d: float) -> float:
 	return 0.55 + 0.45 * smoothstep(0.0, 0.85, d - T)
 
 
-## Contact shadow on floors / ceilings next to walls.
+## Contact shadow on floors / ceilings next to walls. Uses the true distance
+## to nearby wall pieces (door openings excluded), so the shadow wraps around
+## wall ends instead of stopping in a hard wedge at the cell border.
 func _ao_xz(p: Vector3) -> float:
 	var u := p.x / CELL - rx0
 	var v := p.z / CELL - rz0
 	var i := floori(u)
 	var j := floori(v)
-	var fu := (u - i) * CELL
-	var fv := (v - j) * CELL
 	var dxm := 9.0
-	if edge_v(i, j) != 0:
-		dxm = fu
-	if edge_v(i + 1, j) != 0:
-		dxm = minf(dxm, CELL - fu)
 	var dzm := 9.0
-	if edge_h(i, j) != 0:
-		dzm = fv
-	if edge_h(i, j + 1) != 0:
-		dzm = minf(dzm, CELL - fv)
+	for dj in range(-1, 2):
+		for di in range(-1, 3):
+			# Vertical edge on line x = i+di, spanning cell row j+dj.
+			var e := edge_v(i + di, j + dj)
+			if e != 0:
+				dxm = minf(dxm, _seg_dist(u - (i + di), v - (j + dj), e))
+	for dj in range(-1, 3):
+		for di in range(-1, 2):
+			var e := edge_h(i + di, j + dj)
+			if e != 0:
+				dzm = minf(dzm, _seg_dist(v - (j + dj), u - (i + di), e))
 	return _occl(dxm) * _occl(dzm)
+
+
+## Distance (m) from a point to the solid parts of an edge. `across` is the
+## offset from the edge line and `along` the position along it, both in cell
+## units relative to the edge's start.
+func _seg_dist(across: float, along: float, e: int) -> float:
+	var da := 0.0
+	if e == WorldGen.E_WALL:
+		da = maxf(maxf(-along, along - 1.0), 0.0)
+	else:
+		# Two wall pieces either side of a centred opening.
+		var half: float = WorldGen.DOOR_W[e] * 0.5 / CELL
+		var a := absf(along - 0.5)
+		if a < half:
+			da = half - a
+		else:
+			da = maxf(a - 0.5, 0.0)
+	return sqrt(across * across + da * da) * CELL
 
 
 func _ao_y(y: float, f: float, c: float) -> float:
@@ -489,9 +510,9 @@ func _vface(mat: int, axis: int, plane: float, sgn: float, a0: float, a1: float,
 		p0 = Vector3(a0, y0, plane)
 		du = Vector3(a1 - a0, 0, 0)
 		nrm = Vector3(0, 0, sgn)
+	# Same rows for every face, so wall junction posts shade exactly like the
+	# walls they join (fewer rows there showed up as vertical strips).
 	var rows := _rows(y0, y1)
-	if a1 - a0 < 0.5 and y1 - y0 > 0.7:
-		rows = PackedFloat32Array([0.0, 0.3 / (y1 - y0), 1.0])  # slim posts / jambs
 	_grid(mat, p0, du, Vector3(0, y1 - y0, 0), _fracs(a0, a1), rows, nrm, du.normalized(),
 			1 if axis == 0 else 2, 0, f, c)
 

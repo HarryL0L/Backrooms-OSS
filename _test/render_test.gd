@@ -56,6 +56,12 @@ func _ready():
 				done = true
 				break
 		if done: break
+	# `-- <seed> close`: close-up views around spawn (wall / floor shading checks).
+	if args.size() > 1 and args[1] == "close":
+		shots.clear()
+		for k in 12:
+			var o := Vector3(float(k % 3 - 1) * 2.4, 1.6, float(k / 3 - 1) * 2.4)
+			shots.append([sp + o, k * PI / 6.0, "close%02d" % k, -0.35 if k % 2 == 0 else 0.0])
 	print("shots: ", shots.size())
 	_next()
 
