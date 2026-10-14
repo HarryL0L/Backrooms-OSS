@@ -113,23 +113,22 @@ func _log_system() -> void:
 # ------------------------------------------------------------------- test ---
 
 func _build_steps() -> void:
-	# Round 4: lighting. Rounds 1-3 never removed the real dynamic lights (the
-	# Ultra fixture OmniLights and the flashlight). Forward+ processes dynamic
-	# lights through its clustering pass, which pure-2D frames skip.
-	var off := {"graphics/lens_fx": false, "graphics/film_grain": false, "graphics/bloom": false,
-		"graphics/halos": false, "graphics/aa": 0, "graphics/ssr": false, "graphics/ssao": false,
-		"graphics/ssil": false, "graphics/volumetric_fog": false, "graphics/water_reflections": 0}
+	# Round 5 (patched engine only): Godot's light-cluster pass draws into an
+	# attachment-less framebuffer with a 4x MSAA pipeline. Without
+	# variableMultisampleRate that is undefined behaviour. Our engine patch reads
+	# rendering/limits/cluster_builder/use_msaa whenever render buffers are
+	# rebuilt, so it can be flipped live here. Dynamic lights stay ON throughout.
+	var patched := OS.has_feature("patched")
 	_steps = [
-		["01 baseline (fixture lights ON)", {}],
-		["02 NO dynamic lights (fixture lights OFF)", {"__fixtures": 0, "__flashlight": false}],
-		["03 no dynamic lights + all effects OFF", off],
-		["04 1 fixture light (effects OFF)", {"__fixtures": 1}],
-		["05 6 fixture lights (effects OFF)", {"__fixtures": 6}],
-		["06 flashlight only (effects OFF)", {"__fixtures": 0, "__flashlight": true}],
-		["07 flashlight + 6 fixture lights", {"__fixtures": 6}],
-		["08 no dynamic lights + effects back ON", {"__fixtures": 0, "__flashlight": false, "__restore_effects": true}],
-		["09 restore (fixture lights ON)", {"__fixtures": 6}],
+		["01 lights ON, cluster MSAA %s (build default)" % ("OFF" if patched else "ON"), {"__fixtures": 6, "__flashlight": true}],
+		["02 cluster MSAA ON (stock Godot behaviour)", {"__cluster_msaa": true}],
+		["03 cluster MSAA OFF (patched)", {"__cluster_msaa": false}],
+		["04 cluster MSAA ON again", {"__cluster_msaa": true}],
+		["05 cluster MSAA OFF again", {"__cluster_msaa": false}],
+		["06 no dynamic lights (control)", {"__fixtures": 0, "__flashlight": false}],
 	]
+	if not patched:
+		log_line("NOTE: stock engine build - cluster MSAA cannot be changed; steps 02-05 only repeat step 01")
 
 
 func _process(delta: float) -> void:
@@ -233,6 +232,15 @@ func _next_step() -> void:
 				log_line("  dynamic fixture lights: %d (node %s)" % [changes[k], "present" if game.fixtures else "absent"])
 			"__flashlight":
 				game.player.set_flashlight(changes[k])
+			"__cluster_msaa":
+				ProjectSettings.set_setting("rendering/limits/cluster_builder/use_msaa", changes[k])
+				# Rebuild the render buffers so the cluster builder re-runs setup().
+				var vp := get_tree().root
+				var sc := vp.scaling_3d_scale
+				vp.scaling_3d_scale = sc - 0.01 if sc > 0.5 else sc + 0.01
+				await get_tree().process_frame
+				vp.scaling_3d_scale = sc
+				log_line("  cluster MSAA set to %s (render buffers rebuilt)" % changes[k])
 			"__offscreen":
 				_set_offscreen(changes[k])
 			"__sv_hdr":
