@@ -164,14 +164,14 @@ static func footstep(surface: int, variant: int) -> AudioStreamWAV:
 	# scuff band centre, scuff level, toe delay (s).
 	var thump_fc: float = [320.0, 650.0, 480.0][surface]
 	var thump_amp: float = [1.0, 0.55, 0.8][surface]
-	var click_amp: float = [0.04, 0.75, 0.35][surface]
-	var click_decay: float = [400.0, 380.0, 260.0][surface]
+	var click_amp: float = [0.04, 0.45, 0.35][surface]
+	var click_decay: float = [400.0, 520.0, 260.0][surface]
 	var scuff_fc: float = [850.0, 3200.0, 2400.0][surface]
 	var scuff_amp: float = [0.15, 0.08, 0.2][surface]
 	var toe := rng.randf_range(0.055, 0.085)
 	var toe_amp := rng.randf_range(0.45, 0.7)
 	var th := _Svf.new(thump_fc * rng.randf_range(0.85, 1.15), 0.9)
-	var cl := _Svf.new(4200.0, 0.7)
+	var cl_lp := 0.0                      # one-pole low-pass; x - cl_lp = gentle high-pass
 	var sc := _Svf.new(scuff_fc * rng.randf_range(0.8, 1.2), 1.4)
 	for i in n:
 		var t := float(i) / RATE
@@ -182,11 +182,11 @@ static func footstep(surface: int, variant: int) -> AudioStreamWAV:
 		var toe_env := 0.0 if tt < 0.0 else exp(-tt * 70.0) * minf(tt * RATE / 24.0, 1.0) * toe_amp
 		var impact := heel + toe_env
 		th.step(x)
-		cl.step(x)
+		cl_lp += 0.45 * (x - cl_lp)
 		sc.step(x)
 		var v := th.low * impact * thump_amp * 4.0
 		var ci := exp(-t * click_decay) + (0.0 if tt < 0.0 else exp(-tt * click_decay) * toe_amp * 0.7)
-		v += cl.high * ci * click_amp
+		v += (x - cl_lp) * ci * click_amp
 		var scuff_env := exp(-pow((t - toe * 0.6) / 0.05, 2.0))
 		v += sc.band * scuff_env * scuff_amp
 		if surface == Player.SURF_CONCRETE and rng.randf() < 0.004:
@@ -276,13 +276,11 @@ static func _water_step(rng: RandomNumberGenerator, variant: int) -> AudioStream
 		lp += 0.3 * (x - lp)
 		lp2 += 0.03 * (lp - lp2)
 		var env := (1.0 - exp(-t * 90.0)) * exp(-t * 7.0)
-		var v := (lp - lp2) * env * 2.2
-		for b in 3:
-			var bt := t - (0.08 + b * 0.09 + variant * 0.01)
-			if bt > 0.0:
-				var bf := 450.0 + b * 140.0 + bt * 1800.0
-				v += sin(TAU * bf * bt) * exp(-bt * 40.0) * 0.18
-		s[i] = v
+		# A second, smaller slosh as the water settles back (noise, no tones,
+		# which rang like a 'twink' before).
+		var t2 := t - (0.16 + variant * 0.015)
+		var env2 := 0.0 if t2 < 0.0 else (1.0 - exp(-t2 * 60.0)) * exp(-t2 * 11.0) * 0.45
+		s[i] = (lp - lp2) * (env + env2) * 2.2
 	for i in 200:
 		s[n - 1 - i] *= float(i) / 200.0
 	return to_wav(_normalize(s, 0.8))

@@ -6,7 +6,7 @@ extends Node3D
 
 const REVERB := [
 	{"room": 0.45, "damp": 0.85, "wet": 0.12},   # carpet and ceiling tiles soak up sound
-	{"room": 0.92, "damp": 0.25, "wet": 0.45},
+	{"room": 0.9, "damp": 0.55, "wet": 0.32},    # tiles echo, but a bright tail rang metallic
 	{"room": 0.85, "damp": 0.45, "wet": 0.38},
 	{"room": 0.6, "damp": 0.6, "wet": 0.3},
 	{"room": 0.75, "damp": 0.3, "wet": 0.42},
