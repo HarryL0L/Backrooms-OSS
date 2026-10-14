@@ -1,17 +1,18 @@
 class_name LiningEntity
 extends Node
-## "The Lining": something behind the Lobby wallpaper. You only ever see its
-## shape pressing out through the paper. It never attacks and never chases;
-## it appears at the edge of your view or behind you, moves closer whenever you
-## look away, and sinks back into the wall if you stare at it.
+## "The Lining": something behind the Lobby wallpaper. You only ever see a
+## face pressing out through the paper (sometimes hands too), slowly
+## breathing. It never attacks and never chases; it appears in dim spots at
+## the edge of your view or behind you, moves closer whenever you look away,
+## and smooths back into the wall soon after you look straight at it.
 ##
 ## Drawn entirely by the wallpaper shader (see shaders/wallpaper.gdshader):
 ## this node only decides where it is and how far it pushes out, through the
 ## lining_* global shader parameters.
 
 const FORM_RATE := 0.45      # strength per second while pressing out
-const SINK_RATE := 0.22      # ... while sinking back
-const STARE_TIME := 4.0      # seconds of being watched before it sinks
+const SINK_RATE := 0.6       # ... while smoothing back out
+const STARE_TIME := 1.5      # seconds of being watched before it smooths out
 
 var gen: WorldGen
 var player: Player
@@ -19,6 +20,8 @@ var ambience: Ambience
 var odd_doors: OddDoors
 ## Off in the Field, while loading, or when disabled in Settings.
 var allowed := false
+## Tests/screenshots: hold the current pose (no behaviour).
+var frozen := false
 
 enum { IDLE, PRESENT }
 var _state := IDLE
@@ -30,6 +33,8 @@ var _target := 0.0
 var _seen_t := 0.0
 var _unseen_t := 0.0
 var _patience := 5.0          # how long it waits unseen before moving
+var _hands := 0.0             # how far the hands show (0..1)
+var _hands_target := 0.0
 var _episode_origin := Vector3.ZERO
 var _wall := {}               # pos, right, normal
 var _creak: AudioStreamPlayer3D
@@ -68,10 +73,13 @@ func _process(delta: float) -> void:
 		if _state == PRESENT:
 			_end_episode()
 		_target = 0.0
-	else:
+	elif not frozen:
 		_think(delta)
 	var rate := FORM_RATE if _target > _strength else SINK_RATE
 	_strength = move_toward(_strength, _target, rate * delta)
+	# Hands press out only once the face is there, and leave first.
+	var ht := _hands_target if _strength > 0.7 and _target > 0.5 else 0.0
+	_hands = move_toward(_hands, ht, (0.3 if ht > _hands else 0.9) * delta)
 	_set_globals()
 	if ambience:
 		# The fluorescent hum fades out near it.
@@ -135,11 +143,15 @@ func _relocate(dmin: float, dmax: float) -> bool:
 		cand = _candidates(maxf(dmin * 0.5, 2.2), dmax * 1.4)
 	if cand.is_empty():
 		return false
-	_wall = cand[_rng.randi() % cand.size()]
+	# Prefer dim spots: pick among the darker half of the candidates.
+	cand.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.light < b.light)
+	_wall = cand[_rng.randi() % maxi(1, (cand.size() + 1) / 2)]
 	_strength = 0.0
 	_target = 1.0
 	_seen_t = 0.0
 	_patience = _rng.randf_range(3.5, 7.0)
+	# Sometimes the hands come too, more often the closer it has crept.
+	_hands_target = 1.0 if _rng.randf() < 0.2 + 0.15 * _moves_done else 0.0
 	if _creak.stream:
 		_creak.global_position = _wall.pos + Vector3.UP * 1.5
 		_creak.pitch_scale = _rng.randf_range(0.85, 1.1)
@@ -192,7 +204,8 @@ func _candidates(dmin: float, dmax: float) -> Array:
 				q.exclude = [player.get_rid()]
 				if not space.intersect_ray(q).is_empty():
 					continue
-				out.append({"pos": pos, "normal": n, "right": Vector3.UP.cross(n)})
+				var light := gen.light_level_near(pos + n * 0.5 + Vector3.UP * 1.5)
+				out.append({"pos": pos, "normal": n, "right": Vector3.UP.cross(n), "light": light})
 	return out
 
 
@@ -219,15 +232,17 @@ func _set_globals() -> void:
 	var right: Vector3 = _wall.get("right", Vector3.RIGHT)
 	var n: Vector3 = _wall.get("normal", Vector3.BACK)
 	RenderingServer.global_shader_parameter_set("lining_pos", Vector4(pos.x, pos.y, pos.z, _strength if not _wall.is_empty() else 0.0))
-	RenderingServer.global_shader_parameter_set("lining_right", Vector4(right.x, right.y, right.z, 0.0))
+	RenderingServer.global_shader_parameter_set("lining_right", Vector4(right.x, right.y, right.z, _hands))
 	RenderingServer.global_shader_parameter_set("lining_normal", Vector4(n.x, n.y, n.z, 0.0))
 
 
 ## For tests: place it on a given wall immediately at full strength.
-func debug_show(pos: Vector3, normal: Vector3) -> void:
+func debug_show(pos: Vector3, normal: Vector3, hands := 1.0) -> void:
 	_wall = {"pos": pos, "normal": normal, "right": Vector3.UP.cross(normal)}
 	_strength = 1.0
 	_target = 1.0
+	_hands = hands
+	_hands_target = hands
 	_state = PRESENT
 	_moves_left = 0
 	_episode_origin = pos

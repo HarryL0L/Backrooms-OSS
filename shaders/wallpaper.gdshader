@@ -17,8 +17,14 @@ varying vec3 v_wpos;
 global uniform vec4 lining_pos;
 global uniform vec4 lining_right;
 global uniform vec4 lining_normal;
-global uniform sampler2D lining_tex;   // r = height (m), g = cavity
+global uniform sampler2D lining_tex;   // r = face height (m), g = cavity, b = hands height (m)
 const vec2 LINING_SIZE = vec2(1.4, 2.7);
+
+// Face plus hands (lining_right.w = how far the hands are showing).
+float lining_h(vec2 t) {
+	vec4 m = texture(lining_tex, t);
+	return m.r + m.b * lining_right.w;
+}
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
@@ -38,12 +44,14 @@ void fragment() {
 		vec2 tuv = vec2(q.x / LINING_SIZE.x + 0.5, 1.0 - q.y / LINING_SIZE.y);
 		if (abs(dot(rel, lining_normal.xyz)) < 0.03 && dot(wn, lining_normal.xyz) > 0.9
 				&& tuv.x > 0.0 && tuv.x < 1.0 && tuv.y > 0.0 && tuv.y < 1.0) {
-			float s = lining_pos.w;
+			// Slow breathing: the paper swells and settles.
+			float s = lining_pos.w * (0.78 + 0.22 * sin(world_time * 1.25));
 			vec2 px = 1.0 / vec2(textureSize(lining_tex, 0));
 			vec4 hm = texture(lining_tex, tuv);
-			float hx = (texture(lining_tex, tuv + vec2(px.x, 0.0)).r - texture(lining_tex, tuv - vec2(px.x, 0.0)).r)
+			hm.r = lining_h(tuv);
+			float hx = (lining_h(tuv + vec2(px.x, 0.0)) - lining_h(tuv - vec2(px.x, 0.0)))
 					/ (2.0 * px.x * LINING_SIZE.x) * s;
-			float hy = (texture(lining_tex, tuv - vec2(0.0, px.y)).r - texture(lining_tex, tuv + vec2(0.0, px.y)).r)
+			float hy = (lining_h(tuv - vec2(0.0, px.y)) - lining_h(tuv + vec2(0.0, px.y)))
 					/ (2.0 * px.y * LINING_SIZE.y) * s;
 			vec3 up = vec3(0.0, 1.0, 0.0);
 			vec3 nb = normalize(lining_normal.xyz - hx * lining_right.xyz - hy * up);

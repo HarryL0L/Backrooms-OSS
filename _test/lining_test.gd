@@ -34,21 +34,35 @@ func _process(delta):
 				print("candidates: ", c.size())
 				if c.is_empty():
 					get_tree().quit(); return
+				# Pick a wall with open floor in front of it (so we can stand back).
+				var space = game.player.get_world_3d().direct_space_state
 				wall = c[0]
-				L.debug_show(wall.pos, wall.normal)
+				for cw in c:
+					var a: Vector3 = cw.pos + cw.normal * 0.15 + Vector3.UP * 1.6
+					var q := PhysicsRayQueryParameters3D.create(a, a + cw.normal * 2.8)
+					if space.intersect_ray(q).is_empty():
+						wall = cw
+						break
+				L.debug_show(wall.pos, wall.normal, 0.0)
+				L.frozen = true
 				# Stand 2.6 m in front of it, looking at it.
-				var stand: Vector3 = wall.pos + wall.normal * 2.6 + Vector3(0, 0.02, 0)
+				var stand: Vector3 = wall.pos + wall.normal * 1.7 + Vector3(0, 0.02, 0)
 				game.player.teleport(stand, atan2(wall.normal.x, wall.normal.z), -0.05)
 				step = 2; t = 0
 		2:
 			if t > 1.5:
 				shot("front"); step = 3; t = 0
-				game.player.set_flashlight(true)
+				L.debug_show(wall.pos, wall.normal, 1.0)
 		3:
+			if t > 1.0:
+				shot("hands"); step = 30; t = 0
+				game.player.set_flashlight(true)
+		30:
 			if t > 1.0:
 				shot("flashlight"); step = 4; t = 0
 				game.player.set_flashlight(false)
 				# Behaviour: let it run, looking away from it.
+				L.frozen = false
 				L._end_episode()
 				L._strength = 0.0
 				L._timer = 0.0
