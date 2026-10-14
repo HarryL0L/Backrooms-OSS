@@ -256,8 +256,9 @@ func apply() -> void:
 	# 0 off, 1 MSAA 2x, 2 MSAA 4x, 3 SMAA, 4 FXAA
 	var aa: int = clampi(get_value("graphics/aa"), 0, 4)
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED][aa]
-	vp.screen_space_aa = [Viewport.SCREEN_SPACE_AA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED,
-			Viewport.SCREEN_SPACE_AA_SMAA, Viewport.SCREEN_SPACE_AA_FXAA][aa]
+	if RenderingServer.get_current_rendering_method() != "gl_compatibility":
+		vp.screen_space_aa = [Viewport.SCREEN_SPACE_AA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED,
+				Viewport.SCREEN_SPACE_AA_SMAA, Viewport.SCREEN_SPACE_AA_FXAA][aa]
 	_set_bus("Master", get_value("audio/master"))
 	_set_bus("Ambience", get_value("audio/ambience"))
 	_set_bus("World", get_value("audio/effects"))
