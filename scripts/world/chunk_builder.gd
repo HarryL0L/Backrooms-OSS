@@ -19,9 +19,12 @@ const SPACING := 1.2             # target vertex spacing on walls
 static var lightmaps := true
 ## Pool water grid per cell (displaceable by ripples); 4 in Potato.
 static var water_sub := 16
+## Volumetric-looking sun shafts in the sun galleries (off in Potato).
+static var god_rays := true
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
+const LM_TEXEL_SUN := 0.15       # ... on sun gallery floors (sharp sun patches)
 
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
@@ -109,6 +112,7 @@ var bufs := []
 var col := PackedVector3Array()
 var _seed := 0.0
 var _cur_cell := Vector2.ZERO
+var _no_sun := false
 # Lightmap atlas (RGBA half floats, shelf packed, grows downwards).
 var lm_bytes := PackedByteArray()
 # Per-face light visibility while baking a face: 0 hidden, 1 visible, 2 test
@@ -318,7 +322,8 @@ func _visible(ax: float, az: float, ay: float, bx: float, bz: float, by: float) 
 					return false
 				var along := az + dz * tmx - cj
 				var y := ay + (by - ay) * tmx
-				if absf(along - 0.5) * CELL > WorldGen.DOOR_W[e] * 0.5 or y > WorldGen.DOOR_H[e]:
+				if absf(along - 0.5) * CELL > WorldGen.DOOR_W[e] * 0.5 or y > WorldGen.DOOR_H[e] \
+						or (e == WorldGen.E_WINDOW and y < WorldGen.WIN_Y0):
 					return false
 			ci += si
 			tmx += tdx
@@ -330,7 +335,8 @@ func _visible(ax: float, az: float, ay: float, bx: float, bz: float, by: float) 
 					return false
 				var along := ax + dx * tmz - ci
 				var y := ay + (by - ay) * tmz
-				if absf(along - 0.5) * CELL > WorldGen.DOOR_W[e] * 0.5 or y > WorldGen.DOOR_H[e]:
+				if absf(along - 0.5) * CELL > WorldGen.DOOR_W[e] * 0.5 or y > WorldGen.DOOR_H[e] \
+						or (e == WorldGen.E_WINDOW and y < WorldGen.WIN_Y0):
 					return false
 			cj += sj
 			tmz += tdz
@@ -386,8 +392,64 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 			if lum > fl_best:
 				fl_best = lum
 				_seed = lseed[k]
+	if b == WorldGen.POOL and gen.gallery(rx0 + li, rz0 + lj):
+		# Daylight: sky light bouncing around the white tiles, plus direct sun
+		# where it comes through a window.
+		var sc := WorldGen.SUN_COLOR
+		var sky := 0.5 + 0.12 * maxf(nrm.y, 0.0)
+		var sun := 0.0
+		var sd := -WorldGen.SUN_TRAVEL.normalized()
+		var ndl := nrm.x * sd.x + nrm.y * sd.y + nrm.z * sd.z
+		if ndl > 0.0 and not _no_sun and _sunlit(u, v, p.y):
+			sun = ndl * WorldGen.SUN_POWER
+		r += sc.r * (sky + sun)
+		g += sc.g * (sky + sun)
+		bl += sc.b * (sky + sun)
+		tot += (sky + sun) * 3.0
 	var share := fl_amt / tot if tot > 0.0 else 0.0
 	return Color(r, g, bl, share)
+
+
+## True if the sun reaches local point (u, v in cells, y in metres): walks the
+## grid toward the sun and needs to leave through a window before hitting a
+## wall or the ceiling.
+func _sunlit(u: float, v: float, y: float) -> bool:
+	var sd := -WorldGen.SUN_TRAVEL.normalized()
+	var hl := Vector2(sd.x, sd.z).length()
+	var dx := sd.x / hl / CELL          # cells per metre of horizontal travel
+	var dz := sd.z / hl / CELL
+	var dy := sd.y / hl                 # metres up per metre of horizontal travel
+	var ci := floori(u)
+	var cj := floori(v)
+	var si := 1 if dx > 0.0 else -1
+	var sj := 1 if dz > 0.0 else -1
+	var tdx := absf(1.0 / dx) if dx != 0.0 else INF
+	var tdz := absf(1.0 / dz) if dz != 0.0 else INF
+	var tmx := (float(ci + (1 if si > 0 else 0)) - u) / dx if dx != 0.0 else INF
+	var tmz := (float(cj + (1 if sj > 0 else 0)) - v) / dz if dz != 0.0 else INF
+	for _s in 8:
+		var t := minf(tmx, tmz)
+		var yy := y + dy * t
+		if ci < 0 or cj < 0 or ci >= W or cj >= W or yy >= ce(ci, cj) - 0.02:
+			return false
+		var e: int
+		var along: float
+		if tmx < tmz:
+			e = edge_v(ci + (1 if si > 0 else 0), cj)
+			along = v + dz * t - cj
+			ci += si
+			tmx += tdx
+		else:
+			e = edge_h(ci, cj + (1 if sj > 0 else 0))
+			along = u + dx * t - ci
+			cj += sj
+			tmz += tdz
+		if e == WorldGen.E_OPEN:
+			continue
+		if e != WorldGen.E_WINDOW:
+			return false
+		return absf(along - 0.5) * CELL < WorldGen.DOOR_W[e] * 0.5 and yy > WorldGen.WIN_Y0 and yy < WorldGen.DOOR_H[e]
+	return false
 
 
 func _occl(d: float) -> float:
@@ -423,7 +485,7 @@ func _ao_xz(p: Vector3) -> float:
 ## units relative to the edge's start.
 func _seg_dist(across: float, along: float, e: int) -> float:
 	var da := 0.0
-	if e == WorldGen.E_WALL:
+	if e == WorldGen.E_WALL or e == WorldGen.E_WINDOW:
 		da = maxf(maxf(-along, along - 1.0), 0.0)
 	else:
 		# Two wall pieces either side of a centred opening.
@@ -746,8 +808,11 @@ func _emit_cell(li: int, lj: int) -> void:
 		fr.push_back(float(k) / SUB)
 	# Floor and ceiling (cell centre is the reference for _nudge()).
 	_cur_cell = Vector2(xa + CELL * 0.5, za + CELL * 0.5)
+	# Sun galleries: finer lightmap on the floor so the window-shaped sun
+	# patches keep crisp edges.
+	var sunny := b == WorldGen.POOL and gen.gallery(gx, gz)
 	_grid(FLOOR_MAT[b], Vector3(xa, f, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), fr, fr,
-			Vector3.UP, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL)
+			Vector3.UP, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL_SUN if sunny else LM_TEXEL)
 	var cr := PackedFloat32Array([0.0, 0.5, 1.0])
 	_grid(CEIL_MAT[b], Vector3(xa, c, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), cr, cr,
 			Vector3.DOWN, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL_CEIL)
@@ -793,6 +858,8 @@ func _emit_cell(li: int, lj: int) -> void:
 func _emit_water(xa: float, za: float) -> void:
 	var lit: Array[Color] = []
 	var sds := PackedFloat32Array()
+	# Too coarse for crisp sun patches: those show on the pool floor below.
+	_no_sun = true
 	for jv in 3:
 		for iu in 3:
 			var p := Vector3(xa + iu * CELL * 0.5, WorldGen.WATER_Y, za + jv * CELL * 0.5)
@@ -801,6 +868,7 @@ func _emit_water(xa: float, za: float) -> void:
 			var ao := _ao_xz(sp)
 			lit.append(Color(light.r * ao, light.g * ao, light.b * ao, light.a))
 			sds.push_back(_seed)
+	_no_sun = false
 	var sub_n := water_sub
 	var b := buf(MAT_WATER)
 	var start := b.v.size()
@@ -923,6 +991,9 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 	var yt := minf(yb + WorldGen.DOOR_H[e], minf(ca, cb) - 0.05)
 	if e == WorldGen.E_ARCH:
 		_emit_arch(axis, plane, a0, a1, o0, o1, yb, yt, sides, bb, bottom, top)
+		return
+	if e == WorldGen.E_WINDOW:
+		_emit_window(axis, plane, s0, o0, o1, sides, bb, bottom, top)
 		return
 	for sd in sides:
 		var m: int = WALL_MAT[sd[2]]
@@ -1171,6 +1242,102 @@ func _emit_arch(axis: int, plane: float, a0: float, a1: float, o0: float, o1: fl
 	_col_wall(axis, plane, o0, o1, ys + r * 0.6, top)
 	if yb > bottom + 0.01:
 		_col_wall(axis, plane, o0, o1, bottom, yb)
+
+
+## Tall window in a sun gallery: a deep tiled reveal around frosted glass
+## that glows with daylight, a soft cove where the wall meets the ceiling, and
+## a shaft of sunlight falling into the hall on the sunny (+Z) side.
+func _emit_window(axis: int, plane: float, s0: float, o0: float, o1: float, sides: Array, bb: int,
+		bottom: float, top: float) -> void:
+	var a0 := s0 + T
+	var a1 := s0 + CELL - T
+	var y0 := WorldGen.WIN_Y0
+	var y1: float = WorldGen.DOOR_H[WorldGen.E_WINDOW]
+	var sun_side := 1.0 if (WorldGen.SUN_TRAVEL.z if axis == 2 else WorldGen.SUN_TRAVEL.x) > 0.0 else -1.0
+	for sd in sides:
+		var m: int = WALL_MAT[sd[2]]
+		var f: float = sd[3]
+		var c: float = sd[4]
+		_vface(m, axis, sd[1], sd[0], a0, o0, f, c, f, c)
+		_vface(m, axis, sd[1], sd[0], o1, a1, f, c, f, c)
+		_vface(m, axis, sd[1], sd[0], o0, o1, y1, c, f, c)
+		_vface(m, axis, sd[1], sd[0], o0, o1, f, y0, f, c)
+		_emit_cove(axis, sd[1], sd[0], s0, s0 + CELL, c, f)
+		# Frosted glass: blazing on the sunny side, softer from behind.
+		var lit: float = 1.0 if sd[0] == sun_side else 0.45
+		var lc := WorldGen.SUN_COLOR * (3.2 * lit)
+		var emit := Color(lc.r, lc.g, lc.b, 0.0)
+		var pb := buf(MAT_LIGHT)
+		var st := pb.v.size()
+		var off: float = sd[0] * 0.004
+		var nrm := Vector3(sd[0], 0, 0) if axis == 0 else Vector3(0, 0, sd[0])
+		for q in [Vector2(o0, y0), Vector2(o1, y0), Vector2(o1, y1), Vector2(o0, y1)]:
+			pb.add(_wp(axis, plane, q.x, q.y, off), nrm, Vector3.UP, Vector2(q.x * 0.3, q.y * 0.3), Vector2(0.0, 1.0), emit)
+		_tri_quad(pb, st, st + 1, st + 2, st + 3, (_wp(axis, 0, 1, 0, 0) - _wp(axis, 0, 0, 0, 0)).cross(Vector3.UP).dot(nrm) > 0.0)
+		if sd[0] == sun_side:
+			_emit_halo(_wp(axis, plane, (o0 + o1) * 0.5, (y0 + y1) * 0.5, sd[0] * 0.3), emit * 0.35, 0.0, 2.4)
+	# Reveals: jambs, head and sill.
+	var other := 2 if axis == 0 else 0
+	var mr: int = WALL_MAT[bb]
+	_vface(mr, other, o0, 1.0, plane - T, plane + T, y0, y1, y0, y1 + 0.6)
+	_vface(mr, other, o1, -1.0, plane - T, plane + T, y0, y1, y0, y1 + 0.6)
+	if axis == 0:
+		_hface(mr, plane - T, plane + T, o0, o1, y1, false, 1, false)
+		_hface(mr, plane - T, plane + T, o0, o1, y0, true, 1, false)
+	else:
+		_hface(mr, o0, o1, plane - T, plane + T, y1, false, 1, false)
+		_hface(mr, o0, o1, plane - T, plane + T, y0, true, 1, false)
+	if god_rays:
+		_emit_sun_shaft(axis, plane + sun_side * T, o0, o1, y0, y1)
+	_col_wall(axis, plane, a0 - T, a1 + T, bottom, top)
+
+
+## Quarter-round cove between a wall face and the ceiling (sun galleries).
+func _emit_cove(axis: int, face: float, sgn: float, s0: float, s1: float, c: float, f: float) -> void:
+	const R := 0.7
+	const SEGS := 6
+	var pos := PackedVector3Array()
+	var nrm := PackedVector3Array()
+	var uv := PackedVector2Array()
+	for k in SEGS + 1:
+		var a := PI * 0.5 * k / SEGS          # 0 = on the wall, 90 deg = on the ceiling
+		var off := sgn * R * (1.0 - cos(a))
+		var y := c - R + R * sin(a)
+		var n_off := sgn * cos(a)
+		var n := Vector3(n_off, -sin(a), 0) if axis == 0 else Vector3(0, -sin(a), n_off)
+		for along in [s0, s1]:
+			pos.push_back(_wp(axis, face, along, y, off))
+			nrm.push_back(n.normalized())
+			uv.push_back(Vector2(along, R * a))
+	_smooth_grid(MAT_POOL_TILE, pos, nrm, uv, 2, f, c, false)
+
+
+## God rays: the window opening swept along the sunlight down to the water,
+## drawn as the four sides of that slanted prism with a soft additive shader.
+func _emit_sun_shaft(axis: int, face: float, o0: float, o1: float, y0: float, y1: float) -> void:
+	var d := WorldGen.SUN_TRAVEL.normalized()
+	var end_y := WorldGen.WATER_Y
+	var corners := [Vector2(o0, y0), Vector2(o1, y0), Vector2(o1, y1), Vector2(o0, y1)]
+	var near := []
+	var far := []
+	for q in corners:
+		var p := _wp(axis, face, q.x, q.y, 0.0)
+		near.append(p)
+		far.append(p + d * ((q.y - end_y) / -d.y))
+	var b := buf(MAT_SHAFT)
+	for k in 4:
+		var k2 := (k + 1) % 4
+		var a: Vector3 = near[k]
+		var bb: Vector3 = near[k2]
+		var cc: Vector3 = far[k2]
+		var dd: Vector3 = far[k]
+		var n := (bb - a).cross(dd - a).normalized()
+		var st := b.v.size()
+		b.add(a, n, Vector3.RIGHT, Vector2(0, 0), Vector2.ZERO, Color())
+		b.add(bb, n, Vector3.RIGHT, Vector2(1, 0), Vector2.ZERO, Color())
+		b.add(cc, n, Vector3.RIGHT, Vector2(1, 1), Vector2.ZERO, Color())
+		b.add(dd, n, Vector3.RIGHT, Vector2(0, 1), Vector2.ZERO, Color())
+		_tri_quad(b, st, st + 1, st + 2, st + 3, false)
 
 
 ## Chrome pool ladder hooked over a rim. `dir` points from the rim into the pool.

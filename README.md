@@ -13,6 +13,8 @@ You noclipped out of reality. The hum of fluorescent lights, old moist carpet, a
 | ![Poolrooms arches](docs/screenshots/poolrooms_arches.jpg) | ![Pipe Dreams](docs/screenshots/pipe_dreams.jpg) |
 | **Open pillared halls** | **Level 1 - Habitable Zone** |
 | ![Lobby halls](docs/screenshots/lobby_touch.jpg) | ![Habitable Zone](docs/screenshots/habitable_zone.jpg) |
+| **Poolrooms sun gallery** | **Sun patches and god rays** |
+| ![Sun gallery](docs/screenshots/sun_gallery.jpg) | ![Sun gallery rays](docs/screenshots/sun_gallery_rays.jpg) |
 
 *(Screenshots are from a software renderer; desktop builds add SSR, SSAO, SSIL and volumetric fog.)*
 
@@ -22,6 +24,7 @@ You noclipped out of reality. The hum of fluorescent lights, old moist carpet, a
 - **Graphics presets** (Low / Medium / High / Max), plus soft light halos and haze that imitate volumetric fog on the Mobile renderer.
 - **Desktop builds use the Forward+ renderer**, which adds SSR, SSAO, SSIL bounce light, volumetric fog and SMAA. Android uses Godot's Mobile renderer, which the Godot docs recommend for phones (Forward+ there is "supported, but poorly optimized"). See [`engine/README.md`](engine/README.md) for notes on a possible future Android Forward+ build.
 - **Interactive water**: a GPU ripple simulation around you (wakes as you wade, rings and droplets when you jump in, drips from the ceiling), plus **real-time planar water reflections**, round tiled columns, arched colonnades, chrome pool ladders, skylights and a dark-green waterline band in the Poolrooms.
+- **Sun galleries**: long flooded halls in the Poolrooms lined with tall frosted windows. Sunlight is traced through the windows into the lightmap (crisp window-shaped patches on the pool floor, with caustics), plus soft god rays and a coved ceiling.
 - **Level 10 - The Field.** Somewhere on the Lobby's walls there are rare sky-blue doors with daylight leaking under them. Walk through one and you're standing on an endless sunlit lawn under towering cumulus clouds, and the door behind you is gone. The only way back is another lone door standing somewhere out in the grass. Its clouds are raymarched once on the GPU into a panorama, so the sky costs one texture lookup per pixel.
 - **Interconnected levels.** Large meandering regions turn the Lobby into the Poolrooms, the Habitable Zone or the Unlit Halls. Borders always have doorways, so everything connects.
 - **Realistic lighting at mobile cost.** Each fixture's light is baked into per-pixel lightmaps as the chunk generates, on worker threads: direct light with wall occlusion through doorways, colored bounce light, and contact shadows. The nearest visible fixtures also get real-time lights that add moving specular highlights on tiles, puddles and water. On top of that come bloom, fog, filmic tonemapping, mirror-like water reflections of the ceiling lights, underwater caustics, glossy puddles and a hand-held flashlight with optional real-time shadows. Faulty tubes flicker, and their buzzing is synced to the flicker.

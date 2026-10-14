@@ -296,6 +296,7 @@ func reset_bindings() -> void:
 func apply() -> void:
 	ChunkBuilder.lightmaps = get_value("graphics/lightmaps")
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
+	ChunkBuilder.god_rays = get_value("graphics/preset") > 0
 	var fps: int = get_value("graphics/fps_cap")
 	Engine.max_fps = [30, 60, 0][clampi(fps, 0, 2)]
 	var vp := get_tree().root

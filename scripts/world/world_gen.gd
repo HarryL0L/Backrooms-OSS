@@ -27,8 +27,11 @@ const E_WALL := 1
 const E_DOOR := 2
 const E_ARCH := 3
 const E_GATE := 4
-const DOOR_W := [0.0, 0.0, 1.1, 1.7, 1.7]
-const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7]
+const E_WINDOW := 5
+const DOOR_W := [0.0, 0.0, 1.1, 1.7, 1.7, 0.95]
+const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95]
+# Sun gallery windows (Poolrooms): absolute sill height (top is DOOR_H[E_WINDOW]).
+const WIN_Y0 := 0.45
 
 # Per-biome constants.
 const CEIL_H := [2.7, 4.8, 3.6, 2.7, 2.7]
@@ -44,6 +47,13 @@ const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.65
 const SKY_COLOR := Color(1.0, 0.9, 0.72)
 const SKY_POWER := 5.0
 const SKY_RADIUS := 10.5
+# Sun galleries: long flooded halls lit by low sunlight through rows of tall
+# windows. Windows sit on every GALLERY_STEP-th horizontal grid line; the sun
+# shines in from the -Z side, so it lands on the +Z side of each window row.
+const GALLERY_STEP := 5
+const SUN_TRAVEL := Vector3(0.0, -0.62, 0.78)   # direction the sunlight travels (normalized in use)
+const SUN_COLOR := Color(1.0, 0.96, 0.88)
+const SUN_POWER := 2.6
 
 # Light states.
 const L_NONE := 0
@@ -140,6 +150,8 @@ func near_spawn(gx: int, gz: int, r: int) -> bool:
 func pool_noise(gx: int, gz: int) -> bool:
 	if near_spawn(gx, gz, 3):
 		return false
+	if gallery(gx, gz):
+		return true
 	return vnoise(gx * 0.11, gz * 0.11, 21) > 0.47
 
 
@@ -154,6 +166,11 @@ func is_solid(gx: int, gz: int, b: int) -> bool:
 		return false
 	# Occasional small rooms where pipes gather.
 	return vnoise(gx * 0.3, gz * 0.3, 83) < 0.78
+
+
+## Part of a sun gallery (only meaningful inside the Poolrooms).
+func gallery(gx: int, gz: int) -> bool:
+	return vnoise(gx * 0.045, gz * 0.045, 58) > 0.6 and not near_spawn(gx, gz, 6)
 
 
 func open_hall(gx: int, gz: int) -> bool:
@@ -199,6 +216,11 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 				return E_DOOR
 			return E_WALL
 		POOL:
+			if gallery(ex, ez) and gallery(ax, az):
+				# Long halls: rows of windows with an arch every few cells.
+				if not vertical and posmod(line, GALLERY_STEP) == 0:
+					return E_ARCH if posmod(along, 9) == 4 else E_WINDOW
+				return E_OPEN
 			var dens := 0.06 + 0.3 * rnd(line, big, 46 + salt)
 			if rnd(line, floori(along / 5.0), 47 + salt) >= dens:
 				return E_OPEN
@@ -227,6 +249,8 @@ func pillar_at(vx: int, vz: int, b: int) -> float:
 			if open_hall(vx, vz) and posmod(vx, 2) == 0 and posmod(vz, 2) == 0:
 				return 0.42
 		POOL:
+			if gallery(vx, vz):
+				return 0.0
 			# Negative size = round column.
 			if vnoise(vx * 0.15, vz * 0.15, 52) > 0.55 and posmod(vx, 2) == 0 and posmod(vz, 2) == 0:
 				return -0.8
@@ -249,7 +273,7 @@ func light_state(gx: int, gz: int, b: int) -> int:
 				return L_DEAD
 			return L_FLICKER if r < 0.10 else L_ON
 		POOL:
-			if posmod(gx + gz, 2) != 0:
+			if posmod(gx + gz, 2) != 0 or gallery(gx, gz):
 				return L_NONE
 			if posmod(gx, 4) == 0 and posmod(gz, 4) == 0 and vnoise(gx * 0.08, gz * 0.08, 33) > 0.55:
 				return L_SKY
