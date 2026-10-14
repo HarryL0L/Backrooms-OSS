@@ -14,13 +14,13 @@ You noclipped out of reality. The hum of fluorescent lights, old moist carpet, a
 | **Open pillared halls** | **Level 1 - Habitable Zone** |
 | ![Lobby halls](docs/screenshots/lobby_touch.jpg) | ![Habitable Zone](docs/screenshots/habitable_zone.jpg) |
 
-*(Screenshots are from a software renderer on the standard build; the Ultra build adds SSR, SSAO, SSIL and volumetric fog.)*
+*(Screenshots are from a software renderer; desktop builds add SSR, SSAO, SSIL and volumetric fog.)*
 
 ## Features
 
 - **Infinite, seamless world.** Minecraft-style chunk streaming: chunks are generated nearest-first on background threads and uploaded under a strict per-frame time budget, so you can't see the world being built. Generation is deterministic from a seed, so any seed can be shared.
 - **Graphics presets** (Low / Medium / High / Max), plus soft light halos and haze that imitate volumetric fog on the Mobile renderer.
-- **Ultra build** (Forward+ renderer): adds SSR, SSAO, SSIL bounce light, volumetric fog and SMAA. Desktop builds always use it; on phones it needs a fast GPU with a recent driver. Known issue: on some older Mali drivers (confirmed on a Mali-G77 with driver r32p1), any frame where Forward+ renders 3D comes out with every 8-pixel-row strip duplicated, a driver bug that no game setting avoids. Ultra detects this at the menu and asks you to use the standard APK. A crash guard also turns effects off automatically if a driver crashes.
+- **Desktop builds use the Forward+ renderer**, which adds SSR, SSAO, SSIL bounce light, volumetric fog and SMAA. Android uses Godot's Mobile renderer, which the Godot docs recommend for phones (Forward+ there is "supported, but poorly optimized"). See [`engine/README.md`](engine/README.md) for notes on a possible future Android Forward+ build.
 - **Real-time planar water reflections**, round tiled columns, arched colonnades, chrome pool ladders, skylights and a dark-green waterline band in the Poolrooms.
 - **Interconnected levels.** Large meandering regions turn the Lobby into the Poolrooms, the Habitable Zone or the Unlit Halls. Borders always have doorways, so everything connects.
 - **Realistic lighting at mobile cost.** Each fixture's light is baked into the geometry as the chunk generates: direct light with wall occlusion through doorways, colored bounce light, and contact shadows. On top of that come bloom, fog, filmic tonemapping, mirror-like water reflections of the ceiling lights, underwater caustics, glossy puddles and a hand-held flashlight with optional real-time shadows. Faulty tubes flicker, and their buzzing is synced to the flicker.
@@ -38,7 +38,7 @@ No monsters in v0.1. The emptiness is the horror for now.
 
 ## Download
 
-Every push builds two APKs (`Backrooms-OSS.apk`, recommended, and `Backrooms-OSS-Ultra.apk`, experimental) plus Linux and Windows builds in GitHub Actions (**Actions → Build → Artifacts**). Desktop builds use the Ultra renderer. Pushing a tag like `v0.1.0` publishes them as a GitHub Release.
+Every push builds the Android APK (`Backrooms-OSS.apk`) plus Linux and Windows builds in GitHub Actions (**Actions → Build → Artifacts**). Pushing a tag like `v0.1.0` publishes them as a GitHub Release.
 
 Debug-signed APKs install fine via sideloading. To get release-signed APKs, add the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_ALIAS` and `ANDROID_KEYSTORE_PASSWORD`.
 

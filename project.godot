@@ -45,8 +45,6 @@ common/physics_ticks_per_second=60
 
 [rendering]
 
-limits/cluster_builder/use_msaa=true
-limits/cluster_builder/use_msaa.patched=false
 
 renderer/rendering_method="mobile"
 renderer/rendering_method.ultra="forward_plus"
