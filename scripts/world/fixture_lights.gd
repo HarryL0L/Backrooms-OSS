@@ -13,6 +13,8 @@ var _lights: Array[OmniLight3D] = []
 var _seeds := PackedFloat32Array()
 var _base := PackedFloat32Array()
 var _scan := 0.0
+## Max number of lights placed (diagnostics can lower it; 0 = none).
+var max_lights := COUNT
 
 
 func _ready() -> void:
@@ -57,7 +59,7 @@ func _place() -> void:
 	found.sort_custom(func(a: Array, bb: Array) -> bool: return a[0] < bb[0])
 	for i in COUNT:
 		var l := _lights[i]
-		if i >= found.size():
+		if i >= found.size() or i >= max_lights:
 			l.visible = false
 			continue
 		var e: Array = found[i]

@@ -113,21 +113,22 @@ func _log_system() -> void:
 # ------------------------------------------------------------------- test ---
 
 func _build_steps() -> void:
-	# Round 3. Round 2 showed: pure 2D is clean; as soon as Forward+ renders 3D
-	# into the root viewport, the whole root render target (2D included) reads
-	# back with 8-row strips duplicated, regardless of format/effects/scale.
-	# Test the workaround: render 3D into a SubViewport and show it as a 2D
-	# texture, so the root render target only ever sees pure 2D.
+	# Round 4: lighting. Rounds 1-3 never removed the real dynamic lights (the
+	# Ultra fixture OmniLights and the flashlight). Forward+ processes dynamic
+	# lights through its clustering pass, which pure-2D frames skip.
 	var off := {"graphics/lens_fx": false, "graphics/film_grain": false, "graphics/bloom": false,
 		"graphics/halos": false, "graphics/aa": 0, "graphics/ssr": false, "graphics/ssao": false,
 		"graphics/ssil": false, "graphics/volumetric_fog": false, "graphics/water_reflections": 0}
 	_steps = [
-		["01 baseline (3D in root viewport)", {}],
-		["02 3D in SubViewport, shown as texture", {"__offscreen": true}],
-		["03 SubViewport + HDR 2D on the SubViewport", {"__sv_hdr": true}],
-		["04 SubViewport + all effects OFF", off.merged({"__sv_hdr": false})],
-		["05 SubViewport + effects back ON", {"__restore_effects": true}],
-		["06 back to 3D in root viewport (control)", {"__offscreen": false}],
+		["01 baseline (fixture lights ON)", {}],
+		["02 NO dynamic lights (fixture lights OFF)", {"__fixtures": 0, "__flashlight": false}],
+		["03 no dynamic lights + all effects OFF", off],
+		["04 1 fixture light (effects OFF)", {"__fixtures": 1}],
+		["05 6 fixture lights (effects OFF)", {"__fixtures": 6}],
+		["06 flashlight only (effects OFF)", {"__fixtures": 0, "__flashlight": true}],
+		["07 flashlight + 6 fixture lights", {"__fixtures": 6}],
+		["08 no dynamic lights + effects back ON", {"__fixtures": 0, "__flashlight": false, "__restore_effects": true}],
+		["09 restore (fixture lights ON)", {"__fixtures": 6}],
 	]
 
 
@@ -225,6 +226,13 @@ func _next_step() -> void:
 				get_tree().root.use_hdr_2d = changes[k]
 			"__camera":
 				game.player.camera.current = changes[k]
+			"__fixtures":
+				if game.fixtures:
+					game.fixtures.max_lights = changes[k]
+					game.fixtures._place()
+				log_line("  dynamic fixture lights: %d (node %s)" % [changes[k], "present" if game.fixtures else "absent"])
+			"__flashlight":
+				game.player.set_flashlight(changes[k])
 			"__offscreen":
 				_set_offscreen(changes[k])
 			"__sv_hdr":
@@ -254,6 +262,11 @@ func _capture() -> void:
 	var small := a.duplicate() as Image
 	small.resize(int(a.get_width() * 0.5), int(a.get_height() * 0.5), Image.INTERPOLATE_BILINEAR)
 	small.save_png(name)
+	var lights := 0
+	for l in get_tree().root.find_children("*", "Light3D", true, false):
+		if (l as Light3D).is_visible_in_tree():
+			lights += 1
+	log_line("  step %02d: visible Light3D nodes = %d" % [_step + 1, lights])
 	log_line("  result step %02d: ROOT size=%dx%d format=%d DUPLICATION=%.3f (%s) temporal_noise=%.4f fps=%d -> %s" % [
 		_step + 1, a.get_width(), a.get_height(), a.get_format(), dup,
 		"CORRUPTED" if dup > 0.35 else "clean", noise, Engine.get_frames_per_second(), name])
@@ -288,6 +301,9 @@ func _temporal_noise(a: Image, b: Image) -> float:
 
 func _finish() -> void:
 	_done = true
+	if game.fixtures:
+		game.fixtures.max_lights = FixtureLights.COUNT
+	game.player.set_flashlight(false)
 	_set_offscreen(false)
 	game.chunks.visible = true
 	game.player.camera.current = true

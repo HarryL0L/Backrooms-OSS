@@ -99,6 +99,17 @@ jobs:
             build/Backrooms-OSS-Ultra.apk
             build/Backrooms-OSS-Ultra-Debug.apk
 
+      - name: Fetch Vulkan validation layer (for debugging GPU driver issues)
+        run: |
+          v=1.4.304.0
+          curl -sSL -o vvl.zip "https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/download/vulkan-sdk-$v/android-binaries-$v.zip"
+          unzip -q -j vvl.zip "android-binaries-$v/arm64-v8a/libVkLayer_khronos_validation.so" -d build/vvl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-validation-layer-arm64
+          path: build/vvl/libVkLayer_khronos_validation.so
+
       - uses: actions/upload-artifact@v4
         with:
           name: Backrooms-OSS-desktop
