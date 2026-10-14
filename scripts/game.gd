@@ -74,6 +74,10 @@ func _ready() -> void:
 		fixtures.target = player
 		add_child(fixtures)
 	_build_ui()
+	if Diagnostics.enabled():
+		var diag := Diagnostics.new()
+		diag.game = self
+		add_child(diag)
 	_using_touch = Settings.is_mobile
 	Settings.changed.connect(_apply_settings)
 	_apply_settings()

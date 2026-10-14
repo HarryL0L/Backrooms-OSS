@@ -83,6 +83,8 @@ jobs:
           if [ "$RELEASE_SIGNING" = "1" ]; then mode=--export-release; fi
           ~/godot/godot --headless --path . $mode "Android" build/Backrooms-OSS.apk
           ~/godot/godot --headless --path . $mode "Android Ultra" build/Backrooms-OSS-Ultra.apk
+          # Diagnostic build is always debuggable so its files can be pulled with run-as.
+          ~/godot/godot --headless --path . --export-debug "Android Ultra Debug" build/Backrooms-OSS-Ultra-Debug.apk
           ~/godot/godot --headless --path . --export-release "Linux" build/linux/Backrooms-OSS.x86_64
           ~/godot/godot --headless --path . --export-release "Windows" build/windows/Backrooms-OSS.exe
           test -s build/Backrooms-OSS.apk
@@ -95,6 +97,7 @@ jobs:
           path: |
             build/Backrooms-OSS.apk
             build/Backrooms-OSS-Ultra.apk
+            build/Backrooms-OSS-Ultra-Debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
