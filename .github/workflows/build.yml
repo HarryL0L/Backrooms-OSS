@@ -41,6 +41,7 @@ jobs:
           cd godot-src
           for p in ../engine/patches/*.patch; do echo "Applying $p"; git apply "$p"; done
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          python misc/scripts/install_swappy_android.py
           scons platform=android target=template_debug arch=arm64 production=yes -j"$(nproc)"
           cd platform/android/java
           ./gradlew generateGodotTemplates
