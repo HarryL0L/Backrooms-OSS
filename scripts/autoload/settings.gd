@@ -72,6 +72,7 @@ func defaults() -> Dictionary:
 		"graphics/halos": true,
 		"graphics/realtime_lights": true,
 		"graphics/light_highlights": true,
+		"graphics/water_ripples": true,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,

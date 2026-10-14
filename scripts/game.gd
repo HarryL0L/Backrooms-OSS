@@ -23,6 +23,7 @@ var ambience: Ambience
 var env: Environment
 var reflection: WaterReflection
 var fixtures: FixtureLights
+var ripples: WaterRipples
 
 var hud: HUD
 var touch: TouchControls
@@ -69,6 +70,10 @@ func _ready() -> void:
 	reflection.source = player.camera
 	reflection.material = mats.materials[ChunkBuilder.MAT_WATER]
 	add_child(reflection)
+	ripples = WaterRipples.new()
+	ripples.material = mats.materials[ChunkBuilder.MAT_WATER]
+	ripples.player = player
+	add_child(ripples)
 	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
 		fixtures.target = player
@@ -205,6 +210,7 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		ambience.attach(gen, player)
 		if fixtures:
 			fixtures.gen = gen
+		ripples.gen = gen
 		_biome = -1
 	chunks.target = player
 	player.teleport(pos, yaw, pitch)
@@ -559,6 +565,7 @@ func _set_biome(b: int, announce: bool) -> void:
 
 
 func _update_reflection() -> void:
+	ripples.active = _biome == WorldGen.POOL and gen != null and Settings.get_value("graphics/water_ripples")
 	reflection.set_active(_biome == WorldGen.POOL and int(Settings.get_value("graphics/water_reflections")) > 0)
 
 

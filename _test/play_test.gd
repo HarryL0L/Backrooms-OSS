@@ -4,6 +4,7 @@ var game
 var out := OS.get_user_data_dir() + "/play"
 var step := 0
 var t := 0.0
+var _frames := 0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -77,5 +78,22 @@ func _process(d):
 		9:
 			if t > 5.0:
 				Input.action_release("move_forward")
-				shot("pool_walk"); step = 10
+				shot("pool_walk"); step = 10; t = 0
+				# Look down at the wake and drop a splash ahead.
+				var pl = game.player
+				pl.teleport(pl.global_position, pl.yaw, -0.75)
+				game.ripples.splash(pl.global_position - pl.global_basis.z * 2.0, 1.5)
+		10:
+			_frames += 1
+			if _frames > 40:
+				shot("pool_ripples"); step = 11
+				var rimg: Image = game.ripples._vp[game.ripples._cur].get_texture().get_image()
+				var mn := 1e9
+				var mx := -1e9
+				for y in range(0, rimg.get_height(), 4):
+					for x in range(0, rimg.get_width(), 4):
+						var v := rimg.get_pixel(x, y).r
+						mn = minf(mn, v)
+						mx = maxf(mx, v)
+				print("ripple tex format=", rimg.get_format(), " min=", mn, " max=", mx, " origin=", game.ripples._origin, " active=", game.ripples.active)
 				get_tree().quit()

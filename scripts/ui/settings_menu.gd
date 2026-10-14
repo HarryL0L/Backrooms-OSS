@@ -179,6 +179,7 @@ func _build_graphics() -> void:
 	_slider(p, "Brightness", "graphics/brightness", 0.5, 2.0, 0.05, "%.2f")
 	_toggle(p, "Bloom", "graphics/bloom")
 	_option(p, "Water reflections", "graphics/water_reflections", ["Off (fake)", "Low", "High"])
+	_toggle(p, "Interactive water ripples & splashes", "graphics/water_ripples")
 	_toggle(p, "Film grain & vignette", "graphics/film_grain")
 	_toggle(p, "Lens effects (chromatic aberration)", "graphics/lens_fx")
 	_toggle(p, "Light halos (haze glow)", "graphics/halos")

@@ -113,6 +113,22 @@ static func water_loop() -> AudioStreamWAV:
 	return to_wav(_normalize(_make_loop(s, length), 0.5), true)
 
 
+## A single drop falling into water: a short "plip" whose pitch rises, as a
+## real drop's air bubble resonance does.
+static func drip() -> AudioStreamWAV:
+	var n := int(RATE * 0.16)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var f := 900.0 + 2400.0 * minf(t / 0.035, 1.0)
+		ph += TAU * f / RATE
+		var env := minf(t / 0.002, 1.0) * exp(-t * 38.0)
+		s[i] = sin(ph) * env
+	return to_wav(_normalize(s, 0.5), false)
+
+
 ## Electrical buzz of a failing tube.
 static func buzz() -> AudioStreamWAV:
 	var n := RATE
