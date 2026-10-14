@@ -28,6 +28,11 @@ window/stretch/aspect="expand"
 window/handheld/orientation=4
 window/vsync/vsync_mode=1
 
+[debug]
+
+file_logging/enable_file_logging.diag=true
+file_logging/max_log_files=2
+
 [input_devices]
 
 pointing/emulate_mouse_from_touch=true

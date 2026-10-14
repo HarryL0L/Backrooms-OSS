@@ -5,10 +5,12 @@ extends CanvasLayer
 ## automatic test that toggles graphics features one at a time, so rendering
 ## problems on a specific GPU can be pinned down from a single logcat.
 ##
-## Output: every line is printed with a "DIAG" prefix (logcat tag "godot"),
-## also written to user://diag/log.txt, plus one screenshot per test step in
-## user://diag/. On Android, pull them from a debug build with:
-##   adb exec-out run-as io.github.backroomsoss tar -c -C files diag > diag.tar
+## Output: every line is printed with a "DIAG" prefix (logcat tag "godot") and
+## written to user://diag/log.txt, plus one screenshot per test step. When the
+## test finishes everything (this log, Godot's own verbose log, the app's own
+## logcat and the screenshots) is packed into one zip and saved to the shared
+## Documents folder (/sdcard/Documents/Backrooms-OSS/) so it can be shared
+## straight from the phone. The on-screen text shows where it was saved.
 
 const STEP_WAIT := 2.5
 
@@ -55,6 +57,10 @@ func _ready() -> void:
 	_sub.text = "Waiting for the menu... don't touch the screen."
 	_log_system()
 	_build_steps()
+	# Dev only: DIAG_STEPS=n runs just the first n steps (for quick local tests).
+	var n := OS.get_environment("DIAG_STEPS").to_int()
+	if n > 0:
+		_steps = _steps.slice(0, n)
 
 
 func log_line(s: String) -> void:
@@ -228,6 +234,80 @@ func _finish() -> void:
 	Settings.values = _saved_settings
 	Settings.apply()
 	Settings.changed.emit()
-	_label.text = "DIAGNOSTICS DONE"
-	_sub.text = "Settings restored. Now save the log (see README / chat instructions)."
 	log_line("==== effect test finished; settings restored ====")
+	_label.text = "DIAGNOSTICS DONE - saving report..."
+	_sub.text = ""
+	await get_tree().process_frame
+	var where := _export_report()
+	if where == "":
+		_label.text = "DIAGNOSTICS DONE - could not save the zip"
+		_sub.text = "Use adb instead (see chat instructions)."
+	else:
+		_label.text = "DIAGNOSTICS DONE - report saved"
+		_sub.text = where
+
+
+## The app's own logcat lines (Android lets an app read its own process logs,
+## which include Vulkan loader and GPU driver messages).
+func _own_logcat() -> String:
+	if OS.get_name() != "Android":
+		return "(logcat only available on Android)"
+	var out := []
+	var code := OS.execute("logcat", ["-d", "-v", "time", "-t", "20000"], out, true)
+	if code != 0 or out.is_empty():
+		return "(logcat failed, exit code %d)" % code
+	return "".join(out)
+
+
+## Godot's own log file (verbose output; file logging is enabled for this build).
+func _godot_log() -> PackedByteArray:
+	var path: String = ProjectSettings.get_setting("debug/file_logging/log_path", "user://logs/godot.log")
+	if FileAccess.file_exists(path):
+		return FileAccess.get_file_as_bytes(path)
+	return "(no godot.log at %s)".to_utf8_buffer()
+
+
+func _export_report() -> String:
+	var stamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
+	var zip_name := "backrooms-diag-%s.zip" % stamp
+	var tmp := "user://diag/" + zip_name
+	if _log:
+		_log.flush()
+	var z := ZIPPacker.new()
+	if z.open(tmp) != OK:
+		log_line("zip: could not create " + tmp)
+		return ""
+	_zip_add(z, "diag_log.txt", FileAccess.get_file_as_bytes("user://diag/log.txt"))
+	_zip_add(z, "godot.log", _godot_log())
+	_zip_add(z, "logcat.txt", _own_logcat().to_utf8_buffer())
+	for f in DirAccess.get_files_at("user://diag"):
+		if f.ends_with(".png"):
+			_zip_add(z, "screens/" + f, FileAccess.get_file_as_bytes("user://diag/" + f))
+	z.close()
+	var data := FileAccess.get_file_as_bytes(tmp)
+	# Shared Documents first (visible in any file manager), then fallbacks.
+	var dirs := [
+		OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS) + "/Backrooms-OSS",
+		OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS) + "/Backrooms-OSS",
+		"/storage/emulated/0/Android/data/io.github.backroomsoss/files",
+	]
+	for dir in dirs:
+		if dir.begins_with("/Backrooms-OSS"):
+			continue  # system dir unavailable
+		DirAccess.make_dir_recursive_absolute(dir)
+		var path: String = dir + "/" + zip_name
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f:
+			f.store_buffer(data)
+			f.close()
+			log_line("report saved: %s (%d KB)" % [path, data.size() / 1024])
+			return path
+		log_line("could not write %s (error %d)" % [path, FileAccess.get_open_error()])
+	log_line("report only available internally at " + ProjectSettings.globalize_path(tmp))
+	return ""
+
+
+func _zip_add(z: ZIPPacker, name: String, bytes: PackedByteArray) -> void:
+	z.start_file(name)
+	z.write_file(bytes)
+	z.close_file()
