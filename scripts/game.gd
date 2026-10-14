@@ -522,6 +522,9 @@ func _process(delta: float) -> void:
 	env.fog_light_color = env.fog_light_color.lerp(_fog_color, k)
 	env.fog_density = lerpf(env.fog_density, _fog_density, k)
 	env.fog_light_energy = lerpf(env.fog_light_energy, EnvironmentFactory.FOG_ENERGY[maxi(_biome, 0)], k)
+	# Anything past the loaded chunks shows the background: make it the fog
+	# colour so distant openings fade into haze instead of black holes.
+	env.background_color = env.fog_light_color * env.fog_light_energy
 	if env.volumetric_fog_enabled:
 		env.volumetric_fog_albedo = env.volumetric_fog_albedo.lerp(_fog_color, k)
 		env.volumetric_fog_density = lerpf(env.volumetric_fog_density, EnvironmentFactory.VOL_DENSITY[maxi(_biome, 0)], k)

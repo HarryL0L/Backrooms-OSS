@@ -5,8 +5,8 @@ extends RefCounted
 ## flashlight) are added on top.
 
 const FOG := [Color(0.42, 0.42, 0.26), Color(0.80, 0.86, 0.84), Color(0.10, 0.105, 0.11), Color(0.012, 0.010, 0.006), Color(0.03, 0.025, 0.02)]
-const FOG_DENSITY := [0.026, 0.024, 0.034, 0.05, 0.06]
-const FOG_ENERGY := [0.45, 1.0, 0.4, 0.4, 0.4]
+const FOG_DENSITY := [0.026, 0.018, 0.034, 0.05, 0.06]
+const FOG_ENERGY := [0.45, 0.55, 0.4, 0.4, 0.4]
 const VOL_DENSITY := [0.012, 0.008, 0.022, 0.02, 0.035]
 
 

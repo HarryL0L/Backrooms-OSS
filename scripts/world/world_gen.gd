@@ -35,14 +35,14 @@ const CEIL_H := [2.7, 4.8, 3.6, 2.7, 2.7]
 const POOL_FLOOR := -0.8
 const WATER_Y := -0.16
 const LIGHT_COLOR := [Color(1.0, 0.97, 0.86), Color(1.0, 0.98, 0.94), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58), Color(1.0, 0.88, 0.7)]
-const LIGHT_POWER := [3.2, 4.3, 5.0, 2.0, 3.4]
+const LIGHT_POWER := [3.2, 3.4, 5.0, 2.0, 3.4]
 const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0, 7.0]
-const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.22, 0.23, 0.22), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008)]
+const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.09, 0.10, 0.10), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008)]
 # Approximate colour of light after bouncing off the room surfaces.
 const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.65, 0.65, 0.65), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42)]
 # Skylights in the Poolrooms: warm "sunlight" pouring in from above.
 const SKY_COLOR := Color(1.0, 0.9, 0.72)
-const SKY_POWER := 7.0
+const SKY_POWER := 5.0
 const SKY_RADIUS := 10.5
 
 # Light states.

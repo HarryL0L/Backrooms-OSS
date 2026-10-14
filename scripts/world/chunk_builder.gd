@@ -26,7 +26,7 @@ const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_B
 const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME]
 const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(0.62, 0.62), Vector2(1.7, 0.24), Vector2(1.22, 0.62), Vector2(0.6, 0.6)]
 const SKY_SIZE := 1.8
-const HALO_SIZE := [1.7, 2.6, 3.0, 1.8, 1.6]
+const HALO_SIZE := [1.2, 1.5, 1.6, 1.2, 1.1]
 const SUN_DIR := Vector3(0.32, -1.0, 0.22)
 const EMIT_SCALE := 1.5
 
@@ -716,12 +716,20 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 	var mr: int = WALL_MAT[bb]
 	_vface(mr, other, o0, 1.0, plane - T, plane + T, yb, yt, yb, yt + 0.6)
 	_vface(mr, other, o1, -1.0, plane - T, plane + T, yb, yt, yb, yt + 0.6)
+	# Sill: only where the floors differ, and only over the lower side. The
+	# floors already reach the wall line, so a full-width sill would sit
+	# exactly on them and z-fight (jagged strips in doorways).
+	var sill := absf(fa - fb) > 0.01
+	var s_lo := plane - T if fa < fb else plane
+	var s_hi := plane if fa < fb else plane + T
 	if axis == 0:
 		_hface(mr, plane - T, plane + T, o0, o1, yt, false, 1, false)
-		_hface(FLOOR_MAT[bb], plane - T, plane + T, o0, o1, yb, true, 1, false)
+		if sill:
+			_hface(FLOOR_MAT[bb], s_lo, s_hi, o0, o1, yb, true, 1, false)
 	else:
 		_hface(mr, o0, o1, plane - T, plane + T, yt, false, 1, false)
-		_hface(FLOOR_MAT[bb], o0, o1, plane - T, plane + T, yb, true, 1, false)
+		if sill:
+			_hface(FLOOR_MAT[bb], o0, o1, s_lo, s_hi, yb, true, 1, false)
 	_col_wall(axis, plane, a0 - T, o0, bottom, top)
 	_col_wall(axis, plane, o1, a1 + T, bottom, top)
 	_col_wall(axis, plane, o0, o1, yt, top)
