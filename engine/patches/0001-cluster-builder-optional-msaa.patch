@@ -10,7 +10,7 @@ index 1df4b60..b5c7604 100644
  
  #include "servers/rendering/rendering_device.h"
  #include "servers/rendering/rendering_server_globals.h" // IWYU pragma: keep. RENDER_TIMESTAMP macro uses RSG.
-@@ -285,6 +286,12 @@ void ClusterBuilderRD::setup(Size2i p_screen_size, uint32_t p_max_elements, RID
+@@ -285,6 +286,17 @@ void ClusterBuilderRD::setup(Size2i p_screen_size, uint32_t p_max_elements, RID
  
  	_clear();
  
@@ -18,7 +18,12 @@ index 1df4b60..b5c7604 100644
 +	// attachment-less framebuffer with a 4x MSAA pipeline. On GPUs without
 +	// variableMultisampleRate (e.g. Mali-G77, driver r32p1) this corrupts every
 +	// render target in the frame. Allow turning the cluster MSAA off.
-+	use_msaa = ProjectSettings::get_singleton()->get_setting("rendering/limits/cluster_builder/use_msaa", true);
++	// Read with feature-tag overrides applied (e.g. "use_msaa.patched=false").
++	{
++		const StringName key = "rendering/limits/cluster_builder/use_msaa";
++		const ProjectSettings *ps = ProjectSettings::get_singleton();
++		use_msaa = ps->has_setting(key) ? bool(ps->get_setting_with_override(key)) : true;
++	}
 +
  	screen_size = p_screen_size;
  

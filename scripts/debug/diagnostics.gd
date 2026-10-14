@@ -233,7 +233,10 @@ func _next_step() -> void:
 			"__flashlight":
 				game.player.set_flashlight(changes[k])
 			"__cluster_msaa":
+				# The engine reads the setting with feature overrides applied, so set
+				# the "patched" override too or it would shadow the base value.
 				ProjectSettings.set_setting("rendering/limits/cluster_builder/use_msaa", changes[k])
+				ProjectSettings.set_setting("rendering/limits/cluster_builder/use_msaa.patched", changes[k])
 				# Rebuild the render buffers so the cluster builder re-runs setup().
 				var vp := get_tree().root
 				var sc := vp.scaling_3d_scale
