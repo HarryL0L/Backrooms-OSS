@@ -1,6 +1,8 @@
 // Shared helpers for all world shaders.
-// Lighting is baked per vertex by ChunkBuilder into CUSTOM0:
+// Lighting is baked by ChunkBuilder, either per pixel into the chunk's
+// lightmap (flat faces) or per vertex into CUSTOM0 (curved surfaces, props):
 //   rgb = irradiance, a = share of it coming from a flickering lamp (UV2.x = lamp seed).
+// CUSTOM1.xy = lightmap texel coordinates, or negative for per-vertex light.
 
 uniform uint world_seed = 0u;
 // Set every frame by the game so light flicker and its buzzing sound stay in sync.
@@ -31,6 +33,17 @@ float flicker(float seed, float t) {
 vec3 baked_light(vec4 custom0, float seed, float t) {
 	float f = flicker(seed, t);
 	return custom0.rgb * (1.0 - custom0.a * (1.0 - f));
+}
+
+uniform sampler2D lightmap : hint_default_black, filter_linear, repeat_disable;
+
+// lm = (texel x, texel y, flicker factor of the face's lamp).
+vec3 lightmap_light(vec3 vertex_light, vec3 lm) {
+	if (lm.x < 0.0) {
+		return vertex_light;
+	}
+	vec4 s = texture(lightmap, lm.xy / vec2(textureSize(lightmap, 0)));
+	return s.rgb * (1.0 - s.a * (1.0 - lm.z));
 }
 
 // Same as WorldGen.hashi()/rnd(): uint arithmetic wraps exactly like the

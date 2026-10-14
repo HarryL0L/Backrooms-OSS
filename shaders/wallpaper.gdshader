@@ -8,16 +8,19 @@ uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap_anisotropic, 
 uniform vec3 base_color : source_color = vec3(0.80, 0.79, 0.50);
 uniform vec3 stripe_color : source_color = vec3(0.62, 0.68, 0.64);
 
-varying vec3 v_light;
+varying vec3 v_vlight;
+varying vec3 v_lm;
 varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
+	v_lm = vec3(CUSTOM1.xy, flicker(UV2.x, world_time));
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
+	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = UV;
 	float y = -uv.y;
 	// Columns of stacked chevrons separated by thin double pinstripes,

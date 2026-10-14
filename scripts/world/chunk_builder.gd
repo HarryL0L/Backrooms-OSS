@@ -15,12 +15,18 @@ const W := N + 2 * M
 const SUB := 3                   # floor / ceiling subdivisions per cell
 const T := 0.07                  # half wall thickness
 const SPACING := 1.2             # target vertex spacing on walls
+const LM_W := 256                # lightmap atlas width (texels)
+const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
+const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
 
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
 	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE,
 	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_COUNT
 }
+## Materials whose shaders read the per-chunk lightmap.
+const LIGHTMAPPED := [MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_WALL,
+		MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_BRICK, MAT_GRIME]
 const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER, MAT_GRIME]
 const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_BRICK]
 const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME]
@@ -38,6 +44,7 @@ class Buf:
 	var uv := PackedVector2Array()
 	var uv2 := PackedVector2Array()
 	var c0 := PackedFloat32Array()
+	var c1 := PackedFloat32Array()        # lightmap texel coords, (-1, -1) = per-vertex light
 	var idx := PackedInt32Array()
 
 	func add(p: Vector3, nrm: Vector3, tan: Vector3, t: Vector2, t2: Vector2, light: Color) -> int:
@@ -53,7 +60,13 @@ class Buf:
 		c0.push_back(light.g)
 		c0.push_back(light.b)
 		c0.push_back(light.a)
+		c1.push_back(-1.0)
+		c1.push_back(-1.0)
 		return v.size() - 1
+
+	func set_lm(i: int, t: Vector2) -> void:
+		c1[i * 2] = t.x
+		c1[i * 2 + 1] = t.y
 
 	func to_arrays() -> Array:
 		var a := []
@@ -64,6 +77,7 @@ class Buf:
 		a[Mesh.ARRAY_TEX_UV] = uv
 		a[Mesh.ARRAY_TEX_UV2] = uv2
 		a[Mesh.ARRAY_CUSTOM0] = c0
+		a[Mesh.ARRAY_CUSTOM1] = c1
 		a[Mesh.ARRAY_INDEX] = idx
 		return a
 
@@ -91,6 +105,16 @@ var bufs := []
 var col := PackedVector3Array()
 var _seed := 0.0
 var _cur_cell := Vector2.ZERO
+# Lightmap atlas (RGBA half floats, shelf packed, grows downwards).
+var lm_bytes := PackedByteArray()
+# Per-face light visibility while baking a face: 0 hidden, 1 visible, 2 test
+# per texel. Empty when not baking.
+var _face_vis := PackedByteArray()
+var _face_lights := PackedInt32Array()   # lights that can reach the face being baked
+var _face_on := false
+var _lm_x := 0
+var _lm_y := 0
+var _lm_shelf := 0
 
 
 func _init(p_gen: WorldGen, p_coord: Vector2i) -> void:
@@ -151,7 +175,32 @@ func build() -> Dictionary:
 		var b: Buf = bufs[m]
 		if b != null and b.v.size() > 0:
 			surfaces[m] = b.to_arrays()
-	return {"coord": coord, "surfaces": surfaces, "collision": col}
+	return {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image()}
+
+
+func _lm_alloc(w: int, h: int) -> Vector2i:
+	if _lm_x + w > LM_W:
+		_lm_x = 0
+		_lm_y += _lm_shelf
+		_lm_shelf = 0
+	var at := Vector2i(_lm_x, _lm_y)
+	_lm_x += w
+	_lm_shelf = maxi(_lm_shelf, h)
+	var need := (_lm_y + _lm_shelf) * LM_W * 8
+	if lm_bytes.size() < need:
+		lm_bytes.resize(maxi(need, lm_bytes.size() * 2))
+	return at
+
+
+func _lm_image() -> Image:
+	var h := _lm_y + _lm_shelf
+	if h == 0:
+		return null
+	h = (h + 3) & ~3
+	var bytes := lm_bytes.slice(0, h * LM_W * 8)
+	if bytes.size() < h * LM_W * 8:
+		bytes.resize(h * LM_W * 8)
+	return Image.create_from_data(LM_W, h, false, Image.FORMAT_RGBAH, bytes)
 
 
 func _compute_layout() -> void:
@@ -303,7 +352,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 	var tot := 0.0
 	var fl_amt := 0.0
 	var fl_best := 0.0
-	for k in _candidates(li, lj):
+	for k in (_face_lights if _face_on else _candidates(li, lj)):
 		var lp := lpos[k]
 		var dx := lp.x - p.x
 		var dy := lp.y - p.y
@@ -316,7 +365,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		var w := 1.0 - d / rad
 		w *= w
 		var att := w / (1.0 + d2 * 0.15)
-		if not _visible(lp.x / CELL - rx0, lp.z / CELL - rz0, lp.y, u, v, p.y):
+		if (not _face_on or _face_vis[k] == 2) and not _visible(lp.x / CELL - rx0, lp.z / CELL - rz0, lp.y, u, v, p.y):
 			continue
 		var ndl := (nrm.x * dx + nrm.y * dy + nrm.z * dz) / d
 		var e := 0.25 + 0.75 * maxf(dy / d, 0.0)
@@ -398,36 +447,49 @@ static func _tri_quad(b: Buf, a: int, bb: int, c: int, d: int, flip: bool) -> vo
 
 
 ## Generic subdivided rectangle. Vertices at p0 + du*us[i] + dv*vs[j].
-## ao_mode: 0 = wall (vertical AO using f/c), 1 = floor/ceiling (xz AO, cached,
-## shading point nudged away from walls by `nud`).
+## ao_mode: 0 = wall (vertical AO using f/c), 1 = floor/ceiling (xz AO).
+## lm_texel > 0 bakes the face into the chunk lightmap at that texel spacing
+## (smooth per-pixel light); otherwise light is baked per vertex.
 func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Array, vs: PackedFloat32Array,
-		nrm: Vector3, tan: Vector3, uv_mode: int, ao_mode: int, f: float, c: float) -> void:
+		nrm: Vector3, tan: Vector3, uv_mode: int, ao_mode: int, f: float, c: float, lm_texel: float = 0.0) -> void:
 	var b := buf(mat)
 	var start := b.v.size()
 	var nu := us.size()
+	var lm_at := Vector2i(-1, -1)
+	var lm_n := Vector2i.ZERO
+	var face_seed := 0.0
+	if not LIGHTMAPPED.has(mat):
+		lm_texel = 0.0
+	if lm_texel > 0.0:
+		lm_n = Vector2i(maxi(2, ceili(du.length() / lm_texel - 0.01) + 1), maxi(2, ceili(dv.length() / lm_texel - 0.01) + 1))
+		lm_at = _lm_alloc(lm_n.x, lm_n.y)
+		face_seed = _bake_face(p0, du, dv, nrm, ao_mode, f, c, lm_at, lm_n)
 	for jv in vs.size():
 		for iu in nu:
 			var p := p0 + du * us[iu] + dv * vs[jv]
-			var light: Color
-			var sp := p + nrm * 0.05
-			if ao_mode == 1:
-				sp += _nudge(p)
-				var key := Vector3i(roundi(sp.x * 50.0), roundi(sp.y * 50.0), roundi(sp.z * 50.0))
-				if cache.has(key):
-					light = cache[key]
+			var light := Color(0, 0, 0, 0)
+			if lm_texel > 0.0:
+				_seed = face_seed
+			else:
+				var sp := p + nrm * 0.05
+				if ao_mode == 1:
+					sp += _nudge(p)
+					var key := Vector3i(roundi(sp.x * 50.0), roundi(sp.y * 50.0), roundi(sp.z * 50.0))
+					if cache.has(key):
+						light = cache[key]
+					else:
+						light = shade(sp, nrm)
+						var ao := _ao_xz(sp)
+						light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+						light.a = light.a + floorf(_seed)  # pack seed in integer part
+						cache[key] = light
+					var sd := floorf(light.a)
+					light.a -= sd
+					_seed = sd
 				else:
 					light = shade(sp, nrm)
-					var ao := _ao_xz(sp)
+					var ao := _ao_y(p.y, f, c)
 					light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
-					light.a = light.a + floorf(_seed)  # pack seed in integer part
-					cache[key] = light
-				var sd := floorf(light.a)
-				light.a -= sd
-				_seed = sd
-			else:
-				light = shade(sp, nrm)
-				var ao := _ao_y(p.y, f, c)
-				light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
 			var t: Vector2
 			match uv_mode:
 				0:
@@ -436,12 +498,132 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 					t = Vector2(p.z, -p.y)
 				_:
 					t = Vector2(p.x, -p.y)
-			b.add(p, nrm, tan, t, Vector2(_seed, 0.0), light)
+			var vi := b.add(p, nrm, tan, t, Vector2(_seed, 0.0), light)
+			if lm_texel > 0.0:
+				# Face edges land on texel centres, so filtering never reads a neighbour.
+				b.set_lm(vi, Vector2(lm_at.x + 0.5 + us[iu] * (lm_n.x - 1), lm_at.y + 0.5 + vs[jv] * (lm_n.y - 1)))
 	var flip := du.cross(dv).dot(nrm) > 0.0
 	for jv in vs.size() - 1:
 		for iu in nu - 1:
 			var a := start + iu + jv * nu
 			_tri_quad(b, a, a + 1, a + 1 + nu, a + nu, flip)
+
+
+## Decides once per face which lights are hidden from all of it, visible from
+## all of it, or need testing per texel, by tracing to a 3x3 grid of points on
+## the face. Most lights in the maze are behind walls, so this removes most of
+## the per-texel visibility tracing.
+func _classify_lights(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, horizontal: bool, trace: bool) -> void:
+	_face_vis.resize(lpos.size())
+	_face_lights = PackedInt32Array()
+	var pts := PackedVector3Array()
+	var lights := {}
+	for jv in 3:
+		for iu in 3:
+			var pp := p0 + du * (iu * 0.5) + dv * (jv * 0.5)
+			var sp := pp + nrm * 0.05
+			if horizontal:
+				sp += _nudge(pp)
+			pts.push_back(sp)
+			var li := floori(sp.x / CELL) - rx0
+			var lj := floori(sp.z / CELL) - rz0
+			if li >= 0 and lj >= 0 and li < W and lj < W:
+				for k in _candidates(li, lj):
+					lights[k] = true
+	var bmin := p0.min(p0 + du + dv)
+	var bmax := p0.max(p0 + du + dv)
+	for k in lights:
+		var lp := lpos[k]
+		if lp.distance_squared_to(lp.clamp(bmin, bmax)) >= lrad[k] * lrad[k]:
+			_face_vis[k] = 0
+			continue
+		if not trace:
+			# Small face: only the range test, visibility is traced per texel.
+			_face_vis[k] = 2
+			_face_lights.push_back(k)
+			continue
+		var seen := 0
+		for sp in pts:
+			if _visible(lp.x / CELL - rx0, lp.z / CELL - rz0, lp.y, sp.x / CELL - rx0, sp.z / CELL - rz0, sp.y):
+				seen += 1
+		_face_vis[k] = 0 if seen == 0 else (1 if seen == pts.size() else 2)
+		if seen > 0:
+			_face_lights.push_back(k)
+	_face_on = true
+
+
+## Shades every lightmap texel of a face and writes it to the atlas. Returns
+## the seed of the flickering lamp that contributes most to the face.
+func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: int, f: float, c: float,
+		at: Vector2i, n: Vector2i) -> float:
+	_classify_lights(p0, du, dv, nrm, ao_mode == 1, n.x * n.y > 24)
+	var seeds := {}
+	var vals := PackedColorArray()
+	vals.resize(n.x * n.y)
+	var done := PackedByteArray()
+	done.resize(n.x * n.y)
+	# Pass 1: every other texel (plus the last row/column). Pass 2: texels in
+	# between are interpolated where their neighbours agree, shaded otherwise.
+	# Light is smooth almost everywhere, so this roughly halves the cost while
+	# keeping shadow and doorway edges exact.
+	for pass_i in 2:
+		for tv in n.y:
+			var ev_v := tv % 2 == 0 or tv == n.y - 1
+			for tu in n.x:
+				var ev_u := tu % 2 == 0 or tu == n.x - 1
+				var k := tu + tv * n.x
+				if pass_i == 0:
+					if not (ev_u and ev_v):
+						continue
+				elif done[k] == 1:
+					continue
+				else:
+					var u0 := tu if ev_u else tu - 1
+					var u1 := tu if ev_u else tu + 1
+					var v0 := tv if ev_v else tv - 1
+					var v1 := tv if ev_v else tv + 1
+					var c00 := vals[u0 + v0 * n.x]
+					var c10 := vals[u1 + v0 * n.x]
+					var c01 := vals[u0 + v1 * n.x]
+					var c11 := vals[u1 + v1 * n.x]
+					var l00 := c00.r + c00.g + c00.b
+					var l10 := c10.r + c10.g + c10.b
+					var l01 := c01.r + c01.g + c01.b
+					var l11 := c11.r + c11.g + c11.b
+					var lmax := maxf(maxf(l00, l10), maxf(l01, l11))
+					var lmin := minf(minf(l00, l10), minf(l01, l11))
+					if lmax - lmin <= 0.05 + lmax * 0.22 and absf(c00.a - c11.a) < 0.1 and absf(c10.a - c01.a) < 0.1:
+						vals[k] = (c00 + c10 + c01 + c11) * 0.25
+						done[k] = 1
+						continue
+				var p := p0 + du * (float(tu) / (n.x - 1)) + dv * (float(tv) / (n.y - 1))
+				# Same sample point on both sides of an open cell border (so no
+				# seams); points on a walled line are moved to the visible side.
+				var sp := p + nrm * 0.05
+				if ao_mode == 1:
+					sp += _nudge(p)
+				var light := shade(sp, nrm)
+				var ao := _ao_xz(sp) if ao_mode == 1 else _ao_y(p.y, f, c)
+				if _seed > 0.0:
+					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
+				vals[k] = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+				done[k] = 1
+	for tv in n.y:
+		for tu in n.x:
+			var cl := vals[tu + tv * n.x]
+			var o := ((at.y + tv) * LM_W + at.x + tu) * 8
+			lm_bytes.encode_half(o, cl.r)
+			lm_bytes.encode_half(o + 2, cl.g)
+			lm_bytes.encode_half(o + 4, cl.b)
+			lm_bytes.encode_half(o + 6, cl.a)
+	_face_on = false
+	var best := 0.0
+	var best_w := 0.0
+	for sd in seeds:
+		if seeds[sd] > best_w:
+			best_w = seeds[sd]
+			best = sd
+	return best
 
 
 ## Pushes floor/ceiling shading points that sit on a walled grid line towards
@@ -514,7 +696,7 @@ func _vface(mat: int, axis: int, plane: float, sgn: float, a0: float, a1: float,
 	# walls they join (fewer rows there showed up as vertical strips).
 	var rows := _rows(y0, y1)
 	_grid(mat, p0, du, Vector3(0, y1 - y0, 0), _fracs(a0, a1), rows, nrm, du.normalized(),
-			1 if axis == 0 else 2, 0, f, c)
+			1 if axis == 0 else 2, 0, f, c, LM_TEXEL)
 
 
 ## Horizontal rectangle (single subdivision unless big).
@@ -523,7 +705,7 @@ func _hface(mat: int, xa: float, xb: float, za: float, zb: float, y: float, up: 
 	for k in sub + 1:
 		us.push_back(float(k) / sub)
 	_grid(mat, Vector3(xa, y, za), Vector3(xb - xa, 0, 0), Vector3(0, 0, zb - za), us, us,
-			Vector3.UP if up else Vector3.DOWN, Vector3.RIGHT, 0, 1 if cached else 0, y - 1.0, y + 1.0)
+			Vector3.UP if up else Vector3.DOWN, Vector3.RIGHT, 0, 1 if cached else 0, y - 1.0, y + 1.0, LM_TEXEL)
 
 
 func _col_quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
@@ -561,10 +743,10 @@ func _emit_cell(li: int, lj: int) -> void:
 	# Floor and ceiling (cell centre is the reference for _nudge()).
 	_cur_cell = Vector2(xa + CELL * 0.5, za + CELL * 0.5)
 	_grid(FLOOR_MAT[b], Vector3(xa, f, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), fr, fr,
-			Vector3.UP, Vector3.RIGHT, 0, 1, f, c)
+			Vector3.UP, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL)
 	var cr := PackedFloat32Array([0.0, 0.5, 1.0])
 	_grid(CEIL_MAT[b], Vector3(xa, c, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), cr, cr,
-			Vector3.DOWN, Vector3.RIGHT, 0, 1, f, c)
+			Vector3.DOWN, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL_CEIL)
 	_col_quad(Vector3(xa, f, za), Vector3(xa + CELL, f, za), Vector3(xa + CELL, f, za + CELL), Vector3(xa, f, za + CELL))
 	if is_pool:
 		var half := PackedFloat32Array([0.0, 0.5, 1.0])
@@ -935,10 +1117,16 @@ func _emit_arch(axis: int, plane: float, a0: float, a1: float, o0: float, o1: fl
 		inward = inward.normalized()
 		_quad4(mr, _wp(axis, plane, x0, y0, -T), _wp(axis, plane, x1, y1, -T), _wp(axis, plane, x1, y1, T),
 				_wp(axis, plane, x0, y0, T), inward, 0, yb, yt + 1.0)
-	if axis == 0:
-		_hface(FLOOR_MAT[bb], plane - T, plane + T, o0, o1, yb, true, 1, false)
-	else:
-		_hface(FLOOR_MAT[bb], o0, o1, plane - T, plane + T, yb, true, 1, false)
+	# Sill only where the floors differ (see _emit_wall), over the lower side.
+	var fa: float = sides[0][3]
+	var fb: float = sides[1][3]
+	if absf(fa - fb) > 0.01:
+		var s_lo := plane - T if fa < fb else plane
+		var s_hi := plane if fa < fb else plane + T
+		if axis == 0:
+			_hface(FLOOR_MAT[bb], s_lo, s_hi, o0, o1, yb, true, 1, false)
+		else:
+			_hface(FLOOR_MAT[bb], o0, o1, s_lo, s_hi, yb, true, 1, false)
 	_col_wall(axis, plane, a0 - T, o0, bottom, top)
 	_col_wall(axis, plane, o1, a1 + T, bottom, top)
 	_col_wall(axis, plane, o0, o1, ys + r * 0.6, top)

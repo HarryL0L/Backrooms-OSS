@@ -9,13 +9,15 @@ uniform vec3 grout_color : source_color = vec3(0.62, 0.68, 0.69);
 uniform float water_y = -0.16;
 uniform float ceiling_y = 4.8;
 
-varying vec3 v_light;
+varying vec3 v_vlight;
+varying vec3 v_lm;
 varying vec3 v_wpos;
 varying vec3 v_wnormal;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
+	v_lm = vec3(CUSTOM1.xy, flicker(UV2.x, world_time));
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wnormal = NORMAL;
 }
@@ -27,6 +29,7 @@ float caustics(vec2 p, float t) {
 }
 
 void fragment() {
+	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = UV;
 	const float TILE = 0.15;
 	vec2 g = uv / TILE;

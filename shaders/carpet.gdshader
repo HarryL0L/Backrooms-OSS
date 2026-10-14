@@ -7,16 +7,19 @@ uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 base_color : source_color = vec3(0.50, 0.46, 0.28);
 
-varying vec3 v_light;
+varying vec3 v_vlight;
+varying vec3 v_lm;
 varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
+	v_lm = vec3(CUSTOM1.xy, flicker(UV2.x, world_time));
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
+	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = UV;
 	float n1 = texture(noise_fine, uv * 2.1).r;
 	float n2 = texture(noise_fine, uv * 11.3 + 0.37).r;

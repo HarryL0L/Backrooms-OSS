@@ -168,10 +168,20 @@ func _make_chunk(data: Dictionary) -> Node3D:
 	root.name = "Chunk_%d_%d" % [c.x, c.y]
 	var mesh := ArrayMesh.new()
 	var surfaces: Dictionary = data.surfaces
-	var fmt := Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
+	var fmt := (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) \
+			| (Mesh.ARRAY_CUSTOM_RG_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT)
+	# Each chunk has its own lightmap, so lightmapped materials get a per-chunk
+	# copy that points at it (same shader, so no extra shader compiles).
+	var lm_tex: ImageTexture = null
+	if data.get("lightmap") != null:
+		lm_tex = ImageTexture.create_from_image(data.lightmap)
 	for m in surfaces:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surfaces[m], [], {}, fmt)
-		mesh.surface_set_material(mesh.get_surface_count() - 1, mats.materials[m])
+		var mat: Material = mats.materials[m]
+		if lm_tex != null and ChunkBuilder.LIGHTMAPPED.has(m):
+			mat = mat.duplicate()
+			(mat as ShaderMaterial).set_shader_parameter("lightmap", lm_tex)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

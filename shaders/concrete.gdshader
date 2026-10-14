@@ -10,16 +10,19 @@ uniform vec3 base_color : source_color = vec3(0.47, 0.47, 0.45);
 uniform int kind = 0;
 uniform float ceiling_y = 3.6;
 
-varying vec3 v_light;
+varying vec3 v_vlight;
+varying vec3 v_lm;
 varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_light = baked_light(CUSTOM0, UV2.x, world_time);
+	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
+	v_lm = vec3(CUSTOM1.xy, flicker(UV2.x, world_time));
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
+	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = UV;
 	float n1 = texture(noise_fine, uv * 1.3).r;
 	float n2 = texture(noise_fine, uv * 7.0 + 0.3).r;
