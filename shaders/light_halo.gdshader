@@ -6,6 +6,10 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, skip_vertex_tr
 #include "res://shaders/common.gdshaderinc"
 
 uniform float strength = 0.07;
+uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
+// Distance (m) over which the glow fades out in front of walls and ceilings,
+// so surfaces cutting through the quad don't leave hard straight edges.
+uniform float soft_distance = 0.8;
 
 varying vec3 v_col;
 varying float v_fade;
@@ -31,5 +35,15 @@ void fragment() {
 	vec2 c = UV - 0.5;
 	float r = length(c) * 2.0;
 	float g = exp(-r * r * 4.0) * (1.0 - smoothstep(0.85, 1.0, r));
-	ALBEDO = v_col * g * strength * v_fade;
+	// Soft-particle fade against the opaque scene behind the halo.
+	float d = texture(depth_tex, SCREEN_UV).r;
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	vec3 ndc = vec3(SCREEN_UV, d) * 2.0 - 1.0;
+#else
+	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, d);
+#endif
+	vec4 sv = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
+	float scene_dist = -sv.z / sv.w;
+	float soft = clamp((scene_dist + VERTEX.z) / soft_distance, 0.0, 1.0);
+	ALBEDO = v_col * g * strength * v_fade * soft * soft;
 }
