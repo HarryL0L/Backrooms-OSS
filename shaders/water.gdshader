@@ -15,10 +15,38 @@ uniform float ripple_on = 0.0;
 
 varying vec3 v_light;
 varying vec3 v_wpos;
+varying vec2 v_wave_slope;
+
+// Gentle background motion: a few travelling waves summed in the vertex
+// shader (GPU Gems ch. 1 style). Indoor pool, so centimetres, not ocean swell.
+// xy = direction, z = wavelength (m), w = amplitude (m).
+const vec4 WAVES[4] = vec4[](
+	vec4(0.8, 0.6, 2.6, 0.010),
+	vec4(-0.5, 0.86, 1.7, 0.007),
+	vec4(0.2, -0.98, 1.1, 0.004),
+	vec4(-0.9, -0.3, 0.7, 0.0025));
+
+vec3 waves(vec2 p, float t) {
+	float h = 0.0;
+	vec2 g = vec2(0.0);
+	for (int i = 0; i < 4; i++) {
+		vec2 d = normalize(WAVES[i].xy);
+		float k = 6.2831853 / WAVES[i].z;
+		float w = sqrt(9.8 * k) * 0.35;   // deep-water dispersion, slowed for a calm pool
+		float ph = k * dot(d, p) - w * t + float(i) * 1.7;
+		h += WAVES[i].w * sin(ph);
+		g += WAVES[i].w * k * cos(ph) * d;
+	}
+	return vec3(h, g);
+}
 
 void vertex() {
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec3 wv = waves(v_wpos.xz, world_time);
+	VERTEX.y += wv.x;
+	v_wpos.y += wv.x;
+	v_wave_slope = wv.yz;
 	// The surface really moves: lift it by the simulated ripple height.
 	if (ripple_on > 0.5) {
 		vec2 ruv = (v_wpos.xz - ripple_rect.xy) / ripple_rect.z;
@@ -36,18 +64,19 @@ void fragment() {
 	vec3 n2 = texture(noise_normal, p * 0.17 - world_time * vec2(0.009, 0.013)).rgb;
 	vec3 nm = normalize((n1 + n2) - 1.0);
 	// Ripple slope from the simulated height field.
-	vec2 slope = vec2(0.0);
+	vec2 slope = v_wave_slope;
 	if (ripple_on > 0.5) {
 		vec2 ruv = (p - ripple_rect.xy) / ripple_rect.z;
 		if (ruv.x > 0.0 && ruv.y > 0.0 && ruv.x < 1.0 && ruv.y < 1.0) {
 			vec2 px = 1.0 / vec2(textureSize(ripple_tex, 0));
 			float texel = ripple_rect.z * px.x;
-			slope.x = texture(ripple_tex, ruv + vec2(px.x, 0.0)).r - texture(ripple_tex, ruv - vec2(px.x, 0.0)).r;
-			slope.y = texture(ripple_tex, ruv + vec2(0.0, px.y)).r - texture(ripple_tex, ruv - vec2(0.0, px.y)).r;
-			slope /= 2.0 * texel;
-			nm = normalize(vec3(nm.xy - slope * 2.5, nm.z));
+			vec2 rs;
+			rs.x = texture(ripple_tex, ruv + vec2(px.x, 0.0)).r - texture(ripple_tex, ruv - vec2(px.x, 0.0)).r;
+			rs.y = texture(ripple_tex, ruv + vec2(0.0, px.y)).r - texture(ripple_tex, ruv - vec2(0.0, px.y)).r;
+			slope += rs / (2.0 * texel);
 		}
 	}
+	nm = normalize(vec3(nm.xy - slope * 2.5, nm.z));
 	NORMAL_MAP = nm * 0.5 + 0.5;
 	NORMAL_MAP_DEPTH = 0.35;
 	vec3 wn = normalize(vec3(nm.x * 0.012 - slope.x * 1.5, 1.0, nm.y * 0.012 - slope.y * 1.5));

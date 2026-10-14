@@ -5,7 +5,7 @@ extends Node3D
 ## with their visual flicker, footsteps, and rare distant noises.
 
 const REVERB := [
-	{"room": 0.55, "damp": 0.7, "wet": 0.22},
+	{"room": 0.45, "damp": 0.85, "wet": 0.12},   # carpet and ceiling tiles soak up sound
 	{"room": 0.92, "damp": 0.25, "wet": 0.45},
 	{"room": 0.85, "damp": 0.45, "wet": 0.38},
 	{"room": 0.6, "damp": 0.6, "wet": 0.3},

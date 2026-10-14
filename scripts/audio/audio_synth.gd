@@ -144,53 +144,97 @@ static func buzz() -> AudioStreamWAV:
 	return to_wav(_normalize(s, 0.6), true)
 
 
+## Footstep for a surface. Real steps are noise, not tones: a heel strike
+## (a low "thump" of the floor and shoe), then the toe/sole a few tens of ms
+## later, plus surface texture (carpet scuff, concrete grit, tile click).
+## Built from noise through state-variable filters; no pure sine ringing,
+## which is what made steps sound like a steel floor.
 static func footstep(surface: int, variant: int) -> AudioStreamWAV:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 100 + surface * 17 + variant * 3
-	var dur := 0.6 if surface == Player.SURF_WATER else 0.28
+	if surface == Player.SURF_WATER:
+		return _water_step(rng, variant)
+	var dur := 0.3
 	var n := int(RATE * dur)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	# Per surface: thump cutoff (Hz), thump level, click level, click decay,
+	# scuff band centre, scuff level, toe delay (s).
+	var thump_fc: float = [320.0, 650.0, 480.0][surface]
+	var thump_amp: float = [1.0, 0.55, 0.8][surface]
+	var click_amp: float = [0.04, 0.75, 0.35][surface]
+	var click_decay: float = [400.0, 380.0, 260.0][surface]
+	var scuff_fc: float = [850.0, 3200.0, 2400.0][surface]
+	var scuff_amp: float = [0.15, 0.08, 0.2][surface]
+	var toe := rng.randf_range(0.055, 0.085)
+	var toe_amp := rng.randf_range(0.45, 0.7)
+	var th := _Svf.new(thump_fc * rng.randf_range(0.85, 1.15), 0.9)
+	var cl := _Svf.new(4200.0, 0.7)
+	var sc := _Svf.new(scuff_fc * rng.randf_range(0.8, 1.2), 1.4)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		# Envelopes: heel at 0, toe at `toe`, scuff spread over the roll.
+		var heel := exp(-t * 55.0) * minf(t * RATE / 24.0, 1.0)
+		var tt := t - toe
+		var toe_env := 0.0 if tt < 0.0 else exp(-tt * 70.0) * minf(tt * RATE / 24.0, 1.0) * toe_amp
+		var impact := heel + toe_env
+		th.step(x)
+		cl.step(x)
+		sc.step(x)
+		var v := th.low * impact * thump_amp * 4.0
+		var ci := exp(-t * click_decay) + (0.0 if tt < 0.0 else exp(-tt * click_decay) * toe_amp * 0.7)
+		v += cl.high * ci * click_amp
+		var scuff_env := exp(-pow((t - toe * 0.6) / 0.05, 2.0))
+		v += sc.band * scuff_env * scuff_amp
+		if surface == Player.SURF_CONCRETE and rng.randf() < 0.004:
+			v += rng.randf_range(-1.0, 1.0) * 0.5 * exp(-t * 18.0)   # grit
+		s[i] = v
+	for i in 200:
+		s[n - 1 - i] *= float(i) / 200.0
+	return to_wav(_normalize(s, 0.8))
+
+
+static func _water_step(rng: RandomNumberGenerator, variant: int) -> AudioStreamWAV:
+	var n := int(RATE * 0.6)
 	var s := PackedFloat32Array()
 	s.resize(n)
 	var lp := 0.0
 	var lp2 := 0.0
-	var f0 := rng.randf_range(65.0, 95.0)
-	var ring := rng.randf_range(1500.0, 2600.0)
 	for i in n:
 		var t := float(i) / RATE
 		var x := rng.randf_range(-1.0, 1.0)
-		var v := 0.0
-		match surface:
-			Player.SURF_CARPET:
-				lp += 0.07 * (x - lp)
-				var scuff_env := exp(-absf(t - 0.05) * 40.0)
-				v = lp * exp(-t * 38.0) * 3.0 + sin(TAU * f0 * t) * exp(-t * 32.0) * 0.5 + lp * scuff_env * 0.8
-			Player.SURF_TILE:
-				lp += 0.55 * (x - lp)
-				var hp := x - lp
-				v = hp * exp(-t * 140.0) * 1.2 + sin(TAU * ring * t) * exp(-t * 70.0) * 0.15 \
-						+ sin(TAU * f0 * 1.3 * t) * exp(-t * 45.0) * 0.5
-				var t2 := t - 0.045
-				if t2 > 0.0:
-					v += x * exp(-t2 * 160.0) * 0.4
-			Player.SURF_CONCRETE:
-				lp += 0.3 * (x - lp)
-				var grit := x * 0.5 if rng.randf() < 0.08 else 0.0
-				v = lp * exp(-t * 55.0) * 1.6 + grit * exp(-t * 25.0) + sin(TAU * f0 * t) * exp(-t * 38.0) * 0.55
-			Player.SURF_WATER:
-				lp += 0.3 * (x - lp)
-				lp2 += 0.03 * (lp - lp2)
-				var env := (1.0 - exp(-t * 90.0)) * exp(-t * 7.0)
-				v = (lp - lp2) * env * 2.2
-				for b in 3:
-					var bt := t - (0.08 + b * 0.09 + variant * 0.01)
-					if bt > 0.0:
-						var bf := 450.0 + b * 140.0 + bt * 1800.0
-						v += sin(TAU * bf * bt) * exp(-bt * 40.0) * 0.18
+		lp += 0.3 * (x - lp)
+		lp2 += 0.03 * (lp - lp2)
+		var env := (1.0 - exp(-t * 90.0)) * exp(-t * 7.0)
+		var v := (lp - lp2) * env * 2.2
+		for b in 3:
+			var bt := t - (0.08 + b * 0.09 + variant * 0.01)
+			if bt > 0.0:
+				var bf := 450.0 + b * 140.0 + bt * 1800.0
+				v += sin(TAU * bf * bt) * exp(-bt * 40.0) * 0.18
 		s[i] = v
-	# Short fade-out to avoid clicks.
 	for i in 200:
 		s[n - 1 - i] *= float(i) / 200.0
 	return to_wav(_normalize(s, 0.8))
+
+
+## Chamberlin state-variable filter (low / band / high outputs).
+class _Svf:
+	var f := 0.0
+	var q := 1.0
+	var low := 0.0
+	var band := 0.0
+	var high := 0.0
+
+	func _init(fc: float, damping: float) -> void:
+		f = 2.0 * sin(PI * minf(fc, RATE * 0.16) / RATE)
+		q = damping
+
+	func step(x: float) -> void:
+		low += f * band
+		high = x - low - q * band
+		band += f * high
 
 
 static func click() -> AudioStreamWAV:
