@@ -38,9 +38,10 @@ var _noise_blot: NoiseTexture2D
 
 ## Same function as field_height() in field_common.gdshaderinc.
 static func height(x: float, z: float) -> float:
-	var h := 1.8 * sin(x * 0.0105 + 0.3) * sin(z * 0.0087 + 1.1) \
-			+ 0.8 * sin(x * 0.021 + z * 0.016 + 2.0) \
-			+ 0.25 * sin(x * 0.047 - z * 0.039 + 0.7)
+	var h := 3.2 * sin(x * 0.021 + 0.3) * sin(z * 0.017 + 1.1) \
+			+ 2.2 * sin(x * 0.033 + z * 0.026 + 2.0) \
+			+ 1.4 * sin(-x * 0.019 + z * 0.041 + 0.7) \
+			+ 0.3 * sin(x * 0.09 - z * 0.07 + 1.9)
 	return h * (1.0 - smoothstep(1500.0, 3000.0, Vector2(x, z).length()))
 
 
@@ -159,7 +160,7 @@ func _make_ground_mesh() -> ArrayMesh:
 		radii.push_back(r)
 		r = r * 1.09 + 0.35
 	radii.push_back(6000.0)
-	var seg := 96
+	var seg := 160
 	var v := PackedVector3Array()
 	var n := PackedVector3Array()
 	var idx := PackedInt32Array()

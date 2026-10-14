@@ -14,11 +14,12 @@ varying vec3 v_wpos;
 
 void vertex() {
 	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	float h = field_height(w.xz);
+	float detail = 1.0 - smoothstep(400.0, 900.0, length(w.xz - CAMERA_POSITION_WORLD.xz));
+	float h = field_height_d(w.xz, detail);
 	VERTEX.y = h;
 	float e = 0.5;
-	float hx = field_height(w.xz + vec2(e, 0.0)) - field_height(w.xz - vec2(e, 0.0));
-	float hz = field_height(w.xz + vec2(0.0, e)) - field_height(w.xz - vec2(0.0, e));
+	float hx = field_height_d(w.xz + vec2(e, 0.0), detail) - field_height_d(w.xz - vec2(e, 0.0), detail);
+	float hz = field_height_d(w.xz + vec2(0.0, e), detail) - field_height_d(w.xz - vec2(0.0, e), detail);
 	NORMAL = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
 	v_wpos = vec3(w.x, w.y + h, w.z);
 }
