@@ -65,6 +65,11 @@ var _play_time := 0.0
 var _autosave_t := 0.0
 var _settings_return := State.MENU
 var _loading_done: Callable
+var _warm_list: Array[Material] = []
+var _warm_next := 0
+var _warm_holder: Node3D
+var _warmed := {}            # "ps1/lightmaps" -> true once its shaders are compiled
+var _warmed_hazmat := false
 var _world_seed := -1
 
 
@@ -293,34 +298,66 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 ## Draws every world material once, tiny and right in front of the camera,
 ## while the loading screen is up: weak GPUs compile shaders on first use,
 ## which otherwise shows up as a hitch the first time you meet each surface.
+## One material per frame, so a slow shader compiler (Mali) never freezes the
+## screen for long, and the loading text shows how far along it is. Shaders
+## stay compiled for the session, so later loads skip this.
 func _warm_shaders() -> void:
-	var holder := Node3D.new()
-	player.camera.add_child(holder)
-	var list: Array[Material] = []
-	list.append_array(mats.materials)
-	list.append_array(hall_figure.warm_materials())
-	list.append_array(HazmatModel.warm_materials())
-	for i in list.size():
-		if list[i] == null:
-			continue
-		var mi := MeshInstance3D.new()
-		var q := QuadMesh.new()
-		q.size = Vector2(0.004, 0.004)
-		mi.mesh = q
-		mi.material_override = list[i]
-		mi.position = Vector3((i % 8) * 0.005 - 0.02, (i / 8) * 0.005 - 0.01, -0.3)
-		holder.add_child(mi)
-	get_tree().create_timer(0.6, true).timeout.connect(holder.queue_free)
+	_warm_list.clear()
+	_warm_next = 0
+	var key := "%s/%s" % [Settings.get_value("graphics/ps1"), ChunkBuilder.lightmaps]
+	if _warmed.has(key) and (_warmed_hazmat or not net.active):
+		return
+	if not _warmed.has(key):
+		_warmed[key] = true
+		_warm_list.append_array(mats.materials)
+		_warm_list.append_array(hall_figure.warm_materials())
+	if net.active and not _warmed_hazmat:
+		_warmed_hazmat = true
+		_warm_list.append_array(HazmatModel.warm_materials())
+	_warm_list = _warm_list.filter(func(m: Material) -> bool: return m != null)
+	_warm_holder = Node3D.new()
+	player.camera.add_child(_warm_holder)
+
+
+## Adds the next warm-up quad; true once every material has been drawn.
+func _warm_step() -> bool:
+	if _warm_holder == null:
+		return true
+	if _warm_next >= _warm_list.size():
+		# Give the last one a frame to be drawn before clearing up.
+		_warm_holder.queue_free()
+		_warm_holder = null
+		return false
+	var mi := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(0.004, 0.004)
+	mi.mesh = q
+	mi.material_override = _warm_list[_warm_next]
+	mi.position = Vector3((_warm_next % 8) * 0.005 - 0.02, (_warm_next / 8) * 0.005 - 0.01, -0.3)
+	_warm_holder.add_child(mi)
+	_warm_next += 1
+	return false
 
 
 func _check_loading() -> void:
-	if chunks.is_area_ready(player.global_position, 1) and ambience.is_ready():
+	var warmed := _warm_step()
+	var area := chunks.is_area_ready(player.global_position, 1)
+	if warmed and area and ambience.is_ready():
 		hud.set_loading(false)
 		player.set_physics_process(true)
 		var cb := _loading_done
 		_loading_done = Callable()
 		if cb.is_valid():
 			cb.call()
+		return
+	var parts := []
+	if not warmed:
+		parts.append("preparing surfaces %d/%d" % [mini(_warm_next, _warm_list.size()), _warm_list.size()])
+	if not area:
+		parts.append("building rooms")
+	if not ambience.is_ready():
+		parts.append("making sounds")
+	hud.set_loading(true, "Noclipping...\n" + ", ".join(parts))
 
 
 func _enter_menu() -> void:

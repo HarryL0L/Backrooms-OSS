@@ -89,6 +89,8 @@ func _ready() -> void:
 	_loading_label.offset_right = -32
 	_loading_label.offset_bottom = -24
 	_loading_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_loading_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_loading_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	remove_child(_loading_label)
 	_loading.add_child(_loading_label)
 	add_child(_loading)
