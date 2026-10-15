@@ -12,8 +12,12 @@ extends Node3D
 signal exit_entered
 
 const FIELD_Y := -2000.0
-const EXIT_MIN := 120.0
-const EXIT_MAX := 220.0
+const EXIT_MIN := 90.0
+const EXIT_MAX := 150.0
+## The exit lies roughly ahead of where you arrive (toward the giant cloud),
+## under a lone tree on a rise: the only landmark in the whole field.
+const EXIT_SPREAD := 0.85        # radians either side of straight ahead
+const EYE := 1.6
 const COLL_N := 97               # collision heightmap size (1 m spacing)
 const MUSIC_PATH := "res://music/empty_hours.ogg"
 
@@ -86,11 +90,7 @@ func build(seed_value: int, exit_override := Vector3.INF) -> void:
 	if exit_override.is_finite():
 		exit_pos = exit_override
 	else:
-		var rng := RandomNumberGenerator.new()
-		rng.seed = seed_value
-		var a := rng.randf() * TAU
-		var d := rng.randf_range(EXIT_MIN, EXIT_MAX)
-		exit_pos = ground_at(sin(a) * d, -cos(a) * d)
+		exit_pos = _pick_exit(seed_value)
 	_door = OddDoor.new()
 	_door.outdoor = true
 	_door.freestanding = true
@@ -99,6 +99,7 @@ func build(seed_value: int, exit_override := Vector3.INF) -> void:
 	# Front (+Z) turned toward the arrival point.
 	_door.look_at(Vector3(0.0, _door.global_position.y, 0.0), Vector3.UP, true)
 	_door.entered.connect(func() -> void: exit_entered.emit())
+	_make_tree(exit_pos)
 	# Sound: wind always, the music now and then.
 	_wind = AudioStreamPlayer.new()
 	_wind.stream = AudioSynth.cached("wind")
@@ -111,6 +112,107 @@ func build(seed_value: int, exit_override := Vector3.INF) -> void:
 		_music.stream = load(MUSIC_PATH)
 	_music.volume_db = -7.0
 	add_child(_music)
+
+
+## Chooses the exit spot: a random candidate ahead of the arrival point whose
+## door can be seen over the hills from there, else one whose tree can.
+func _pick_exit(seed_value: int) -> Vector3:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var eye := Vector3(0.0, height(0.0, 0.0) + EYE, 0.0)
+	var door_seen := []
+	var tree_seen := []
+	var any := []
+	for k in 40:
+		var a := rng.randf_range(-EXIT_SPREAD, EXIT_SPREAD)
+		var d := rng.randf_range(EXIT_MIN, EXIT_MAX)
+		var p := Vector3(sin(a) * d, 0.0, -cos(a) * d)
+		p.y = height(p.x, p.z)
+		any.append(p)
+		if _visible_from(eye, p + Vector3(0, 1.0, 0)):
+			door_seen.append(p)
+		elif _visible_from(eye, p + Vector3(0, 8.0, 0)):
+			tree_seen.append(p)
+	var pool: Array = door_seen if not door_seen.is_empty() else (tree_seen if not tree_seen.is_empty() else any)
+	var best: Vector3 = pool[rng.randi() % pool.size()]
+	return ground_at(best.x, best.z)
+
+
+## Terrain line-of-sight between two points (heights relative to FIELD_Y).
+static func _visible_from(a: Vector3, b: Vector3) -> bool:
+	for i in range(1, 48):
+		var t := i / 48.0
+		var p := a.lerp(b, t)
+		if height(p.x, p.z) > p.y - 0.15:
+			return false
+	return true
+
+
+## The lone tree beside the exit door: a leaning trunk with a few limbs and a
+## clumpy crown, about 12 m tall so it shows on the horizon.
+func _make_tree(door: Vector3) -> void:
+	var side := Vector3(door.z, 0.0, -door.x).normalized()   # perpendicular to the way you came
+	var base := ground_at(door.x + side.x * 5.0, door.z + side.z * 5.0)
+	var tree := Node3D.new()
+	add_child(tree)
+	tree.global_position = base - Vector3(0, 0.3, 0)
+	tree.rotation.y = atan2(side.x, side.z)
+	tree.scale = Vector3.ONE * 1.3
+	var bark := StandardMaterial3D.new()
+	bark.albedo_color = Color(0.17, 0.13, 0.1)
+	bark.roughness = 1.0
+	var lean := Vector3(0.35, 0.0, 0.1)
+	_limb(tree, bark, Vector3.ZERO, Vector3(0.0, 4.6, 0.0) + lean, 0.34, 0.24)
+	var top := Vector3(0.0, 4.6, 0.0) + lean
+	var limbs := [Vector3(-2.2, 2.0, 0.6), Vector3(2.0, 2.3, -0.4), Vector3(0.4, 2.6, 1.8), Vector3(-0.3, 2.4, -2.0)]
+	for l in limbs:
+		_limb(tree, bark, top - Vector3(0, 0.6, 0), top + l, 0.18, 0.08)
+	var leaves := ShaderMaterial.new()
+	leaves.shader = load("res://shaders/field_tree.gdshader")
+	leaves.set_shader_parameter("noise_fine", _noise_fine)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(door.x * 13.0) ^ int(door.z * 7.0)
+	var clumps := [Vector3(0, 7.2, 0), Vector3(-2.4, 6.4, 0.6), Vector3(2.3, 6.6, -0.3), Vector3(0.5, 6.9, 2.0),
+			Vector3(-0.4, 6.6, -2.2), Vector3(0.2, 8.4, 0.2), Vector3(-1.5, 7.8, -0.8), Vector3(1.4, 7.9, 1.0)]
+	for c in clumps:
+		var mi := MeshInstance3D.new()
+		var sp := SphereMesh.new()
+		var r := rng.randf_range(1.7, 2.4)
+		sp.radius = r
+		sp.height = r * rng.randf_range(1.5, 1.8)
+		sp.radial_segments = 20
+		sp.rings = 10
+		mi.mesh = sp
+		mi.material_override = leaves
+		mi.position = c + lean
+		tree.add_child(mi)
+	# Trunk collision.
+	var body := StaticBody3D.new()
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = 0.35
+	cyl.height = 5.0
+	cs.shape = cyl
+	cs.position = Vector3(0.15, 2.5, 0.05)
+	body.add_child(cs)
+	tree.add_child(body)
+
+
+func _limb(parent: Node3D, m: Material, a: Vector3, b: Vector3, r0: float, r1: float) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.bottom_radius = r0
+	cm.top_radius = r1
+	cm.height = a.distance_to(b)
+	cm.radial_segments = 10
+	cm.rings = 1
+	mi.mesh = cm
+	mi.material_override = m
+	parent.add_child(mi)
+	mi.position = (a + b) * 0.5
+	var dir := (b - a).normalized()
+	if absf(dir.dot(Vector3.UP)) < 0.999:
+		mi.basis = Basis(Quaternion(Vector3.UP, dir))
 
 
 ## Where you arrive, and the direction that faces the giant cloud.
