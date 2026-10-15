@@ -1,21 +1,28 @@
 class_name HazmatModel
 extends Node3D
 ## A player in a yellow hazmat suit (how other players see you). Built from
-## code: smooth lofted tubes for the body and limbs with baggy folds at the
-## joints, a hood with a big visor over a black respirator, taped gloves and
-## boots. Jointed (hips, knees, shoulders, elbows, neck) so it can be posed
-## and animated procedurally. About 1.8 m tall; faces +Z.
+## code on a Skeleton3D: the torso, arms and legs are each one continuous
+## skinned surface, weighted across the bones so shoulders, elbows, hips and
+## knees bend smoothly. Gauntlet gloves with fingers, rubber boots with toe
+## caps, heels and thick soles; a hood with a big visor over a black
+## respirator. About 1.8 m tall; faces +Z. pose_idle()/pose_walk() animate it.
 
 ## Stencilled on the back.
 var tag := "07"
 
-var hips: Node3D
-var torso: Node3D
-var neck: Node3D
-var legs: Array[Node3D] = []      # [left hip, right hip]
-var knees: Array[Node3D] = []
-var arms: Array[Node3D] = []      # [left shoulder, right shoulder]
-var elbows: Array[Node3D] = []
+var skeleton: Skeleton3D
+
+enum { HIPS, SPINE, CHEST, NECK, HEAD, UARM_L, FARM_L, HAND_L, UARM_R, FARM_R, HAND_R,
+	THIGH_L, SHIN_L, FOOT_L, THIGH_R, SHIN_R, FOOT_R }
+const BONES := [
+	# name, parent, global rest position
+	["hips", -1, Vector3(0, 0.93, 0)], ["spine", HIPS, Vector3(0, 1.05, 0)], ["chest", SPINE, Vector3(0, 1.25, 0)],
+	["neck", CHEST, Vector3(0, 1.44, 0)], ["head", NECK, Vector3(0, 1.52, 0)],
+	["uarm_l", CHEST, Vector3(-0.2, 1.4, 0)], ["farm_l", UARM_L, Vector3(-0.22, 1.12, 0)], ["hand_l", FARM_L, Vector3(-0.23, 0.87, 0)],
+	["uarm_r", CHEST, Vector3(0.2, 1.4, 0)], ["farm_r", UARM_R, Vector3(0.22, 1.12, 0)], ["hand_r", FARM_R, Vector3(0.23, 0.87, 0)],
+	["thigh_l", HIPS, Vector3(-0.1, 0.87, 0)], ["shin_l", THIGH_L, Vector3(-0.1, 0.47, 0)], ["foot_l", SHIN_L, Vector3(-0.1, 0.09, 0)],
+	["thigh_r", HIPS, Vector3(0.1, 0.87, 0)], ["shin_r", THIGH_R, Vector3(0.1, 0.47, 0)], ["foot_r", SHIN_R, Vector3(0.1, 0.09, 0)],
+]
 
 static var _mats := {}
 
@@ -61,6 +68,9 @@ static func _mat(key: String) -> Material:
 			m.albedo_color = Color(1.0, 0.95, 0.82)
 			m.emission_enabled = true
 			m.emission = Color(1.0, 0.93, 0.75) * 1.5
+		"sole":
+			m.albedo_color = Color(0.025, 0.025, 0.028)
+			m.roughness = 0.85
 		"zip":
 			m.albedo_color = Color(0.2, 0.2, 0.2)
 			m.metallic = 0.6
@@ -163,50 +173,191 @@ func _joint(parent: Node3D, pos: Vector3) -> Node3D:
 	return j
 
 
+# ------------------------------------------------------------ skinned body ---
+## Like loft() but every ring carries bone weights: [[bone, w], [bone, w]].
+static func skinned_loft(pts: Array, rx: Array, rz: Array, weights: Array, segs := 20) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := pts.size()
+	var rings := []
+	for i in n:
+		var p: Vector3 = pts[i]
+		var tan: Vector3 = ((pts[mini(i + 1, n - 1)] as Vector3) - (pts[maxi(i - 1, 0)] as Vector3)).normalized()
+		var side := Vector3.FORWARD.cross(tan)
+		if side.length() < 0.2:
+			side = Vector3.RIGHT
+		side = side.normalized()
+		var fwd := tan.cross(side).normalized()
+		var ring := []
+		for k in segs:
+			var a := TAU * k / segs
+			ring.append(p + side * cos(a) * float(rx[i]) - fwd * sin(a) * float(rz[i]))
+		rings.append(ring)
+	var vb := func(i: int, v: Vector3) -> void:
+		var w: Array = weights[i]
+		var b := PackedInt32Array([0, 0, 0, 0])
+		var wt := PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
+		for j in w.size():
+			b[j] = w[j][0]
+			wt[j] = w[j][1]
+		st.set_bones(b)
+		st.set_weights(wt)
+		st.add_vertex(v)
+	for i in n - 1:
+		for k in segs:
+			var k2 := (k + 1) % segs
+			vb.call(i, rings[i][k]); vb.call(i, rings[i][k2]); vb.call(i + 1, rings[i + 1][k])
+			vb.call(i, rings[i][k2]); vb.call(i + 1, rings[i + 1][k2]); vb.call(i + 1, rings[i + 1][k])
+	for e in [0, n - 1]:
+		var c: Vector3 = pts[e]
+		for k in segs:
+			var k2 := (k + 1) % segs
+			if e == 0:
+				vb.call(e, c); vb.call(e, rings[e][k2]); vb.call(e, rings[e][k])
+			else:
+				vb.call(e, c); vb.call(e, rings[e][k]); vb.call(e, rings[e][k2])
+	st.index()
+	st.generate_normals()
+	return st.commit()
+
+
+func _skin_part(mesh: ArrayMesh, mat: String) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = _mat(mat)
+	skeleton.add_child(mi)
+	mi.skeleton = NodePath("..")
+
+
+func _attach(bone: int) -> Node3D:
+	var ba := BoneAttachment3D.new()
+	ba.bone_name = BONES[bone][0]
+	skeleton.add_child(ba)
+	var holder := Node3D.new()                 # children placed in bone-local space
+	ba.add_child(holder)
+	return holder
+
+
 # ------------------------------------------------------------------- build ---
 func _build() -> void:
-	hips = _joint(self, Vector3(0, 0.93, 0))
-	# Pelvis / seat of the suit (baggy).
-	_part(hips, loft([Vector3(0, -0.17, 0), Vector3(0, -0.1, 0), Vector3(0, -0.02, 0), Vector3(0, 0.07, 0)],
-			[0.1, 0.18, 0.2, 0.17], [0.09, 0.13, 0.14, 0.12], 20), "suit")
-	torso = _joint(hips, Vector3(0, 0.06, 0))
-	# Torso: belly to shoulders, a little slack, folds over the waist.
-	var tp := []
-	var trx := []
-	var trz := []
-	for i in 7:
-		var u := i / 6.0
-		tp.append(Vector3(0, u * 0.42, 0.01 * sin(u * PI)))
-		trx.append(lerpf(0.208, 0.23, smoothstep(0.0, 0.8, u)) - 0.07 * smoothstep(0.85, 1.0, u))
-		trz.append(lerpf(0.14, 0.135, u) + 0.012 * sin(u * PI) - 0.03 * smoothstep(0.85, 1.0, u))
-	_part(torso, loft(tp, trx, trz, 22), "suit")
-	# Front zip and storm flap.
-	_part(torso, BoxMesh.new(), "zip", Vector3(0.015, 0.2, 0.15), Vector3(0.06, 0, 0)).scale = Vector3(0.012, 0.36, 0.008)
-	_part(torso, BoxMesh.new(), "suit_dark", Vector3(-0.005, 0.2, 0.152), Vector3(0.06, 0, 0)).scale = Vector3(0.04, 0.38, 0.006)
-	# Chest torch, clipped on the left of the chest.
-	var torch := _joint(torso, Vector3(0.11, 0.3, 0.145))
+	skeleton = Skeleton3D.new()
+	add_child(skeleton)
+	for b in BONES:
+		var i := skeleton.add_bone(b[0])
+		var par: int = b[1]
+		var gpos: Vector3 = b[2]
+		if par >= 0:
+			skeleton.set_bone_parent(i, par)
+			gpos -= BONES[par][2]
+		skeleton.set_bone_rest(i, Transform3D(Basis(), gpos))
+	skeleton.reset_bone_poses()
+
+	# Torso, crotch to neck, one surface.
+	var tb := [
+		[0.74, 0.12, 0.1, [[HIPS, 1.0]]], [0.8, 0.17, 0.12, [[HIPS, 1.0]]], [0.88, 0.195, 0.135, [[HIPS, 1.0]]],
+		[0.97, 0.19, 0.135, [[HIPS, 0.7], [SPINE, 0.3]]], [1.06, 0.192, 0.14, [[SPINE, 1.0]]],
+		[1.16, 0.208, 0.146, [[SPINE, 0.5], [CHEST, 0.5]]], [1.26, 0.222, 0.15, [[CHEST, 1.0]]],
+		[1.35, 0.222, 0.146, [[CHEST, 1.0]]], [1.42, 0.2, 0.13, [[CHEST, 1.0]]],
+		[1.47, 0.13, 0.1, [[CHEST, 0.5], [NECK, 0.5]]], [1.52, 0.08, 0.08, [[NECK, 1.0]]]]
+	var pts := []; var rx := []; var rz := []; var ws := []
+	for r in tb:
+		pts.append(Vector3(0, r[0], 0.004 * sin((r[0] - 0.74) * 4.0))); rx.append(r[1]); rz.append(r[2]); ws.append(r[3])
+	_skin_part(skinned_loft(pts, rx, rz, ws, 26), "suit")
+
+	for side in [-1.0, 1.0]:
+		var L: bool = side < 0.0
+		var ua: int = UARM_L if L else UARM_R
+		var fa: int = FARM_L if L else FARM_R
+		var hd: int = HAND_L if L else HAND_R
+		var th: int = THIGH_L if L else THIGH_R
+		var sh: int = SHIN_L if L else SHIN_R
+		var ft: int = FOOT_L if L else FOOT_R
+		# Arm: from inside the shoulder to the wrist, sleeve slightly baggy.
+		var ab := [
+			[0.15, 1.42, 0.07, [[CHEST, 1.0]]], [0.2, 1.38, 0.077, [[CHEST, 0.5], [ua, 0.5]]],
+			[0.21, 1.3, 0.074, [[ua, 1.0]]], [0.215, 1.21, 0.069, [[ua, 1.0]]],
+			[0.22, 1.145, 0.065, [[ua, 0.7], [fa, 0.3]]], [0.222, 1.1, 0.063, [[ua, 0.3], [fa, 0.7]]],
+			[0.225, 1.0, 0.059, [[fa, 1.0]]], [0.228, 0.93, 0.054, [[fa, 1.0]]], [0.23, 0.88, 0.047, [[fa, 0.8], [hd, 0.2]]]]
+		pts = []; rx = []; rz = []; ws = []
+		for r in ab:
+			pts.append(Vector3(side * r[0], r[1], 0.0)); rx.append(r[2]); rz.append(r[2] * 0.97); ws.append(r[3])
+		_skin_part(skinned_loft(pts, rx, rz, ws, 18), "suit")
+		# Leg: from inside the pelvis to the ankle.
+		var lb := [
+			[0.07, 0.93, 0.09, [[HIPS, 1.0]]], [0.1, 0.84, 0.1, [[HIPS, 0.4], [th, 0.6]]], [0.1, 0.74, 0.098, [[th, 1.0]]],
+			[0.1, 0.62, 0.09, [[th, 1.0]]], [0.1, 0.52, 0.083, [[th, 0.75], [sh, 0.25]]], [0.1, 0.45, 0.081, [[th, 0.25], [sh, 0.75]]],
+			[0.1, 0.34, 0.075, [[sh, 1.0]]], [0.1, 0.25, 0.066, [[sh, 1.0]]], [0.1, 0.15, 0.06, [[sh, 1.0]]]]
+		pts = []; rx = []; rz = []; ws = []
+		for r in lb:
+			pts.append(Vector3(side * r[0], r[1], 0.003)); rx.append(r[2]); rz.append(r[2]); ws.append(r[3])
+		_skin_part(skinned_loft(pts, rx, rz, ws, 18), "suit")
+		_build_glove(_attach(hd), side)
+		_build_boot(_attach(ft), side)
+
+	_build_chest_details(_attach(CHEST))
+	var head := _attach(NECK)
+	head.position = Vector3(0, -0.01, 0)
+	_build_hood(head)
+	pose_idle(0.0)
+
+
+func _build_chest_details(c: Node3D) -> void:
+	# Bone-local: the chest bone sits at y 1.25.
+	_part(c, BoxMesh.new(), "suit_dark", Vector3(-0.006, -0.06, 0.15), Vector3(0.05, 0, 0)).scale = Vector3(0.04, 0.38, 0.006)
+	_part(c, BoxMesh.new(), "zip", Vector3(0.014, -0.06, 0.153), Vector3(0.05, 0, 0)).scale = Vector3(0.011, 0.36, 0.006)
+	var torch := _joint(c, Vector3(0.11, 0.05, 0.152))
 	_part(torch, cyl(0.022, 0.026, 0.07), "rubber", Vector3.ZERO, Vector3(PI * 0.5, 0, 0))
 	_part(torch, cyl(0.02, 0.02, 0.004), "lens", Vector3(0, 0, 0.037), Vector3(PI * 0.5, 0, 0))
-	# Number stencilled on the back.
+	_part(torch, BoxMesh.new(), "rubber", Vector3(0, 0, -0.02)).scale = Vector3(0.05, 0.012, 0.012)
 	var lab := Label3D.new()
 	lab.text = tag
 	lab.font_size = 96
 	lab.pixel_size = 0.0014
 	lab.modulate = Color(0.08, 0.08, 0.08)
 	lab.outline_size = 0
-	lab.position = Vector3(0, 0.27, -0.138)
+	lab.position = Vector3(0, 0.03, -0.152)
 	lab.rotation = Vector3(0, PI, 0)
 	lab.double_sided = false
-	torso.add_child(lab)
+	c.add_child(lab)
 
-	neck = _joint(torso, Vector3(0, 0.44, 0))
-	_build_hood(neck)
 
-	for s in [-1.0, 1.0]:
-		_build_arm(s)
-		_build_leg(s)
-	# A relaxed stance.
-	pose_idle(0.0)
+## Thick rubber gauntlet glove; bone-local (wrist at the origin, fingers down).
+## Palms face the thigh, so the palm is thin in X and wide in Z.
+func _build_glove(h: Node3D, side: float) -> void:
+	# Gauntlet cuff flaring over the sleeve, with a tape band.
+	_part(h, loft([Vector3(0, 0.09, 0), Vector3(0, 0.05, 0), Vector3(0, 0.01, 0)], [0.066, 0.06, 0.05], [0.066, 0.06, 0.05], 16), "rubber")
+	_part(h, cyl(0.064, 0.068, 0.03), "tape", Vector3(0, 0.075, 0))
+	# Palm.
+	_part(h, loft([Vector3(0, 0.015, 0), Vector3(0, -0.02, 0.003), Vector3(0, -0.06, 0.005), Vector3(0, -0.085, 0.004)],
+			[0.03, 0.026, 0.024, 0.02], [0.046, 0.05, 0.05, 0.044], 14), "rubber")
+	# Four fingers, slightly curled toward the thigh, index in front.
+	var inward := -side
+	for f in 4:
+		var z := 0.034 - f * 0.022
+		var ln: float = [0.07, 0.078, 0.074, 0.06][f]
+		var base := Vector3(0, -0.08, z)
+		var path := [base, base + Vector3(inward * 0.006, -ln * 0.5, 0), base + Vector3(inward * 0.02, -ln * 0.9, 0)]
+		_part(h, loft(path, [0.0115, 0.0105, 0.009], [0.0115, 0.0105, 0.009], 8), "rubber")
+	# Thumb, from the front of the palm, angled forward and down.
+	var tb := Vector3(inward * 0.01, -0.025, 0.036)
+	_part(h, loft([tb, tb + Vector3(inward * 0.012, -0.03, 0.008), tb + Vector3(inward * 0.02, -0.058, 0.004)],
+			[0.0135, 0.012, 0.0105], [0.0135, 0.012, 0.0105], 8), "rubber")
+
+
+## Rubber boot; bone-local (ankle at the origin, 0.09 above the ground).
+func _build_boot(f: Node3D, side: float) -> void:
+	# Shaft over the trouser leg, taped at the top.
+	_part(f, loft([Vector3(0, 0.19, 0.0), Vector3(0, 0.1, 0.002), Vector3(0, 0.03, 0.008), Vector3(0, -0.025, 0.02)],
+			[0.088, 0.08, 0.071, 0.06], [0.09, 0.082, 0.078, 0.07], 18), "rubber")
+	_part(f, cyl(0.091, 0.093, 0.035), "tape", Vector3(0, 0.18, 0))
+	# Foot: heel to a rounded toe cap (along +Z; rx = width, rz = height).
+	var fp := [Vector3(0, -0.035, -0.075), Vector3(0, -0.035, -0.04), Vector3(0, -0.04, 0.03),
+		Vector3(0, -0.048, 0.1), Vector3(0, -0.05, 0.15), Vector3(0, -0.052, 0.178)]
+	_part(f, loft(fp, [0.05, 0.062, 0.064, 0.06, 0.05, 0.022], [0.045, 0.05, 0.05, 0.04, 0.032, 0.015], 18), "rubber")
+	# Thick sole, a touch wider, with a separate heel block.
+	var sp := [Vector3(0, -0.078, -0.08), Vector3(0, -0.079, 0.0), Vector3(0, -0.079, 0.1), Vector3(0, -0.078, 0.17), Vector3(0, -0.076, 0.19)]
+	_part(f, loft(sp, [0.052, 0.066, 0.068, 0.052, 0.02], [0.012, 0.012, 0.012, 0.012, 0.008], 16), "sole")
+	_part(f, BoxMesh.new(), "sole", Vector3(0, -0.07, -0.055)).scale = Vector3(0.1, 0.03, 0.06)
 
 
 func _build_hood(parent: Node3D) -> void:
@@ -254,67 +405,41 @@ func _build_hood(parent: Node3D) -> void:
 		_part(piv, cyl(0.026, 0.026, 0.004, 12), "mask", Vector3(0, 0, 0.041), Vector3(PI * 0.5, 0, 0))
 
 
-func _build_arm(s: float) -> void:
-	var sh := _joint(torso, Vector3(s * 0.2, 0.38, 0))
-	arms.append(sh)
-	# Upper arm with a baggy sleeve.
-	_part(sh, ellipsoid(Vector3(0.082, 0.078, 0.08)), "suit", Vector3(0, -0.015, 0))
-	_part(sh, loft([Vector3(0, 0.0, 0), Vector3(0, -0.08, 0), Vector3(0, -0.15, 0), Vector3(0, -0.22, 0), Vector3(0, -0.29, 0)],
-			[0.07, 0.074, 0.07, 0.066, 0.058], [0.07, 0.072, 0.068, 0.064, 0.056], 16), "suit")
-	var el := _joint(sh, Vector3(0, -0.29, 0))
-	elbows.append(el)
-	_part(el, ellipsoid(Vector3(0.07, 0.07, 0.07)), "suit")
-	_part(el, loft([Vector3(0, 0.0, 0), Vector3(0, -0.06, 0), Vector3(0, -0.13, 0), Vector3(0, -0.2, 0), Vector3(0, -0.25, 0)],
-			[0.057, 0.06, 0.056, 0.052, 0.049], [0.055, 0.058, 0.054, 0.05, 0.047], 16), "suit")
-	# Taped cuff and a thick rubber glove.
-	_part(el, cyl(0.06, 0.06, 0.04), "tape", Vector3(0, -0.24, 0))
-	var hand := _joint(el, Vector3(0, -0.3, 0))
-	_part(hand, loft([Vector3(0, 0.05, 0), Vector3(0, 0.0, 0.005), Vector3(0, -0.05, 0.01), Vector3(0, -0.09, 0.01)],
-			[0.048, 0.042, 0.045, 0.03], [0.045, 0.03, 0.025, 0.02], 14), "rubber")
-	_part(hand, loft([Vector3(-s * 0.035, 0.0, 0.025), Vector3(-s * 0.05, -0.04, 0.035)], [0.014, 0.012], [0.014, 0.012], 8), "rubber")
-
-
-func _build_leg(s: float) -> void:
-	var hp := _joint(hips, Vector3(s * 0.1, -0.06, 0))
-	legs.append(hp)
-	_part(hp, ellipsoid(Vector3(0.1, 0.1, 0.1)), "suit", Vector3(0, 0.0, 0))
-	_part(hp, loft([Vector3(0, 0.02, 0), Vector3(0, -0.1, 0), Vector3(0, -0.22, 0.005), Vector3(0, -0.33, 0.003), Vector3(0, -0.42, 0)],
-			[0.09, 0.098, 0.09, 0.082, 0.072], [0.09, 0.095, 0.087, 0.079, 0.071], 16), "suit")
-	var kn := _joint(hp, Vector3(0, -0.42, 0))
-	knees.append(kn)
-	_part(kn, ellipsoid(Vector3(0.085, 0.085, 0.087)), "suit")
-	_part(kn, loft([Vector3(0, 0.0, 0), Vector3(0, -0.08, 0), Vector3(0, -0.17, 0), Vector3(0, -0.27, 0), Vector3(0, -0.35, 0)],
-			[0.07, 0.074, 0.07, 0.069, 0.07], [0.07, 0.074, 0.07, 0.069, 0.07], 16), "suit")
-	# Taped ankle, rubber boot.
-	_part(kn, cyl(0.079, 0.079, 0.045), "tape", Vector3(0, -0.34, 0))
-	_part(kn, loft([Vector3(0, -0.33, -0.01), Vector3(0, -0.42, 0.0), Vector3(0, -0.47, 0.03)],
-			[0.068, 0.062, 0.06], [0.07, 0.07, 0.075], 16), "rubber")
-	_part(kn, loft([Vector3(0, -0.495, -0.07), Vector3(0, -0.495, 0.0), Vector3(0, -0.49, 0.11), Vector3(0, -0.48, 0.15)],
-			[0.06, 0.064, 0.058, 0.04], [0.025, 0.03, 0.03, 0.022], 14), "rubber")
-
-
 # ------------------------------------------------------------------- poses ---
+func _rot(bone: int, e: Vector3) -> void:
+	skeleton.set_bone_pose_rotation(bone, Quaternion.from_euler(e))
+
+
 ## Standing, breathing.
 func pose_idle(t: float) -> void:
-	for i in 2:
-		var s := -1.0 if i == 0 else 1.0
-		arms[i].rotation = Vector3(0.05, 0, s * 0.13)
-		elbows[i].rotation = Vector3(-0.18, 0, 0)
-		legs[i].rotation = Vector3(0, 0, s * 0.03)
-		knees[i].rotation = Vector3(0.04, 0, 0)
-	torso.rotation.x = 0.02 * sin(t * 1.4)
-	neck.rotation.x = 0.04
+	skeleton.set_bone_pose_position(HIPS, BONES[HIPS][2])
+	for L in [true, false]:
+		var s := -1.0 if L else 1.0
+		_rot(UARM_L if L else UARM_R, Vector3(0.05, 0, s * 0.1))
+		_rot(FARM_L if L else FARM_R, Vector3(-0.2, 0, 0))
+		_rot(HAND_L if L else HAND_R, Vector3(-0.05, 0, 0))
+		_rot(THIGH_L if L else THIGH_R, Vector3(0, 0, s * 0.02))
+		_rot(SHIN_L if L else SHIN_R, Vector3(0.04, 0, 0))
+		_rot(FOOT_L if L else FOOT_R, Vector3(-0.04, 0, 0))
+	_rot(SPINE, Vector3(0.015 * sin(t * 1.4), 0, 0))
+	_rot(CHEST, Vector3(0.01 * sin(t * 1.4 + 0.5), 0, 0))
+	_rot(NECK, Vector3(0.04, 0, 0))
 
 
-## Walking/running cycle: phase in radians (one stride per TAU), amount 0..1.
+## Walking/running cycle: phase in radians (one stride per TAU), amount 0..1,
+## run 0 (walk) .. 1 (run). Matches the first-person gait.
 func pose_walk(phase: float, amount: float, run: float) -> void:
-	var swing := lerpf(0.45, 0.8, run) * amount
-	for i in 2:
-		var s := -1.0 if i == 0 else 1.0
-		var ph := phase + (0.0 if i == 0 else PI)
-		legs[i].rotation = Vector3(-sin(ph) * swing, 0, s * 0.03)
-		knees[i].rotation = Vector3(maxf(0.0, sin(ph + 1.3)) * lerpf(0.7, 1.4, run) * amount + 0.05, 0, 0)
-		arms[i].rotation = Vector3(sin(ph) * swing * 0.8, 0, s * 0.13)
-		elbows[i].rotation = Vector3(-lerpf(0.25, 1.2, run) * amount - 0.15, 0, 0)
-	hips.position.y = 0.93 - absf(cos(phase)) * 0.03 * amount
-	torso.rotation.x = lerpf(0.04, 0.22, run) * amount
+	var swing := lerpf(0.42, 0.75, run) * amount
+	for L in [true, false]:
+		var s := -1.0 if L else 1.0
+		var ph := phase + (0.0 if L else PI)
+		_rot(THIGH_L if L else THIGH_R, Vector3(-sin(ph) * swing, 0, s * 0.02))
+		var knee := maxf(0.0, sin(ph + 1.25)) * lerpf(0.75, 1.5, run) * amount + 0.05
+		_rot(SHIN_L if L else SHIN_R, Vector3(knee, 0, 0))
+		_rot(FOOT_L if L else FOOT_R, Vector3(-knee * 0.35 + sin(ph) * swing * 0.4, 0, 0))
+		_rot(UARM_L if L else UARM_R, Vector3(sin(ph) * swing * 0.75, 0, s * 0.1))
+		_rot(FARM_L if L else FARM_R, Vector3(-lerpf(0.3, 1.25, run) * amount - 0.15, 0, 0))
+	skeleton.set_bone_pose_position(HIPS, BONES[HIPS][2] + Vector3(0, -absf(cos(phase)) * 0.03 * amount, 0))
+	_rot(SPINE, Vector3(lerpf(0.03, 0.15, run) * amount, sin(phase) * 0.06 * amount, 0))
+	_rot(CHEST, Vector3(lerpf(0.01, 0.07, run) * amount, -sin(phase) * 0.1 * amount, 0))
+	_rot(NECK, Vector3(-lerpf(0.02, 0.12, run) * amount + 0.04, 0, 0))

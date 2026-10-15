@@ -8,6 +8,8 @@ var shots := [
 	["back", Vector3(-1.5, 1.35, -2.4), Vector3(0, 1.0, 0), 38.0, "idle"],
 	["head", Vector3(0.35, 1.62, 0.75), Vector3(0, 1.57, 0), 30.0, "idle"],
 	["walk", Vector3(2.6, 1.15, 0.9), Vector3(0, 0.92, 0), 38.0, "walk"],
+	["glove", Vector3(0.75, 0.95, 0.55), Vector3(0.23, 0.82, 0.0), 28.0, "idle"],
+	["boots", Vector3(0.55, 0.45, 0.95), Vector3(0.0, 0.1, 0.05), 32.0, "idle"],
 ]
 var i := 0
 var t := 0.0
