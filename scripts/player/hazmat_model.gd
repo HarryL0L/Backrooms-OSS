@@ -35,55 +35,68 @@ func _ready() -> void:
 static func _mat(key: String) -> Material:
 	if _mats.has(key):
 		return _mats[key]
-	var m := StandardMaterial3D.new()
-	match key:
-		"suit":
-			m.albedo_color = Color(0.86, 0.68, 0.1)
-			m.roughness = 0.45
-			m.metallic_specular = 0.6
-		"suit_dark":                      # folds / seams
-			m.albedo_color = Color(0.62, 0.47, 0.06)
-			m.roughness = 0.55
-		"rubber":
-			m.albedo_color = Color(0.05, 0.05, 0.055)
-			m.roughness = 0.6
-		"tape":
-			m.albedo_color = Color(0.42, 0.43, 0.44)
-			m.roughness = 0.7
-		"visor":
-			m.albedo_color = Color(0.55, 0.62, 0.6, 0.28)
-			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			m.roughness = 0.03
-			m.metallic = 0.3
-			m.metallic_specular = 1.0
-			m.cull_mode = BaseMaterial3D.CULL_DISABLED
-		"mask":
-			m.albedo_color = Color(0.09, 0.09, 0.1)
-			m.roughness = 0.5
-		"filter":
-			m.albedo_color = Color(0.32, 0.33, 0.3)
-			m.roughness = 0.45
-			m.metallic = 0.4
-		"lens":
-			m.albedo_color = Color(1.0, 0.95, 0.82)
-			m.emission_enabled = true
-			m.emission = Color(1.0, 0.93, 0.75) * 1.5
-		"sole":
-			m.albedo_color = Color(0.025, 0.025, 0.028)
-			m.roughness = 0.85
-		"zip":
-			m.albedo_color = Color(0.2, 0.2, 0.2)
-			m.metallic = 0.6
-			m.roughness = 0.4
+	var m: Material
+	# [albedo, roughness, specular, wrinkles] for the opaque parts.
+	var spec := {
+		"suit": [Color(0.86, 0.68, 0.1), 0.45, 0.55, 1.0],
+		"suit_dark": [Color(0.62, 0.47, 0.06), 0.55, 0.4, 0.0],
+		"rubber": [Color(0.05, 0.05, 0.055), 0.6, 0.45, 0.0],
+		"rubber_fold": [Color(0.05, 0.05, 0.055), 0.6, 0.45, 0.5],
+		"sole": [Color(0.025, 0.025, 0.028), 0.85, 0.2, 0.0],
+		"tape": [Color(0.42, 0.43, 0.44), 0.7, 0.3, 0.25],
+		"mask": [Color(0.09, 0.09, 0.1), 0.5, 0.45, 0.0],
+		"filter": [Color(0.32, 0.33, 0.3), 0.45, 0.7, 0.0],
+		"zip": [Color(0.2, 0.2, 0.2), 0.4, 0.8, 0.0],
+	}
+	if spec.has(key):
+		var sm := ShaderMaterial.new()
+		sm.shader = load("res://shaders/hazmat.gdshader")
+		var p: Array = spec[key]
+		sm.set_shader_parameter("albedo", p[0])
+		sm.set_shader_parameter("roughness", p[1])
+		sm.set_shader_parameter("specular_amt", p[2])
+		sm.set_shader_parameter("wrinkles", p[3])
+		m = sm
+	else:
+		var st := StandardMaterial3D.new()
+		match key:
+			"visor":
+				st.albedo_color = Color(0.55, 0.62, 0.6, 0.28)
+				st.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				st.roughness = 0.03
+				st.metallic = 0.3
+				st.metallic_specular = 1.0
+				st.cull_mode = BaseMaterial3D.CULL_DISABLED
+			"lens":
+				st.albedo_color = Color(1.0, 0.95, 0.82)
+				st.emission_enabled = true
+				st.emission = Color(1.0, 0.93, 0.75) * 1.5
+		m = st
 	_mats[key] = m
 	return m
+
+
+## Light level where the model stands (Backrooms surfaces are self-lit, so
+## the model is given the same light as emission).
+func set_env_light(c: Color) -> void:
+	for mi in find_children("*", "MeshInstance3D", true, false):
+		if (mi as MeshInstance3D).material_override is ShaderMaterial:
+			(mi as MeshInstance3D).set_instance_shader_parameter("env_light", c)
+
+
+## Materials to pre-compile during loading.
+static func warm_materials() -> Array[Material]:
+	var out: Array[Material] = []
+	for k in ["suit", "rubber", "visor", "lens"]:
+		out.append(_mat(k))
+	return out
 
 
 # ------------------------------------------------------------------ meshes ---
 ## A smooth tube along `pts` with elliptical cross-sections (rx sideways,
 ## rz front-back) and optional fabric folds. Ends are closed with caps.
 static func loft(pts: Array, rx: Array, rz: Array, segs := 18, folds := [], cap := true,
-		arc := Vector2(0.0, TAU)) -> ArrayMesh:
+		arc := Vector2(0.0, TAU), crease := 0.0) -> ArrayMesh:
 	# A partial arc (arc.y - arc.x < TAU) gives an open strip, e.g. a visor.
 	var closed := arc.y - arc.x >= TAU - 0.001
 	var st := SurfaceTool.new()
@@ -99,7 +112,7 @@ static func loft(pts: Array, rx: Array, rz: Array, segs := 18, folds := [], cap 
 		side = side.normalized()
 		var fwd := tan.cross(side).normalized()
 		var ring := []
-		for k in (segs if closed else segs + 1):
+		for k in segs + 1:                       # closed rings repeat the first point (UV seam)
 			var a := arc.x + (arc.y - arc.x) * k / segs
 			var r := 1.0
 			for f in folds:                      # [ring index, depth, count]
@@ -109,20 +122,27 @@ static func loft(pts: Array, rx: Array, rz: Array, segs := 18, folds := [], cap 
 				r += f[1] * w * sin(a * f[2] + i * 0.7)
 			ring.append(p + side * cos(a) * float(rx[i]) * r - fwd * sin(a) * float(rz[i]) * r)
 		rings.append(ring)
+	var vlen := [0.0]
+	for i in range(1, n):
+		vlen.append(float(vlen[i - 1]) + (pts[i] as Vector3).distance_to(pts[i - 1]))
+	var put := func(i: int, k: int) -> void:
+		st.set_uv(Vector2(float(k) / segs, vlen[i]))
+		st.set_uv2(Vector2(crease, 0.0))
+		st.add_vertex(rings[i][k])
 	for i in n - 1:
 		for k in segs:
-			var k2 := (k + 1) % segs if closed else k + 1
-			st.add_vertex(rings[i][k]); st.add_vertex(rings[i][k2]); st.add_vertex(rings[i + 1][k])
-			st.add_vertex(rings[i][k2]); st.add_vertex(rings[i + 1][k2]); st.add_vertex(rings[i + 1][k])
+			put.call(i, k); put.call(i, k + 1); put.call(i + 1, k)
+			put.call(i, k + 1); put.call(i + 1, k + 1); put.call(i + 1, k)
 	if cap and closed:
 		for e in [0, n - 1]:
 			var c: Vector3 = pts[e]
 			for k in segs:
-				var k2 := (k + 1) % segs
+				st.set_uv(Vector2(0.5, vlen[e])); st.set_uv2(Vector2(crease, 0.0))
 				if e == 0:
-					st.add_vertex(c); st.add_vertex(rings[e][k2]); st.add_vertex(rings[e][k])
+					st.add_vertex(c); put.call(e, k + 1); put.call(e, k)
 				else:
-					st.add_vertex(c); st.add_vertex(rings[e][k]); st.add_vertex(rings[e][k2])
+					st.add_vertex(c); put.call(e, k); put.call(e, k + 1)
+	st.index()
 	st.generate_normals()
 	return st.commit()
 
@@ -175,7 +195,7 @@ func _joint(parent: Node3D, pos: Vector3) -> Node3D:
 
 # ------------------------------------------------------------ skinned body ---
 ## Like loft() but every ring carries bone weights: [[bone, w], [bone, w]].
-static func skinned_loft(pts: Array, rx: Array, rz: Array, weights: Array, segs := 20) -> ArrayMesh:
+static func skinned_loft(pts: Array, rx: Array, rz: Array, weights: Array, segs := 20, creases := []) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := pts.size()
@@ -189,10 +209,13 @@ static func skinned_loft(pts: Array, rx: Array, rz: Array, weights: Array, segs 
 		side = side.normalized()
 		var fwd := tan.cross(side).normalized()
 		var ring := []
-		for k in segs:
+		for k in segs + 1:
 			var a := TAU * k / segs
 			ring.append(p + side * cos(a) * float(rx[i]) - fwd * sin(a) * float(rz[i]))
 		rings.append(ring)
+	var vlen := [0.0]
+	for i in range(1, n):
+		vlen.append(float(vlen[i - 1]) + (pts[i] as Vector3).distance_to(pts[i - 1]))
 	var vb := func(i: int, v: Vector3) -> void:
 		var w: Array = weights[i]
 		var b := PackedInt32Array([0, 0, 0, 0])
@@ -203,19 +226,22 @@ static func skinned_loft(pts: Array, rx: Array, rz: Array, weights: Array, segs 
 		st.set_bones(b)
 		st.set_weights(wt)
 		st.add_vertex(v)
+	var pv := func(i: int, k: int) -> void:
+		st.set_uv(Vector2(float(k) / segs, vlen[i]))
+		st.set_uv2(Vector2(float(creases[i]) if creases.size() > i else 0.0, 0.0))
+		vb.call(i, rings[i][k])
 	for i in n - 1:
 		for k in segs:
-			var k2 := (k + 1) % segs
-			vb.call(i, rings[i][k]); vb.call(i, rings[i][k2]); vb.call(i + 1, rings[i + 1][k])
-			vb.call(i, rings[i][k2]); vb.call(i + 1, rings[i + 1][k2]); vb.call(i + 1, rings[i + 1][k])
+			pv.call(i, k); pv.call(i, k + 1); pv.call(i + 1, k)
+			pv.call(i, k + 1); pv.call(i + 1, k + 1); pv.call(i + 1, k)
 	for e in [0, n - 1]:
 		var c: Vector3 = pts[e]
 		for k in segs:
-			var k2 := (k + 1) % segs
+			st.set_uv(Vector2(0.5, vlen[e])); st.set_uv2(Vector2.ZERO)
 			if e == 0:
-				vb.call(e, c); vb.call(e, rings[e][k2]); vb.call(e, rings[e][k])
+				vb.call(e, c); pv.call(e, k + 1); pv.call(e, k)
 			else:
-				vb.call(e, c); vb.call(e, rings[e][k]); vb.call(e, rings[e][k2])
+				vb.call(e, c); pv.call(e, k); pv.call(e, k + 1)
 	st.index()
 	st.generate_normals()
 	return st.commit()
@@ -262,7 +288,7 @@ func _build() -> void:
 	var pts := []; var rx := []; var rz := []; var ws := []
 	for r in tb:
 		pts.append(Vector3(0, r[0], 0.004 * sin((r[0] - 0.74) * 4.0))); rx.append(r[1]); rz.append(r[2]); ws.append(r[3])
-	_skin_part(skinned_loft(pts, rx, rz, ws, 26), "suit")
+	_skin_part(skinned_loft(pts, rx, rz, ws, 26, [0.6, 0.4, 0.2, 0.7, 0.5, 0.25, 0.1, 0.1, 0.3, 0.5, 0.2]), "suit")
 
 	for side in [-1.0, 1.0]:
 		var L: bool = side < 0.0
@@ -281,7 +307,7 @@ func _build() -> void:
 		pts = []; rx = []; rz = []; ws = []
 		for r in ab:
 			pts.append(Vector3(side * r[0], r[1], 0.0)); rx.append(r[2]); rz.append(r[2] * 0.97); ws.append(r[3])
-		_skin_part(skinned_loft(pts, rx, rz, ws, 18), "suit")
+		_skin_part(skinned_loft(pts, rx, rz, ws, 18, [0.5, 0.7, 0.35, 0.3, 0.9, 1.0, 0.4, 0.6, 0.85]), "suit")
 		# Leg: from inside the pelvis to the ankle.
 		var lb := [
 			[0.07, 0.93, 0.09, [[HIPS, 1.0]]], [0.1, 0.84, 0.1, [[HIPS, 0.4], [th, 0.6]]], [0.1, 0.74, 0.098, [[th, 1.0]]],
@@ -290,7 +316,7 @@ func _build() -> void:
 		pts = []; rx = []; rz = []; ws = []
 		for r in lb:
 			pts.append(Vector3(side * r[0], r[1], 0.003)); rx.append(r[2]); rz.append(r[2]); ws.append(r[3])
-		_skin_part(skinned_loft(pts, rx, rz, ws, 18), "suit")
+		_skin_part(skinned_loft(pts, rx, rz, ws, 18, [0.6, 0.8, 0.3, 0.3, 0.9, 1.0, 0.35, 0.7, 1.0]), "suit")
 		_build_glove(_attach(hd), side)
 		_build_boot(_attach(ft), side)
 
@@ -367,7 +393,7 @@ func _build_hood(parent: Node3D) -> void:
 	const WIN := 0.95                      # half-width of the window (radians)
 	const FRONT := PI * 0.5                # +Z in loft()'s angle
 	var lower_p := [Vector3(0, -0.05, -0.01), Vector3(0, 0.02, 0.0), Vector3(0, 0.075, 0.01)]
-	_part(parent, loft(lower_p, [0.17, 0.14, 0.135], [0.13, 0.13, 0.145], 24, [[1, 0.04, 7]], false), "suit")
+	_part(parent, loft(lower_p, [0.17, 0.14, 0.135], [0.13, 0.13, 0.145], 24, [[1, 0.04, 7]], false, Vector2(0.0, TAU), 0.5), "suit")
 	var band_p := []
 	var band_x := []
 	var band_z := []
