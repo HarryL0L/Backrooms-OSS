@@ -47,6 +47,7 @@ func _process(delta):
 			if t > 6.0 and game.chunks.is_area_ready(game.player.global_position, 2):
 				# Let it spawn behind us, then turn round to look.
 				F._timer = 0.0
+				game.player.set_flashlight(true)
 				game.player.teleport(game.player.global_position, game.player.yaw, 0.0)
 				step = 3; t = 0
 		3:
@@ -63,7 +64,7 @@ func _process(delta):
 					game.player.teleport(Vector3((cells[ci].x + 0.5) * 2.4, 0.05, (cells[ci].y + 0.5) * 2.4), randf() * TAU, 0.0)
 					step = 2; t = 0
 		4:
-			if t > 0.5:
+			if t > 0.45:
 				print("present while looked at: ", F._present, " in_view ", F._in_view())
 				var cam = game.player.camera
 				print("screen ", cam.unproject_position(F.global_position + Vector3.UP * 1.3), " behind ", cam.is_position_behind(F.global_position), " vis ", F.visible, " ", F.is_visible_in_tree())
@@ -76,10 +77,9 @@ func _process(delta):
 				shot("figure_red")
 				for mi in F.find_children("*", "MeshInstance3D", true, false):
 					mi.material_override = mi.get_meta("m")
-				game.player.set_flashlight(true)
 				step = 5; t = 0
 		5:
-			if t > 0.6:
+			if t > 1.2:
 				print("present after flashlight: ", F._present)
 				shot("after_flashlight")
 				get_tree().quit()

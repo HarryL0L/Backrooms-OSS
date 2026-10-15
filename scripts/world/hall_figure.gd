@@ -1,9 +1,9 @@
 class_name HallFigure
 extends Node3D
-## A too-tall, too-thin figure that stands in a pool of dim light at the far end of
+## A too-tall, too-thin figure that stands at the far end of
 ## the Unlit Halls. It only ever appears out of view (so it's simply there when
-## you turn around) and it's gone the moment your flashlight reaches it, you
-## get close, or you look away and back. It never moves toward you and never
+## you turn around) and it's gone a second after your flashlight finds it, when
+## you get close, or when you look away and back. It never moves toward you and never
 ## attacks.
 
 const SEEN_DIST := 30.0
@@ -15,12 +15,14 @@ var allowed := false
 
 var _body: Node3D
 var _mat: StandardMaterial3D
+var _base_emit := Color.BLACK
 var _head: Node3D
 var _timer := 0.0
 var _present := false
 var _was_seen := false
 var _unseen_t := 0.0
 var _lit_t := 0.0
+var _lit_limit := 1.0       # seconds in your flashlight beam before it's gone
 var _sway := 0.0
 var _audio: AudioStreamPlayer3D
 var _rng := RandomNumberGenerator.new()
@@ -28,7 +30,7 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.randomize()
-	_timer = _rng.randf_range(40.0, 90.0)
+	_timer = _rng.randf_range(15.0, 35.0)
 	_build()
 	visible = false
 	_audio = AudioStreamPlayer3D.new()
@@ -102,7 +104,7 @@ func _process(delta: float) -> void:
 			_timer -= delta
 		if _timer <= 0.0:
 			if not _try_spawn():
-				_timer = 4.0
+				_timer = 2.0
 		return
 	# Barely alive: a slow sway, the head tilting.
 	_sway += delta
@@ -115,11 +117,15 @@ func _process(delta: float) -> void:
 		_unseen_t = 0.0
 	else:
 		_unseen_t += delta
+	# The world's flashlight is drawn by the surface shaders; this plain
+	# material fakes catching the beam so you see it for that last second.
 	if _lit_by_flashlight():
 		_lit_t += delta
+		_mat.emission = _base_emit + Color(0.26, 0.24, 0.21) * clampf(1.3 - d / 20.0, 0.25, 1.0)
 	else:
 		_lit_t = 0.0
-	if d < 8.0 or _lit_t > 0.2 or _biome(player.global_position) != WorldGen.DARK \
+		_mat.emission = _base_emit
+	if d < 8.0 or _lit_t > _lit_limit or _biome(player.global_position) != WorldGen.DARK \
 			or (_was_seen and _unseen_t > 0.6) or d > SEEN_DIST + 10.0:
 		_vanish(_was_seen)
 
@@ -142,15 +148,14 @@ func _try_spawn() -> bool:
 			var to := pos - p
 			to.y = 0.0
 			var dist := to.length()
-			if dist < 11.0 or dist > 20.0:
+			if dist < 10.0 or dist > 20.0:
 				continue
 			# Out of view now.
 			if fwd.dot(to / dist) > cos(deg_to_rad(70.0)):
 				continue
-			# Standing in a pool of light so its shape shows.
+			# Prefers a pool of light (its shape shows best there), but the
+			# Unlit Halls have few working lamps, so dark spots are fine too.
 			var light := gen.light_level_near(pos + Vector3.UP * 1.5)
-			if light < 0.45:
-				continue
 			var ok := true
 			for hgt in [0.8, 1.6, 2.3]:
 				var q := PhysicsRayQueryParameters3D.create(eye, pos + Vector3.UP * hgt)
@@ -166,7 +171,10 @@ func _try_spawn() -> bool:
 	var pick: Vector3 = best[_rng.randi() % mini(3, best.size())][1]
 	global_position = pick
 	var lv := clampf(gen.light_level_near(pick + Vector3.UP * 1.5), 0.0, 1.5)
-	_mat.emission = Color(0.15, 0.135, 0.115) * lv
+	# A faint shape even in the dark, like your eyes adjusting.
+	_base_emit = Color(0.03, 0.028, 0.026) + Color(0.15, 0.135, 0.115) * lv
+	_mat.emission = _base_emit
+	_lit_limit = _rng.randf_range(0.8, 1.3)
 	look_at(Vector3(player.global_position.x, 0.0, player.global_position.z), Vector3.UP, true)
 	_present = true
 	_was_seen = false
@@ -184,7 +192,7 @@ func _vanish(with_sound: bool) -> void:
 		_audio.pitch_scale = _rng.randf_range(0.8, 1.0)
 		_audio.play()
 	_hide()
-	_timer = _rng.randf_range(60.0, 150.0)
+	_timer = _rng.randf_range(50.0, 110.0)
 
 
 func _hide() -> void:
