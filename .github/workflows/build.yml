@@ -76,6 +76,9 @@ jobs:
       - name: Import project
         run: ~/godot/godot --headless --path . --import
 
+      - name: Install Android Gradle build template
+        run: ~/godot/godot --headless --path . --install-android-build-template
+
       - name: Export
         run: |
           mkdir -p build/linux build/windows
@@ -85,6 +88,14 @@ jobs:
           ~/godot/godot --headless --path . --export-release "Linux" build/linux/Backrooms-OSS.x86_64
           ~/godot/godot --headless --path . --export-release "Windows" build/windows/Backrooms-OSS.exe
           test -s build/Backrooms-OSS.apk
+          # Game detection: Android and the OEM game boosters only treat the app
+          # as a game if these are in the manifest. Fail the build if not.
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2
+          "$aapt2" dump xmltree build/Backrooms-OSS.apk --file AndroidManifest.xml > build/manifest.txt
+          grep -E "isGame|appCategory|game_mode_config" build/manifest.txt
+          grep -q 'isGame' build/manifest.txt
+          grep -q 'appCategory' build/manifest.txt
+          grep -q 'android.game_mode_config' build/manifest.txt
           cd build && zip -qr Backrooms-OSS-linux.zip linux && zip -qr Backrooms-OSS-windows.zip windows
 
       - uses: actions/upload-artifact@v4

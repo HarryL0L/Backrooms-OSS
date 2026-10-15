@@ -100,3 +100,7 @@ lining_tex={
 "type": "sampler2D",
 "value": ""
 }
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/android_game_mode/plugin.cfg")

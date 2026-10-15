@@ -6,6 +6,7 @@ export_credentials.cfg
 *.translation
 
 # Builds
+android/
 build/
 *.apk
 *.aab
