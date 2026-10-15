@@ -42,9 +42,9 @@ var flash_fill: OmniLight3D
 var _shape: CapsuleShape3D
 var _col: CollisionShape3D
 var _eye := EYE
-var _stride_dist := 0.0
-var _bob := 0.0
+var _step_phase := 0.0       # one step per PI radians
 var _bob_amount := 0.0
+var _run_blend := 0.0
 var _land_dip := 0.0
 var _was_on_floor := true
 var _fall_speed := 0.0
@@ -355,25 +355,40 @@ func _update_bob(delta: float, input: Vector2) -> void:
 	if on_floor:
 		_fall_speed = 0.0
 	_was_on_floor = on_floor
-	var stride := 0.62 if crouching else (0.95 if hspeed > 4.0 else 0.78)
+	# Step length grows with speed like a real gait (about 2.2 steps/s at a
+	# brisk walk, 2.8 at a sprint), and the phase is accumulated so changing
+	# speed never makes the bob jump.
+	var step_len := clampf(0.45 + 0.27 * hspeed, 0.55, 1.8)
 	if on_floor and hspeed > 0.3:
-		var prev := _stride_dist
-		_stride_dist += hspeed * delta
-		if floori(prev / stride) != floori(_stride_dist / stride):
+		var prev := _step_phase
+		_step_phase += hspeed * delta / step_len * PI
+		if floori(prev / PI) != floori(_step_phase / PI):
 			var strength := clampf(hspeed / SPRINT, 0.35, 1.0) * (0.55 if crouching else 1.0)
 			footstep.emit(surface_at(), strength)
-	_bob = _stride_dist / stride * PI
 	var head_bob: bool = Settings.get_value("graphics/head_bob")
-	var target_amt := clampf(hspeed / SPRINT, 0.0, 1.0) if on_floor and head_bob else 0.0
-	_bob_amount = lerpf(_bob_amount, target_amt, 1.0 - exp(-8.0 * delta))
+	var target_amt := clampf(hspeed / WALK, 0.0, 1.0) if on_floor and head_bob else 0.0
+	_bob_amount = lerpf(_bob_amount, target_amt, 1.0 - exp(-6.0 * delta))
+	_run_blend = lerpf(_run_blend, smoothstep(WALK + 0.3, SPRINT - 0.3, hspeed), 1.0 - exp(-4.0 * delta))
 	_land_dip = lerpf(_land_dip, 0.0, 1.0 - exp(-7.0 * delta))
 	_idle_t += delta
-	var breathe := sin(_idle_t * 1.4) * 0.006 * (2.0 if exhausted else 1.0)
-	var by := -absf(sin(_bob)) * 0.055 * _bob_amount + breathe
-	var bx := cos(_bob) * 0.03 * _bob_amount
+	var breathe := sin(_idle_t * (1.4 if not exhausted else 2.6)) * 0.006 * (2.2 if exhausted else 1.0)
+	# The head is lowest just after each foot lands (the knee takes the
+	# weight) and highest passing over the planted leg. Walking is a smooth
+	# rise and fall; running dips sharply on landing and floats in between.
+	var p := _step_phase - 0.3
+	var w := 0.5 * (1.0 + cos(2.0 * p))                  # 1 at landing, 0 mid-step
+	var walk_y := -w * 0.026
+	var run_y := -pow(w, 3.0) * 0.055
+	var amt := _bob_amount * (0.6 if crouching else 1.0)
+	var by := lerpf(walk_y, run_y, _run_blend) * amt + breathe
+	# Weight shifts over the standing foot: sideways sway at half the rate.
+	var bx := sin(p) * lerpf(0.016, 0.024, _run_blend) * amt
 	head.position = Vector3(bx, _eye + by - _land_dip, 0.0)
-	_roll = lerpf(_roll, -input.x * 0.025 + cos(_bob) * 0.006 * _bob_amount, 1.0 - exp(-6.0 * delta))
+	var target_roll := -input.x * 0.025 + sin(p) * lerpf(0.003, 0.007, _run_blend) * amt
+	_roll = lerpf(_roll, target_roll, 1.0 - exp(-10.0 * delta))
 	camera.rotation.z = _roll
+	# A small nod on each landing, stronger when running.
+	camera.rotation.x = -lerpf(w * 0.003, pow(w, 3.0) * 0.012, _run_blend) * amt - _land_dip * 0.15
 
 
 func _update_flash_rig(delta: float) -> void:
