@@ -1,6 +1,7 @@
 class_name HallFigure
 extends Node3D
-## A too-tall, too-thin figure that stands at the far end of
+## A too-tall, too-thin figure with white glowing eyes and a too-wide glowing
+## smile, standing at the far end of
 ## the Unlit Halls. It only ever appears out of view (so it's simply there when
 ## you turn around) and it's gone a second after your flashlight finds it, when
 ## you get close, or when you look away and back. It never moves toward you and never
@@ -15,6 +16,9 @@ var allowed := false
 
 var _body: Node3D
 var _mat: StandardMaterial3D
+var _glow_mat: StandardMaterial3D
+var _halo_mat: StandardMaterial3D
+var _halos: Array[MeshInstance3D] = []
 var _base_emit := Color.BLACK
 var _head: Node3D
 var _timer := 0.0
@@ -73,6 +77,87 @@ func _build() -> void:
 	hs.position = Vector3(0, 0.22, 0.16)
 	hs.rotation.x = 0.5
 	_head.add_child(hs)
+	_build_face(hs)
+
+
+## White glowing eyes and a too-wide glowing grin. Lit by nothing - they're
+## what you see first in the dark - with a soft glow so they still read from
+## 20 m away at low resolution.
+func _build_face(head: Node3D) -> void:
+	_glow_mat = StandardMaterial3D.new()
+	_glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_glow_mat.albedo_color = Color(1.0, 1.0, 0.97)
+	_halo_mat = StandardMaterial3D.new()
+	_halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_halo_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_halo_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	_halo_mat.no_depth_test = false
+	_halo_mat.albedo_color = Color(0.85, 0.9, 1.0, 0.55)
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1, 1, 1, 1))
+	grad.set_color(1, Color(1, 1, 1, 0))
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(1.0, 0.5)
+	gt.width = 64
+	gt.height = 64
+	_halo_mat.albedo_texture = gt
+	# The head sphere is 0.1 wide and 0.13 tall (radii); its face is +Z.
+	for sx in [-1.0, 1.0]:
+		var e := MeshInstance3D.new()
+		var sp := SphereMesh.new()
+		sp.radius = 0.021
+		sp.height = 0.03
+		sp.radial_segments = 8
+		sp.rings = 4
+		e.mesh = sp
+		e.material_override = _glow_mat
+		e.position = Vector3(sx * 0.037, 0.03, 0.088)
+		head.add_child(e)
+		_halo(head, e.position + Vector3(0, 0, 0.03), 0.075)
+	# The grin: a thin arc much wider than a mouth should be, corners up.
+	var segs := 11
+	var prev := Vector3.ZERO
+	for i in segs + 1:
+		var u := -1.0 + 2.0 * i / segs
+		var x := u * 0.072
+		var y := -0.05 + 0.034 * u * u
+		var zz := 0.1 * sqrt(maxf(1.0 - (x / 0.1) ** 2 - (y / 0.13) ** 2, 0.05)) + 0.004
+		var pt := Vector3(x, y, zz)
+		if i > 0:
+			var seg := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(prev.distance_to(pt) + 0.004, 0.009 - 0.004 * absf(u), 0.006)
+			seg.mesh = bm
+			seg.material_override = _glow_mat
+			seg.position = (prev + pt) * 0.5
+			var d := (pt - prev).normalized()
+			seg.basis = Basis(Quaternion(Vector3.RIGHT, d))
+			head.add_child(seg)
+		prev = pt
+	_halo(head, Vector3(0, -0.035, 0.12), 0.11, 0.45)
+
+
+func _halo(parent: Node3D, pos: Vector3, size: float, strength := 1.0) -> void:
+	var h := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(size, size)
+	h.mesh = q
+	h.material_override = _halo_mat
+	h.position = pos
+	h.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	h.transparency = 1.0 - strength
+	h.set_meta("size", size)
+	parent.add_child(h)
+	_halos.append(h)
+
+
+## Materials to pre-compile during loading (see Game._warm_shaders).
+func warm_materials() -> Array[Material]:
+	return [_mat, _glow_mat, _halo_mat]
 
 
 func _limb(m: Material, a: Vector3, b: Vector3, r: float, parent: Node3D = null) -> void:
@@ -111,6 +196,11 @@ func _process(delta: float) -> void:
 	_body.rotation.z = sin(_sway * 0.4) * 0.025
 	_head.rotation.z = sin(_sway * 0.23 + 1.0) * 0.12
 	var d := global_position.distance_to(player.global_position)
+	# The glow grows with distance so the eyes and smile still read as points
+	# of light far down a hall (and at PS1 resolution).
+	var k := clampf(d / 6.0, 1.0, 4.0)
+	for h in _halos:
+		(h.mesh as QuadMesh).size = Vector2.ONE * float(h.get_meta("size")) * k
 	var seen := _in_view()
 	if seen:
 		_was_seen = true
@@ -131,6 +221,12 @@ func _process(delta: float) -> void:
 
 
 func _try_spawn() -> bool:
+	# Nearer first; the narrow halls often hide everything that close, and
+	# the glowing face still reads from further away.
+	return _try_spawn_within(20.0) or _try_spawn_within(26.0)
+
+
+func _try_spawn_within(dmax: float) -> bool:
 	var p := player.global_position
 	var eye := p + Vector3.UP * 1.55
 	var fwd := -player.camera.global_basis.z
@@ -139,8 +235,9 @@ func _try_spawn() -> bool:
 	var c := gen.cell_of(p)
 	var space := get_world_3d().direct_space_state
 	var best := []
-	for gz in range(c.y - 9, c.y + 10):
-		for gx in range(c.x - 9, c.x + 10):
+	var r := ceili(dmax / WorldGen.CELL)
+	for gz in range(c.y - r, c.y + r + 1):
+		for gx in range(c.x - r, c.x + r + 1):
 			var b := gen.biome_at(gx, gz)
 			if b != WorldGen.DARK or gen.is_solid(gx, gz, b):
 				continue
@@ -148,7 +245,7 @@ func _try_spawn() -> bool:
 			var to := pos - p
 			to.y = 0.0
 			var dist := to.length()
-			if dist < 10.0 or dist > 20.0:
+			if dist < 10.0 or dist > dmax:
 				continue
 			# Out of view now.
 			if fwd.dot(to / dist) > cos(deg_to_rad(70.0)):
@@ -172,7 +269,7 @@ func _try_spawn() -> bool:
 	global_position = pick
 	var lv := clampf(gen.light_level_near(pick + Vector3.UP * 1.5), 0.0, 1.5)
 	# A faint shape even in the dark, like your eyes adjusting.
-	_base_emit = Color(0.03, 0.028, 0.026) + Color(0.15, 0.135, 0.115) * lv
+	_base_emit = Color(0.025, 0.023, 0.021) + Color(0.06, 0.054, 0.046) * lv
 	_mat.emission = _base_emit
 	_lit_limit = _rng.randf_range(0.8, 1.3)
 	look_at(Vector3(player.global_position.x, 0.0, player.global_position.z), Vector3.UP, true)

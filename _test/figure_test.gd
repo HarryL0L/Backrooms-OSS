@@ -82,4 +82,32 @@ func _process(delta):
 			if t > 1.2:
 				print("present after flashlight: ", F._present)
 				shot("after_flashlight")
+				# Face check: in the dark, 9 m ahead, flashlight off.
+				game.player.set_flashlight(false)
+				var pl: Vector3 = game.player.global_position
+				var fwd: Vector3 = -game.player.camera.global_basis.z
+				fwd.y = 0
+				F.debug_place(pl + fwd.normalized() * 9.0, pl)
+				F._mat.emission = F._base_emit
+				game.player.teleport(pl, game.player.yaw, 0.12)
+				step = 6; t = 0
+		6:
+			if t > 0.6:
+				shot("face_ps1" if Settings.get_value("graphics/ps1") else "face")
+				if Settings.get_value("graphics/ps1"):
+					# Close-up of the face (behaviour frozen so it doesn't vanish).
+					Settings.set_value("graphics/ps1", false)
+					F.set_process(false)
+					var pl2: Vector3 = game.player.global_position
+					var to: Vector3 = F.global_position - pl2
+					to.y = 0
+					F.debug_place(pl2 + to.normalized() * 3.2, pl2)
+					game.player.teleport(pl2, atan2(-to.x, -to.z), 0.38)
+					step = 7; t = 0
+				else:
+					Settings.set_value("graphics/ps1", true)
+					t = 0
+		7:
+			if t > 0.6:
+				shot("face_close")
 				get_tree().quit()

@@ -64,6 +64,8 @@ const L_SKY := 4
 
 var seed_value: int
 var spawn_cell: Vector2i
+var _biome_cache := {}
+var _main_thread := OS.get_main_thread_id()
 
 
 func _init(p_seed: int) -> void:
@@ -121,7 +123,23 @@ func region_biome(rx: int, rz: int) -> int:
 	return DARK
 
 
+## Biome of a cell. Main-thread callers (audio, entities, lights) ask about
+## the same cells over and over, so their answers are cached; chunk builder
+## threads compute directly (no shared mutable state between threads).
 func biome_at(gx: int, gz: int) -> int:
+	if OS.get_thread_caller_id() != _main_thread:
+		return _biome_compute(gx, gz)
+	var k := Vector2i(gx, gz)
+	var v: int = _biome_cache.get(k, -1)
+	if v < 0:
+		v = _biome_compute(gx, gz)
+		if _biome_cache.size() > 200000:
+			_biome_cache.clear()
+		_biome_cache[k] = v
+	return v
+
+
+func _biome_compute(gx: int, gz: int) -> int:
 	# Domain warp so region borders meander instead of being straight lines.
 	var px := gx + 0.5 + (vnoise(gx * 0.11, gz * 0.11, 14) - 0.5) * 9.0
 	var pz := gz + 0.5 + (vnoise(gx * 0.11, gz * 0.11, 15) - 0.5) * 9.0

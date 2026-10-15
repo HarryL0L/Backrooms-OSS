@@ -261,6 +261,29 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 	chunks.target = player
 	player.teleport(pos, yaw, pitch)
 	_loading_done = done
+	_warm_shaders()
+
+
+## Draws every world material once, tiny and right in front of the camera,
+## while the loading screen is up: weak GPUs compile shaders on first use,
+## which otherwise shows up as a hitch the first time you meet each surface.
+func _warm_shaders() -> void:
+	var holder := Node3D.new()
+	player.camera.add_child(holder)
+	var list: Array[Material] = []
+	list.append_array(mats.materials)
+	list.append_array(hall_figure.warm_materials())
+	for i in list.size():
+		if list[i] == null:
+			continue
+		var mi := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(0.004, 0.004)
+		mi.mesh = q
+		mi.material_override = list[i]
+		mi.position = Vector3((i % 8) * 0.005 - 0.02, (i / 8) * 0.005 - 0.01, -0.3)
+		holder.add_child(mi)
+	get_tree().create_timer(0.6, true).timeout.connect(holder.queue_free)
 
 
 func _check_loading() -> void:

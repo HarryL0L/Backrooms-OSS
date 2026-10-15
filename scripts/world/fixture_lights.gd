@@ -69,6 +69,10 @@ func _process(delta: float) -> void:
 
 
 func _place() -> void:
+	if max_lights == 0:
+		for i in COUNT:
+			_keys[i] = NONE
+		return
 	var p := target.global_position
 	var eye := p + Vector3.UP * 1.5
 	var c := gen.cell_of(p)

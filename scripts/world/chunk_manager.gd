@@ -121,8 +121,11 @@ func _unload_far(center: Vector2i) -> void:
 
 
 func _schedule() -> void:
+	# Weak phones: many slow cores all building chunks starve the main and
+	# render threads (stutter), so only two builders on the Potato preset.
+	var limit := _max_tasks if int(Settings.get_value("graphics/preset")) > 0 else mini(_max_tasks, 2)
 	for c in _wanted:
-		if _tasks.size() >= _max_tasks:
+		if _tasks.size() >= limit:
 			return
 		if (_chunks.has(c) and not _stale.has(c)) or _tasks.has(c):
 			continue
