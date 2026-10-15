@@ -76,15 +76,6 @@ jobs:
       - name: Import project
         run: ~/godot/godot --headless --path . --import
 
-      - name: Install Android Gradle build template
-        # What the editor's "Install Android Build Template" does (the CLI flag
-        # leaves the headless editor running, so it's done by hand).
-        run: |
-          mkdir -p android/build
-          unzip -q -o ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_source.zip -d android/build
-          echo "${GODOT_VERSION}.stable" > android/.build_version
-          touch android/build/.gdignore
-
       - name: Export
         run: |
           mkdir -p build/linux build/windows
@@ -101,11 +92,10 @@ jobs:
           grep -E "isGame|appCategory|game_mode_config" build/manifest.txt
           grep -q 'isGame' build/manifest.txt
           grep -q 'appCategory' build/manifest.txt
-          grep -q 'android.game_mode_config' build/manifest.txt
           # What the phone checks when installing: minimum Android version,
           # native code (32/64-bit), and whether the signature verifies on 8.1.
           bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$bt/aapt2" dump badging build/Backrooms-OSS.apk | grep -E "^(package|sdkVersion|targetSdkVersion|native-code)" || true
+          "$bt/aapt2" dump badging build/Backrooms-OSS.apk | grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|native-code)" || true
           "$bt/apksigner" verify --min-sdk-version 24 --max-sdk-version 27 --print-certs -v build/Backrooms-OSS.apk | head -20 || true
           unzip -l build/Backrooms-OSS.apk | grep -E "lib/|AndroidManifest|resources.arsc|classes" | head -20
           cd build && zip -qr Backrooms-OSS-linux.zip linux && zip -qr Backrooms-OSS-windows.zip windows

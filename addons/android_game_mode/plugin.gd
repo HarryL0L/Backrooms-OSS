@@ -5,7 +5,10 @@ extends EditorPlugin
 ## android.game_mode_config resource that Android 12+ GameManager and the OEM
 ## game dashboards / boosters built on it look for, so the system offers its
 ## Performance and Battery game modes for Backrooms-OSS.
-## Needs the Gradle build (gradle_build/use_gradle_build), which CI uses.
+## Only takes effect with the Gradle build (gradle_build/use_gradle_build).
+## That is OFF: the Gradle-built APK wouldn't install on some older phones
+## (Galaxy J7 Prime, Android 8.1: "problem while parsing the package"), so
+## the quick export is used; isGame / appCategory=game are still set.
 
 var _exporter: GameModeExporter
 
