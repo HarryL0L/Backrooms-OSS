@@ -1,6 +1,7 @@
 class_name TouchControls
 extends Control
-## On-screen controls for touchscreens: a floating movement stick on the left,
+## On-screen controls for touchscreens: a movement stick on the left (floating,
+## or fixed in place with controls/joystick_fixed),
 ## free look by dragging anywhere else, and action buttons. Every element can
 ## be moved and resized in the layout editor; the layout is saved in Settings.
 
@@ -107,12 +108,17 @@ func _play_touch(event: InputEventScreenTouch) -> void:
 			queue_redraw()
 			return
 		var stick_c := element_center("joystick")
-		var zone := event.position.x < size.x * 0.42 and event.position.y > size.y * 0.3
-		if _stick_finger < 0 and (zone or event.position.distance_to(stick_c) < element_radius("joystick") * 1.5):
+		var fixed: bool = Settings.get_value("controls/joystick_fixed")
+		var zone := not fixed and event.position.x < size.x * 0.42 and event.position.y > size.y * 0.3
+		var near := event.position.distance_to(stick_c) < element_radius("joystick") * (1.3 if fixed else 1.5)
+		if _stick_finger < 0 and (zone or near):
 			_stick_finger = idx
-			_stick_origin = event.position
+			# Fixed: the stick stays put and the touch already moves the knob.
+			_stick_origin = stick_c if fixed else event.position
 			_stick_pos = event.position
 			move_vector = Vector2.ZERO
+			if fixed:
+				_update_stick()
 		elif _look_finger < 0:
 			_look_finger = idx
 		get_viewport().set_input_as_handled()
@@ -136,19 +142,26 @@ func _press(b: String) -> void:
 func _play_drag(event: InputEventScreenDrag) -> void:
 	if event.index == _stick_finger:
 		_stick_pos = event.position
-		var r := element_radius("joystick")
-		var d: Vector2 = _stick_pos - _stick_origin
-		if d.length() > r:
-			# Let the stick base follow the finger so it never "runs out".
-			_stick_origin = _stick_pos - d.normalized() * r
-			d = _stick_pos - _stick_origin
-		var v := d / r
-		var l := v.length()
-		move_vector = Vector2.ZERO if l < 0.12 else v.normalized() * clampf((l - 0.12) / 0.88, 0.0, 1.0)
-		queue_redraw()
+		_update_stick()
 	elif event.index == _look_finger and player != null:
 		var s: float = 0.0048 * Settings.get_value("controls/touch_sens")
 		player.add_look(event.relative.x * s, event.relative.y * s)
+
+
+func _update_stick() -> void:
+	var r := element_radius("joystick")
+	var d: Vector2 = _stick_pos - _stick_origin
+	if d.length() > r:
+		if Settings.get_value("controls/joystick_fixed"):
+			d = d.normalized() * r          # the knob stops at the rim
+		else:
+			# Floating: the stick base follows the finger so it never "runs out".
+			_stick_origin = _stick_pos - d.normalized() * r
+			d = _stick_pos - _stick_origin
+	var v := d / r
+	var l := v.length()
+	move_vector = Vector2.ZERO if l < 0.12 else v.normalized() * clampf((l - 0.12) / 0.88, 0.0, 1.0)
+	queue_redraw()
 
 
 func _process(_delta: float) -> void:

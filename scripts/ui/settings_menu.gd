@@ -260,6 +260,7 @@ func _build_bindings() -> void:
 func _build_touch() -> void:
 	var p := _page("Touch")
 	_option(p, "On-screen controls", "controls/touch_mode", ["Automatic", "Always show", "Never show"])
+	_toggle(p, "Fixed joystick (stays where it's placed; off = appears under your thumb)", "controls/joystick_fixed")
 	_slider(p, "Opacity", "controls/touch_opacity", 0.1, 1.0, 0.05)
 	_slider(p, "Look sensitivity", "controls/touch_sens", 0.1, 4.0, 0.05)
 	var h := HBoxContainer.new()

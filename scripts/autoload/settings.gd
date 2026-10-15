@@ -98,6 +98,7 @@ func defaults() -> Dictionary:
 		"controls/sprint_toggle": false,
 		"controls/touch_mode": 0,
 		"controls/touch_opacity": 0.55,
+		"controls/joystick_fixed": false,
 	}
 
 
