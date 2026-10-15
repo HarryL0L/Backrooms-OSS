@@ -77,7 +77,13 @@ jobs:
         run: ~/godot/godot --headless --path . --import
 
       - name: Install Android Gradle build template
-        run: ~/godot/godot --headless --path . --install-android-build-template
+        # What the editor's "Install Android Build Template" does (the CLI flag
+        # leaves the headless editor running, so it's done by hand).
+        run: |
+          mkdir -p android/build
+          unzip -q -o ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_source.zip -d android/build
+          echo "${GODOT_VERSION}.stable" > android/.build_version
+          touch android/build/.gdignore
 
       - name: Export
         run: |
