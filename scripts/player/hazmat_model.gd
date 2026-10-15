@@ -11,6 +11,7 @@ extends Node3D
 var tag := "07"
 
 var skeleton: Skeleton3D
+var _label: Label3D
 
 enum { HIPS, SPINE, CHEST, NECK, HEAD, UARM_L, FARM_L, HAND_L, UARM_R, FARM_R, HAND_R,
 	THIGH_L, SHIN_L, FOOT_L, THIGH_R, SHIN_R, FOOT_R }
@@ -82,6 +83,12 @@ func set_env_light(c: Color) -> void:
 	for mi in find_children("*", "MeshInstance3D", true, false):
 		if (mi as MeshInstance3D).material_override is ShaderMaterial:
 			(mi as MeshInstance3D).set_instance_shader_parameter("env_light", c)
+
+
+func set_tag(t: String) -> void:
+	tag = t
+	if _label:
+		_label.text = t
 
 
 ## Materials to pre-compile during loading.
@@ -336,6 +343,7 @@ func _build_chest_details(c: Node3D) -> void:
 	_part(torch, cyl(0.02, 0.02, 0.004), "lens", Vector3(0, 0, 0.037), Vector3(PI * 0.5, 0, 0))
 	_part(torch, BoxMesh.new(), "rubber", Vector3(0, 0, -0.02)).scale = Vector3(0.05, 0.012, 0.012)
 	var lab := Label3D.new()
+	_label = lab
 	lab.text = tag
 	lab.font_size = 96
 	lab.pixel_size = 0.0014

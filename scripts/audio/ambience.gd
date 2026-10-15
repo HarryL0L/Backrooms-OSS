@@ -144,6 +144,14 @@ func _on_footstep(surface: int, strength: float) -> void:
 	_steps.play()
 
 
+## A random footstep sound for a surface (other players' steps).
+func step_stream(surface: int) -> AudioStream:
+	if not _ready_streams:
+		return null
+	var list: Array = _step_streams[surface]
+	return list[_rng.randi() % list.size()]
+
+
 static func world_time() -> float:
 	return fmod(Time.get_ticks_msec() / 1000.0, 3600.0)
 

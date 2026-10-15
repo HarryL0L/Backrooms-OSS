@@ -67,6 +67,7 @@ static func main_menu(game: Node) -> Control:
 	seed_edit.custom_minimum_size = Vector2(340, 52)
 	seed_row.add_child(seed_edit)
 	v.add_child(seed_row)
+	v.add_child(button("Multiplayer (LAN)", game.open_multiplayer))
 	v.add_child(button("Settings", game.open_settings))
 	if not OS.has_feature("web"):
 		v.add_child(button("Quit", func() -> void: game.get_tree().quit()))

@@ -28,6 +28,10 @@ var ripples: WaterRipples
 var lining: LiningEntity
 var hall_figure: HallFigure
 var retro: RetroView
+var net: Net
+var mp_menu: MultiplayerMenu
+var _remotes := {}               # peer id -> RemotePlayer
+var _net_t := 0.0
 var _built_lightmaps := true
 var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
@@ -82,6 +86,18 @@ func _ready() -> void:
 	player.set_physics_process(false)
 	ambience = Ambience.new()
 	add_child(ambience)
+	net = Net.new()
+	net.name = "Net"
+	add_child(net)
+	net.world_info = _net_world_info
+	net.joined.connect(_on_net_joined)
+	net.join_failed.connect(func(reason: String) -> void:
+		if mp_menu:
+			mp_menu.set_status(reason))
+	net.disconnected.connect(_on_net_disconnected)
+	net.peer_state.connect(_on_peer_state)
+	net.peer_left.connect(_remove_remote)
+	net.roster_changed.connect(_on_roster_changed)
 	retro = RetroView.new()
 	retro.source = player.camera
 	add_child(retro)
@@ -147,6 +163,16 @@ func _build_ui() -> void:
 	pause_menu = Menus.pause_menu(self)
 	pause_menu.hide()
 	root.add_child(pause_menu)
+	mp_menu = MultiplayerMenu.new()
+	mp_menu.hide()
+	mp_menu.net = net
+	mp_menu.closed.connect(func() -> void:
+		net.browse(false)
+		main_menu.show()
+		_focus_first(main_menu))
+	mp_menu.host_requested.connect(_host_game)
+	mp_menu.join_requested.connect(_join_game)
+	root.add_child(mp_menu)
 	settings_menu = SettingsMenu.new()
 	settings_menu.hide()
 	settings_menu.closed.connect(_on_settings_closed)
@@ -273,6 +299,7 @@ func _warm_shaders() -> void:
 	var list: Array[Material] = []
 	list.append_array(mats.materials)
 	list.append_array(hall_figure.warm_materials())
+	list.append_array(HazmatModel.warm_materials())
 	for i in list.size():
 		if list[i] == null:
 			continue
@@ -436,7 +463,8 @@ func pause() -> void:
 	if state != State.PLAYING:
 		return
 	state = State.PAUSED
-	get_tree().paused = true
+	# Online the world keeps going for everyone else.
+	get_tree().paused = not net.active
 	ambience.set_muffled(true)
 	_release_mouse()
 	_update_touch_visibility()
@@ -444,6 +472,11 @@ func pause() -> void:
 	var info := pause_menu.find_child("Info", true, false) as Label
 	var where: String = FIELD_NAME if _in_field else WorldGen.BIOME_NAMES[gen.biome_at(c.x, c.y)]
 	info.text = "%s\nSeed %d  ·  %s explored" % [where, gen.seed_value, _format_time(_play_time)]
+	if net.active:
+		var nums := []
+		for id in net.roster:
+			nums.append("%02d" % int(net.roster[id].number))
+		info.text += "\nOnline (%s): players %s  ·  the game keeps running" % ["hosting" if net.is_host else "joined", ", ".join(nums)]
 	pause_menu.show()
 	_focus_first(pause_menu)
 	_write_save()
@@ -463,6 +496,7 @@ func resume() -> void:
 
 func exit_to_menu() -> void:
 	_write_save()
+	_end_session()
 	pause_menu.hide()
 	get_tree().paused = false
 	await hud.fade_to(1.0, 0.5)
@@ -611,6 +645,12 @@ func _process(delta: float) -> void:
 			_write_save()
 		hud.set_stamina(player.stamina, player.exhausted)
 		_perf_watch(delta)
+	if net.active and (state == State.PLAYING or state == State.PAUSED):
+		_net_t -= delta
+		if _net_t <= 0.0:
+			_net_t = 0.05
+			net.send_state({"p": player.global_position, "y": player.yaw, "x": player.pitch,
+				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching, "fl": _in_field})
 	lining.allowed = state == State.PLAYING and not _in_field and not _transition
 	hall_figure.allowed = lining.allowed
 	if _in_field:
@@ -791,6 +831,8 @@ func _on_field_exit() -> void:
 func _write_save() -> void:
 	if gen == null or (state != State.PLAYING and state != State.PAUSED):
 		return
+	if net.active and not net.is_host:
+		return                     # the host's game is the one that's saved
 	var cf := ConfigFile.new()
 	cf.set_value("save", "seed", gen.seed_value)
 	cf.set_value("save", "pos", player.global_position)
@@ -820,3 +862,107 @@ static func _format_time(t: float) -> String:
 	if m < 60:
 		return "%d min" % m
 	return "%d h %02d min" % [m / 60, m % 60]
+
+
+# ------------------------------------------------------------ multiplayer ---
+
+func open_multiplayer() -> void:
+	if state != State.MENU:
+		return
+	main_menu.hide()
+	mp_menu.open(not _read_save().is_empty())
+	net.browse(true)
+
+
+## Host from the multiplayer menu: start (or continue) a game others can join.
+func _host_game(continue_saved: bool) -> void:
+	var err := net.host(Settings.get_value("net/name"), int(Settings.get_value("net/number")))
+	if err != OK:
+		mp_menu.set_status("Couldn't host (is another game already using port %d?)" % Net.PORT)
+		return
+	net.browse(false)
+	mp_menu.hide()
+	main_menu.show()        # new_game/continue_game hide it again
+	if continue_saved:
+		continue_game()
+	else:
+		new_game()
+
+
+func _join_game(ip: String) -> void:
+	mp_menu.set_status("Connecting to %s..." % ip)
+	if net.join(ip, Settings.get_value("net/name"), int(Settings.get_value("net/number"))) != OK:
+		mp_menu.set_status("Couldn't connect to %s." % ip)
+
+
+## Host side: what a joining player needs (the world seed and where to appear).
+func _net_world_info() -> Dictionary:
+	var pos: Vector3 = gen.spawn_position() if gen else Vector3.ZERO
+	var yaw := 0.0
+	if gen and (state == State.PLAYING or state == State.PAUSED) and not _in_field:
+		pos = player.global_position + player.global_basis.x * 0.9
+		yaw = player.yaw
+	return {"seed": gen.seed_value if gen else 0, "pos": pos, "yaw": yaw}
+
+
+func _on_net_joined(info: Dictionary) -> void:
+	net.browse(false)
+	mp_menu.hide()
+	main_menu.hide()
+	_play_time = 0.0
+	await hud.fade_to(1.0, 0.5)
+	if _in_field:
+		_leave_field()
+	_world_seed = -1
+	_load_world(int(info.seed), info.pos, float(info.yaw), 0.0, func() -> void:
+		player.set_flashlight(false)
+		_start_playing()
+		hud.show_level("Joined", "You're in. Player %02d." % int(info.number))
+		hud.fade_to(0.0, 1.0))
+
+
+func _on_net_disconnected(reason: String) -> void:
+	_clear_remotes()
+	if state == State.PLAYING or state == State.PAUSED:
+		pause_menu.hide()
+		get_tree().paused = false
+		await hud.fade_to(1.0, 0.5)
+		if _in_field:
+			_leave_field()
+		_enter_menu()
+		hud.show_level("Disconnected", reason)
+
+
+func _end_session() -> void:
+	if net.active:
+		net.leave()
+	_clear_remotes()
+
+
+func _on_peer_state(id: int, s: Dictionary) -> void:
+	if not _remotes.has(id):
+		var r := RemotePlayer.new()
+		r.gen = gen
+		r.ambience = ambience
+		r.number = int(net.roster.get(id, {}).get("number", 0))
+		add_child(r)
+		_remotes[id] = r
+	(_remotes[id] as RemotePlayer).push_state(s)
+
+
+func _on_roster_changed() -> void:
+	for id in _remotes:
+		if net.roster.has(id):
+			(_remotes[id] as RemotePlayer).set_number(int(net.roster[id].number))
+
+
+func _remove_remote(id: int) -> void:
+	if _remotes.has(id):
+		_remotes[id].queue_free()
+		_remotes.erase(id)
+
+
+func _clear_remotes() -> void:
+	for id in _remotes:
+		_remotes[id].queue_free()
+	_remotes.clear()

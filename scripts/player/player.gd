@@ -201,10 +201,15 @@ static func _is_emulated_mouse(event: InputEvent) -> bool:
 func surface_at() -> int:
 	if field_mode:
 		return SURF_GRASS
-	if global_position.y < WorldGen.WATER_Y - 0.05:
+	return surface_for(gen, global_position)
+
+
+## Footstep surface at a position in the Backrooms.
+static func surface_for(g: WorldGen, pos: Vector3) -> int:
+	if pos.y < WorldGen.WATER_Y - 0.05:
 		return SURF_WATER
-	var c := gen.cell_of(global_position)
-	match gen.biome_at(c.x, c.y):
+	var c := g.cell_of(pos)
+	match g.biome_at(c.x, c.y):
 		WorldGen.POOL:
 			return SURF_TILE
 		WorldGen.CONCRETE, WorldGen.PIPES:

@@ -78,6 +78,8 @@ func defaults() -> Dictionary:
 		"graphics/auto_quality": true,
 		"gameplay/entities": true,
 		"graphics/ps1": false,
+		"net/name": "Player",
+		"net/number": 7,
 		"graphics/ps1_lines": 240,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
