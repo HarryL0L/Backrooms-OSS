@@ -1,6 +1,7 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -16,11 +17,13 @@ void vertex() {
 	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
 	v_lm = vec3(CUSTOM1.xy, flicker(UV2.x, world_time));
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
+	v_ps1_aff = vec3(UV * POSITION.w, POSITION.w);
 }
 
 void fragment() {
 	vec3 v_light = lightmap_light(v_vlight, v_lm);
-	vec2 uv = UV + vec2(0.0, 0.3);
+	vec2 uv = ps1_uv(UV) + vec2(0.0, 0.3);
 	vec2 g = uv / 0.6;
 	vec2 cell = floor(g);
 	vec2 f = fract(g);

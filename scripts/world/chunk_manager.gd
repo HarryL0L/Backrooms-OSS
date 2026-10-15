@@ -16,6 +16,7 @@ var view_radius := 3
 var cast_shadows := false
 
 var _chunks := {}        # Vector2i -> Node3D
+var _stale := {}         # loaded chunks waiting to be rebuilt (settings changed)
 var _tasks := {}         # Vector2i -> task id
 var _results := {}       # Vector2i -> Dictionary (finished, waiting for upload)
 var _mutex := Mutex.new()
@@ -50,7 +51,16 @@ func clear() -> void:
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
+	_stale.clear()
 	_wanted.clear()
+
+
+## Rebuilds every loaded chunk (e.g. after a lighting setting changed). Old
+## chunks stay in place until their replacement is ready, so nothing pops out
+## from under the player.
+func rebuild() -> void:
+	for k in _chunks.keys():
+		_stale[k] = true
 
 
 func loaded_count() -> int:
@@ -102,6 +112,7 @@ func _unload_far(center: Vector2i) -> void:
 		if (k - center).length_squared() > limit:
 			_chunks[k].queue_free()
 			_chunks.erase(k)
+			_stale.erase(k)
 	_mutex.lock()
 	for k in _results.keys():
 		if (k - center).length_squared() > limit:
@@ -113,7 +124,7 @@ func _schedule() -> void:
 	for c in _wanted:
 		if _tasks.size() >= _max_tasks:
 			return
-		if _chunks.has(c) or _tasks.has(c):
+		if (_chunks.has(c) and not _stale.has(c)) or _tasks.has(c):
 			continue
 		_mutex.lock()
 		var done := _results.has(c)
@@ -159,6 +170,10 @@ func _upload(center: Vector2i) -> void:
 		if not found:
 			return
 		if not _chunks.has(best):
+			_chunks[best] = _make_chunk(data)
+		elif _stale.has(best):
+			_stale.erase(best)
+			_chunks[best].queue_free()
 			_chunks[best] = _make_chunk(data)
 
 

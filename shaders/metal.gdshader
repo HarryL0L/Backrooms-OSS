@@ -1,6 +1,7 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 // Chrome rails, rusty service pipes, plastic fittings.
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -19,6 +20,7 @@ void vertex() {
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wn = NORMAL;
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
 
 void fragment() {

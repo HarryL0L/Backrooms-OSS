@@ -27,6 +27,8 @@ var fixtures: FixtureLights
 var ripples: WaterRipples
 var lining: LiningEntity
 var hall_figure: HallFigure
+var retro: RetroView
+var _built_lightmaps := true
 var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
 var world_env: WorldEnvironment
@@ -80,6 +82,9 @@ func _ready() -> void:
 	player.set_physics_process(false)
 	ambience = Ambience.new()
 	add_child(ambience)
+	retro = RetroView.new()
+	retro.source = player.camera
+	add_child(retro)
 	reflection = WaterReflection.new()
 	reflection.source = player.camera
 	reflection.material = mats.materials[ChunkBuilder.MAT_WATER]
@@ -212,6 +217,13 @@ func _apply_settings() -> void:
 	reflection.scale = [0.0, 0.34, 0.5][clampi(Settings.get_value("graphics/water_reflections"), 0, 2)]
 	_update_reflection()
 	env.tonemap_exposure = Settings.get_value("graphics/brightness")
+	retro.lines = int(Settings.get_value("graphics/ps1_lines"))
+	retro.set_active(Settings.get_value("graphics/ps1"))
+	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
+	# the loaded chunks in place.
+	if ChunkBuilder.lightmaps != _built_lightmaps:
+		_built_lightmaps = ChunkBuilder.lightmaps
+		chunks.rebuild()
 	_update_touch_visibility()
 
 
@@ -625,7 +637,8 @@ func _set_biome(b: int, announce: bool) -> void:
 
 func _update_reflection() -> void:
 	ripples.active = _biome == WorldGen.POOL and gen != null and Settings.get_value("graphics/water_ripples")
-	reflection.set_active(_biome == WorldGen.POOL and int(Settings.get_value("graphics/water_reflections")) > 0)
+	reflection.set_active(_biome == WorldGen.POOL and int(Settings.get_value("graphics/water_reflections")) > 0
+			and not Settings.get_value("graphics/ps1"))
 
 
 # ----------------------------------------------------------- performance ---

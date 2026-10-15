@@ -77,6 +77,8 @@ func defaults() -> Dictionary:
 		"graphics/preset": 2 if is_mobile else 3,
 		"graphics/auto_quality": true,
 		"gameplay/entities": true,
+		"graphics/ps1": false,
+		"graphics/ps1_lines": 240,
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,
@@ -294,9 +296,11 @@ func reset_bindings() -> void:
 # ---------------------------------------------------------------- apply ---
 
 func apply() -> void:
-	ChunkBuilder.lightmaps = get_value("graphics/lightmaps")
+	# PS1 style: per-vertex (Gouraud) lighting like the real thing, no god rays.
+	var ps1: bool = get_value("graphics/ps1")
+	ChunkBuilder.lightmaps = get_value("graphics/lightmaps") and not ps1
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
-	ChunkBuilder.god_rays = get_value("graphics/preset") > 0
+	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 and not ps1
 	var fps: int = get_value("graphics/fps_cap")
 	Engine.max_fps = [30, 60, 0][clampi(fps, 0, 2)]
 	var vp := get_tree().root

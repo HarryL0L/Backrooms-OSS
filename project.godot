@@ -64,6 +64,10 @@ environment/ssil/quality.mobile=1
 
 [shader_globals]
 
+ps1_grid={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
 world_time={
 "type": "float",
 "value": 0.0

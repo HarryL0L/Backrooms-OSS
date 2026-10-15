@@ -110,8 +110,11 @@ func _label(fs: int, align: HorizontalAlignment) -> Label:
 
 
 func _apply_settings() -> void:
+	var ps1: bool = Settings.get_value("graphics/ps1")
 	_post.visible = Settings.get_value("graphics/film_grain")
-	_lens.visible = Settings.get_value("graphics/lens_fx")
+	# Full-resolution grain and lens warping would smear the PS1 pixels.
+	_post_mat.set_shader_parameter("grain", 0.0 if ps1 else 0.05)
+	_lens.visible = Settings.get_value("graphics/lens_fx") and not ps1
 	_fps.visible = Settings.get_value("graphics/show_fps")
 
 

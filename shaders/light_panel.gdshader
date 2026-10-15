@@ -1,6 +1,7 @@
 shader_type spatial;
 render_mode unshaded, cull_back;
 #include "res://shaders/common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 // CUSTOM0.rgb = emitted radiance, UV2 = (flicker seed, 1 if powered)
 varying vec3 v_emit;
@@ -10,6 +11,7 @@ void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_emit = CUSTOM0.rgb * flicker(UV2.x, world_time);
 	v_on = UV2.y;
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
 
 void fragment() {

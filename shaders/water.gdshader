@@ -1,6 +1,7 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform vec3 deep_color : source_color = vec3(0.30, 0.66, 0.66);
@@ -56,6 +57,7 @@ void vertex() {
 			v_wpos.y += h;
 		}
 	}
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
 
 void fragment() {

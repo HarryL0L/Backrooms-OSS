@@ -1,6 +1,7 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform vec3 base_color : source_color = vec3(0.52, 0.40, 0.25);
@@ -12,10 +13,12 @@ void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_light = baked_light(CUSTOM0, UV2.x, world_time);
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
+	v_ps1_aff = vec3(UV * POSITION.w, POSITION.w);
 }
 
 void fragment() {
-	vec2 uv = UV;
+	vec2 uv = ps1_uv(UV);
 	float n = texture(noise_fine, uv * vec2(0.6, 6.0)).r;
 	vec3 col = base_color * (0.82 + 0.3 * n);
 	float tape = step(abs(fract(uv.x / 0.97) - 0.5), 0.05);

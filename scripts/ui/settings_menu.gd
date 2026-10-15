@@ -170,6 +170,8 @@ func _build_graphics() -> void:
 		b.custom_minimum_size = Vector2(96, 48)
 		b.pressed.connect(func() -> void: Settings.apply_preset(i))
 		h.add_child(b)
+	_toggle(p, "PS1 style (low-res pixels, wobbly vertices, dithered colour)", "graphics/ps1")
+	_slider(p, "PS1 resolution (lines)", "graphics/ps1_lines", 160, 480, 16, "%d")
 	_slider(p, "Render scale", "graphics/render_scale", 0.4, 1.0, 0.05, "%.2f")
 	_toggle(p, "FSR upscaling (when scale < 1)", "graphics/fsr")
 	_option(p, "Anti-aliasing", "graphics/aa", ["Off", "MSAA 2x", "MSAA 4x", "SMAA", "FXAA"])

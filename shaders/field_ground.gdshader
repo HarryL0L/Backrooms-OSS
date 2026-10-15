@@ -3,6 +3,7 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/field_common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -22,6 +23,7 @@ void vertex() {
 	float hz = field_height_d(w.xz + vec2(0.0, e), detail) - field_height_d(w.xz - vec2(0.0, e), detail);
 	NORMAL = normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
 	v_wpos = vec3(w.x, w.y + h, w.z);
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
 
 void fragment() {

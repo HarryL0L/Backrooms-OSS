@@ -4,6 +4,7 @@ shader_type spatial;
 // (0) to where it meets the water (1).
 render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
 #include "res://shaders/common.gdshaderinc"
+#include "res://shaders/ps1.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform vec3 shaft_color : source_color = vec3(1.0, 0.96, 0.88);
@@ -14,6 +15,7 @@ varying vec3 v_wpos;
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
 
 void fragment() {
