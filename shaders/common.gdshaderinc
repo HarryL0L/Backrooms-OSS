@@ -30,9 +30,16 @@ float flicker(float seed, float t) {
 	return v < 0.45 ? 0.0 : 0.55 + 0.45 * v;
 }
 
+// Lifts the darkest places a little (Potato preset: small, dim phone screens
+// otherwise show them as flat black). Fades out by mid brightness, so lit
+// rooms look the same. Set by Settings.apply().
+global uniform float dark_lift;
+
 vec3 baked_light(vec4 custom0, float seed, float t) {
 	float f = flicker(seed, t);
-	return custom0.rgb * (1.0 - custom0.a * (1.0 - f));
+	vec3 l = custom0.rgb * (1.0 - custom0.a * (1.0 - f));
+	float lum = dot(l, vec3(0.3, 0.59, 0.11));
+	return l + vec3(1.0, 0.95, 0.84) * dark_lift * (1.0 - smoothstep(0.0, 0.45, lum));
 }
 
 uniform sampler2D lightmap : hint_default_black, filter_linear, repeat_disable;

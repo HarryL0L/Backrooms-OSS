@@ -16,15 +16,17 @@ var number := 0
 var _buf: Array = []                  # [time, state]
 var _torch: SpotLight3D
 var _shadow: MeshInstance3D
+var _shadow_mat: StandardMaterial3D
 var _steps: AudioStreamPlayer3D
 var _phase := 0.0
 var _speed := 0.0
 var _run := 0.0
 var _crouch := 0.0
+var _air := 0.0
 var _light_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _last_pos := Vector3.INF
-var _in_field := false
+var in_field := false
 
 
 func _ready() -> void:
@@ -60,6 +62,7 @@ func _ready() -> void:
 	gt.fill_to = Vector2(1.0, 0.5)
 	sm.albedo_texture = gt
 	_shadow.material_override = sm
+	_shadow_mat = sm
 	_shadow.position.y = 0.012
 	_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_shadow)
@@ -109,47 +112,66 @@ func _process(delta: float) -> void:
 	var yaw := lerp_angle(float(sa.y), float(sb.y), k)
 	rotation = Vector3(0, yaw + PI, 0)        # the model faces +Z, players look -Z
 	var pitch := lerpf(float(sa.x), float(sb.x), k)
-	_in_field = bool(sb.get("fl", false))
+	in_field = bool(sb.get("fl", false))
 	visible = true
 	# Gait from their actual movement.
 	var vel: Vector3 = sb.get("v", Vector3.ZERO)
 	var hs := Vector2(vel.x, vel.z).length()
 	_speed = lerpf(_speed, hs, 1.0 - exp(-8.0 * delta))
 	_run = lerpf(_run, smoothstep(Player.WALK + 0.3, Player.SPRINT - 0.3, _speed), 1.0 - exp(-4.0 * delta))
+	# Crouching and jumping are poses (legs bend, boots stay on the floor).
+	_crouch = lerpf(_crouch, 1.0 if sb.get("c", false) else 0.0, 1.0 - exp(-10.0 * delta))
+	var airborne := not bool(sb.get("g", true)) and absf(vel.y) > 0.4
+	_air = lerpf(_air, 1.0 if airborne else 0.0, 1.0 - exp(-(12.0 if airborne else 18.0) * delta))
+	model.crouch = _crouch
+	model.air = _air
 	var step_len := clampf(0.45 + 0.27 * _speed, 0.55, 1.8)
 	var prev := _phase
 	_phase += _speed * delta / step_len * PI
-	if _speed > 0.3 and floori(prev / PI) != floori(_phase / PI):
+	if _speed > 0.3 and not airborne and floori(prev / PI) != floori(_phase / PI):
 		_footstep()
 	var amount := clampf(_speed / Player.WALK, 0.0, 1.0)
 	if amount > 0.02:
 		model.pose_walk(_phase, amount, _run)
 	else:
 		model.pose_idle(Time.get_ticks_msec() / 1000.0)
-	# Crouching: sink and bend.
-	_crouch = lerpf(_crouch, 1.0 if sb.get("c", false) else 0.0, 1.0 - exp(-10.0 * delta))
-	model.position.y = -0.55 * _crouch
-	model.scale = Vector3(1.0, 1.0 - 0.12 * _crouch, 1.0)
+	_place_shadow(pos)
 	# Torch beam from the chest, along where they look.
-	var on: bool = sb.get("f", false) and Settings.get_value("graphics/realtime_lights")
+	var on: bool = sb.get("f", false) and Settings.light_nodes()
 	_torch.visible = on
 	if on:
-		_torch.position = Vector3(0, 1.28 - 0.5 * _crouch, 0)
+		_torch.position = Vector3(0, 1.28 - 0.45 * _crouch, 0)
 		_torch.global_rotation = Vector3(pitch, yaw, 0)
 	# Match the light where they stand (the world's light is baked).
 	_light_t -= delta
 	if _light_t <= 0.0 and gen:
 		_light_t = 0.3
 		var c := Color.BLACK
-		if not _in_field:
+		if not in_field:
 			c = Color(1.0, 0.97, 0.9) * clampf(gen.light_level_near(pos + Vector3.UP * 1.2) * 0.35, 0.04, 1.1)
 		model.set_env_light(c)
+
+
+## The contact shadow stays on the floor under them (it doesn't fly up when
+## they jump) and fades out the higher they are.
+func _place_shadow(pos: Vector3) -> void:
+	var q := PhysicsRayQueryParameters3D.create(pos + Vector3.UP * 0.4, pos + Vector3.DOWN * 4.0)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		_shadow.visible = false
+		return
+	var h := pos.y - float(hit.position.y)
+	_shadow.visible = h < 3.0
+	_shadow.global_position = Vector3(pos.x, float(hit.position.y) + 0.012, pos.z)
+	var k := clampf(1.0 - h / 3.0, 0.0, 1.0)
+	_shadow_mat.albedo_color.a = 0.55 * k
+	_shadow.scale = Vector3.ONE * lerpf(1.3, 1.0, k)
 
 
 func _footstep() -> void:
 	if ambience == null or gen == null:
 		return
-	var surf := Player.SURF_GRASS if _in_field else Player.surface_for(gen, global_position)
+	var surf := Player.SURF_GRASS if in_field else Player.surface_for(gen, global_position)
 	var st := ambience.step_stream(surf)
 	if st == null:
 		return

@@ -5,11 +5,11 @@ signal changed
 
 const PATH := "user://settings.cfg"
 
-const ACTIONS := ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "flashlight", "pause"]
+const ACTIONS := ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "flashlight", "radar", "pause"]
 const ACTION_LABELS := {
 	"move_forward": "Move forward", "move_back": "Move back", "move_left": "Strafe left",
 	"move_right": "Strafe right", "sprint": "Sprint", "crouch": "Crouch", "jump": "Jump / climb",
-	"flashlight": "Flashlight", "pause": "Pause",
+	"flashlight": "Flashlight", "radar": "Radar (LAN games)", "pause": "Pause",
 }
 const DEFAULT_KEYS := {
 	"move_forward": ["k:87", "k:4194320"],     # W, Up
@@ -20,10 +20,11 @@ const DEFAULT_KEYS := {
 	"crouch": ["k:4194326", "k:67"],           # Ctrl, C
 	"jump": ["k:32", ""],                      # Space
 	"flashlight": ["k:70", "m:2"],             # F, right mouse
+	"radar": ["k:82", ""],                     # R
 	"pause": ["k:4194305", "k:80"],            # Escape, P
 }
 const DEFAULT_PAD := {
-	"sprint": "j:7", "crouch": "j:1", "jump": "j:0", "flashlight": "j:3", "pause": "j:6",
+	"sprint": "j:7", "crouch": "j:1", "jump": "j:0", "flashlight": "j:3", "radar": "j:2", "pause": "j:6",
 	"move_forward": "", "move_back": "", "move_left": "", "move_right": "",
 }
 # Fixed analogue bindings for the movement actions.
@@ -39,6 +40,7 @@ const TOUCH_DEFAULTS := {
 	"sprint": {"pos": Vector2(0.765, 0.84), "scale": 1.0},
 	"flashlight": {"pos": Vector2(0.92, 0.36), "scale": 0.85},
 	"pause": {"pos": Vector2(0.955, 0.08), "scale": 0.7},
+	"radar": {"pos": Vector2(0.765, 0.60), "scale": 0.8},
 }
 
 var is_mobile := false
@@ -270,6 +272,14 @@ const PRESETS := [
 ]
 
 
+## Whether light nodes (the flashlight's SpotLight3D, fixture highlights,
+## other players' torches) are used. The compatibility renderer draws every
+## lit object once more per light, which halves the frame rate on weak
+## GPUs, so Potato and Low always use the shader flashlight instead.
+func light_nodes() -> bool:
+	return get_value("graphics/realtime_lights") and int(get_value("graphics/preset")) >= 2
+
+
 ## Applies a whole quality preset (0 Potato .. 4 Max) at once.
 func apply_preset(i: int) -> void:
 	i = clampi(i, 0, PRESETS.size() - 1)
@@ -304,6 +314,7 @@ func apply() -> void:
 	ChunkBuilder.lightmaps = get_value("graphics/lightmaps") and not ps1
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
 	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 and not ps1
+	RenderingServer.global_shader_parameter_set("dark_lift", 0.18 if int(get_value("graphics/preset")) == 0 else 0.0)
 	var fps: int = get_value("graphics/fps_cap")
 	Engine.max_fps = [30, 60, 0][clampi(fps, 0, 2)]
 	var vp := get_tree().root

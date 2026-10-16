@@ -31,6 +31,7 @@ var retro: RetroView
 var net: Net
 var mp_menu: MultiplayerMenu
 var _remotes := {}               # peer id -> RemotePlayer
+var radar: Radar
 var _net_t := 0.0
 var _built_lightmaps := true
 var odd_doors: OddDoors
@@ -89,6 +90,8 @@ func _ready() -> void:
 	player.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(player)
 	player.set_physics_process(false)
+	radar = Radar.new()
+	player.camera.add_child(radar)
 	ambience = Ambience.new()
 	add_child(ambience)
 	net = Net.new()
@@ -237,7 +240,7 @@ func _apply_settings() -> void:
 	chunks.set_shadows(Settings.get_value("graphics/flashlight_shadows"))
 	env.glow_enabled = Settings.get_value("graphics/bloom")
 	if fixtures:
-		var on: bool = Settings.get_value("graphics/realtime_lights") and Settings.get_value("graphics/light_highlights")
+		var on: bool = Settings.light_nodes() and Settings.get_value("graphics/light_highlights")
 		fixtures.max_lights = FixtureLights.COUNT if on else 0
 		if fixtures.gen:
 			fixtures._place()
@@ -314,6 +317,7 @@ func _warm_shaders() -> void:
 	if net.active and not _warmed_hazmat:
 		_warmed_hazmat = true
 		_warm_list.append_array(HazmatModel.warm_materials())
+		_warm_list.append_array(Radar.warm_materials())
 	_warm_list = _warm_list.filter(func(m: Material) -> bool: return m != null)
 	_warm_holder = Node3D.new()
 	player.camera.add_child(_warm_holder)
@@ -588,6 +592,8 @@ func _on_touch_button(id: String) -> void:
 			player.toggle_flashlight()
 		"pause":
 			pause()
+		"radar":
+			radar.shown = not radar.shown
 
 
 # ---------------------------------------------------------------- input ---
@@ -611,6 +617,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.is_action_pressed("pause"):
 				get_viewport().set_input_as_handled()
 				pause()
+			elif event.is_action_pressed("radar") and net.active:
+				get_viewport().set_input_as_handled()
+				radar.shown = not radar.shown
 			elif event is InputEventMouseButton and event.pressed and event.device != InputEvent.DEVICE_ID_EMULATION \
 					and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -687,7 +696,9 @@ func _process(delta: float) -> void:
 		if _net_t <= 0.0:
 			_net_t = 0.05
 			net.send_state({"p": player.global_position, "y": player.yaw, "x": player.pitch,
-				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching, "fl": _in_field})
+				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching,
+				"g": player.is_on_floor(), "fl": _in_field})
+	_update_radar(delta)
 	lining.allowed = state == State.PLAYING and not _in_field and not _transition
 	hall_figure.allowed = lining.allowed
 	if _in_field:
@@ -936,9 +947,19 @@ func _join_game(ip: String) -> void:
 func _net_world_info() -> Dictionary:
 	var pos: Vector3 = gen.spawn_position() if gen else Vector3.ZERO
 	var yaw := 0.0
-	if gen and (state == State.PLAYING or state == State.PAUSED) and not _in_field:
-		pos = player.global_position + player.global_basis.x * 0.9
+	if gen and state != State.MENU and not _in_field:
+		# Right next to the host (even while they're still loading or in the
+		# intro), on whichever side has room.
 		yaw = player.yaw
+		pos = player.global_position
+		var space := player.get_world_3d().direct_space_state
+		var eye := player.global_position + Vector3.UP * 1.0
+		for d: Vector3 in [player.global_basis.x, -player.global_basis.x, player.global_basis.z, -player.global_basis.z]:
+			var q := PhysicsRayQueryParameters3D.create(eye, eye + d * 1.3)
+			q.exclude = [player.get_rid()]
+			if space.intersect_ray(q).is_empty():
+				pos = player.global_position + d * 0.9
+				break
 	return {"seed": gen.seed_value if gen else 0, "pos": pos, "yaw": yaw}
 
 
@@ -984,6 +1005,7 @@ func _on_peer_state(id: int, s: Dictionary) -> void:
 		r.number = int(net.roster.get(id, {}).get("number", 0))
 		add_child(r)
 		_remotes[id] = r
+		radar.shown = true
 	(_remotes[id] as RemotePlayer).push_state(s)
 
 
@@ -997,6 +1019,23 @@ func _remove_remote(id: int) -> void:
 	if _remotes.has(id):
 		_remotes[id].queue_free()
 		_remotes.erase(id)
+
+
+## Feeds the hand-held radar with the players in the same place as you (the
+## Field is a separate world) and shows its touch button only online.
+func _update_radar(delta: float) -> void:
+	touch.radar_available = net.active
+	if not net.active:
+		radar.shown = false
+	var others := []
+	for id in _remotes:
+		var r := _remotes[id] as RemotePlayer
+		if r.visible and r.in_field == _in_field:
+			others.append([r.global_position, r.number])
+	var light := 1.0
+	if gen and not _in_field:
+		light = gen.light_level_near(player.global_position + Vector3.UP * 1.2) * 0.35
+	radar.update(delta, player, others, light)
 
 
 func _clear_remotes() -> void:

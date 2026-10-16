@@ -8,8 +8,8 @@ extends Control
 signal button_pressed(id: String)
 signal selection_changed(id: String)
 
-const BUTTONS := ["jump", "crouch", "sprint", "flashlight", "pause"]
-const LABELS := {"jump": "JUMP", "crouch": "CROUCH", "sprint": "RUN", "flashlight": "LIGHT", "pause": "II"}
+const BUTTONS := ["jump", "crouch", "sprint", "flashlight", "radar", "pause"]
+const LABELS := {"jump": "JUMP", "crouch": "CROUCH", "sprint": "RUN", "flashlight": "LIGHT", "radar": "RADAR", "pause": "II"}
 const BASE_RADIUS := 46.0
 const STICK_RADIUS := 78.0
 
@@ -18,6 +18,12 @@ var editing := false
 var selected := ""
 var move_vector := Vector2.ZERO
 var sprint_held := false
+## The radar button only shows in LAN games (always in the layout editor).
+var radar_available := false:
+	set(v):
+		if v != radar_available:
+			radar_available = v
+			queue_redraw()
 
 var _stick_finger := -1
 var _stick_origin := Vector2.ZERO
@@ -92,6 +98,8 @@ func _input(event: InputEvent) -> void:
 
 func _hit_button(pos: Vector2) -> String:
 	for id in BUTTONS:
+		if not _shown(id):
+			continue
 		if pos.distance_to(element_center(id)) <= element_radius(id) * 1.15:
 			return id
 	return ""
@@ -216,6 +224,8 @@ func _draw() -> void:
 		_draw_edit_frame("joystick", base, r)
 	# Buttons.
 	for id in BUTTONS:
+		if not _shown(id):
+			continue
 		var c := element_center(id)
 		var br := element_radius(id)
 		var active: bool = _btn_fingers.values().has(id) or (id == "sprint" and sprint_held) \
@@ -229,6 +239,10 @@ func _draw() -> void:
 		draw_string(_font, c + Vector2(-ts.x * 0.5, ts.y * 0.3), label, HORIZONTAL_ALIGNMENT_CENTER, -1, fs, white)
 		if editing:
 			_draw_edit_frame(id, c, br)
+
+
+func _shown(id: String) -> bool:
+	return id != "radar" or radar_available or editing
 
 
 func _draw_edit_frame(id: String, c: Vector2, r: float) -> void:

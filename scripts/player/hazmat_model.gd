@@ -325,7 +325,7 @@ func _build() -> void:
 			pts.append(Vector3(side * r[0], r[1], 0.003)); rx.append(r[2]); rz.append(r[2]); ws.append(r[3])
 		_skin_part(skinned_loft(pts, rx, rz, ws, 18, [0.6, 0.8, 0.3, 0.3, 0.9, 1.0, 0.35, 0.7, 1.0]), "suit")
 		_build_glove(_attach(hd), side)
-		_build_boot(_attach(ft), side)
+		_build_boot(_attach(ft), _attach(sh), side)
 
 	_build_chest_details(_attach(CHEST))
 	var head := _attach(NECK)
@@ -379,11 +379,15 @@ func _build_glove(h: Node3D, side: float) -> void:
 
 
 ## Rubber boot; bone-local (ankle at the origin, 0.09 above the ground).
-func _build_boot(f: Node3D, side: float) -> void:
-	# Shaft over the trouser leg, taped at the top.
-	_part(f, loft([Vector3(0, 0.19, 0.0), Vector3(0, 0.1, 0.002), Vector3(0, 0.03, 0.008), Vector3(0, -0.025, 0.02)],
+func _build_boot(f: Node3D, shin: Node3D, side: float) -> void:
+	# Shaft over the trouser leg, taped at the top. It follows the shin (so
+	# the leg stays inside it when the knee bends), placed at the ankle.
+	var s := _joint(shin, BONES[FOOT_L][2] - BONES[SHIN_L][2])
+	_part(s, loft([Vector3(0, 0.19, 0.0), Vector3(0, 0.1, 0.002), Vector3(0, 0.03, 0.008), Vector3(0, -0.025, 0.02)],
 			[0.088, 0.08, 0.071, 0.06], [0.09, 0.082, 0.078, 0.07], 18), "rubber")
-	_part(f, cyl(0.091, 0.093, 0.035), "tape", Vector3(0, 0.18, 0))
+	_part(s, cyl(0.091, 0.093, 0.035), "tape", Vector3(0, 0.18, 0))
+	# Flexible ankle on the foot that fills the bend between shaft and foot.
+	_part(f, ellipsoid(Vector3(0.068, 0.055, 0.074), 16, 10), "rubber", Vector3(0, -0.012, 0.004))
 	# Foot: heel to a rounded toe cap (along +Z; rx = width, rz = height).
 	var fp := [Vector3(0, -0.035, -0.075), Vector3(0, -0.035, -0.04), Vector3(0, -0.04, 0.03),
 		Vector3(0, -0.048, 0.1), Vector3(0, -0.05, 0.15), Vector3(0, -0.052, 0.178)]
@@ -440,13 +444,43 @@ func _build_hood(parent: Node3D) -> void:
 
 
 # ------------------------------------------------------------------- poses ---
+## 0 standing .. 1 fully crouched; layered on top of idle and walk poses.
+var crouch := 0.0
+## 0 on the ground .. 1 in the air (legs tucked, arms up for balance).
+var air := 0.0
+var _off := {}                # bone -> euler offset from crouch/air
+
+
 func _rot(bone: int, e: Vector3) -> void:
-	skeleton.set_bone_pose_rotation(bone, Quaternion.from_euler(e))
+	skeleton.set_bone_pose_rotation(bone, Quaternion.from_euler(e + _off.get(bone, Vector3.ZERO)))
+
+
+## Crouch is a real squat: thighs forward, knees bent twice as far so the
+## shins come back, feet kept flat, hips lowered by exactly what the legs
+## give up (so the boots stay on the floor) and the back leaning forward.
+## In the air the knees tuck up and the arms lift and spread.
+func _overlay() -> Vector3:
+	_off.clear()
+	var a := 1.05 * crouch
+	var tuck := 0.55 * air * (1.0 - crouch * 0.5)
+	for L in [true, false]:
+		var s := -1.0 if L else 1.0
+		_off[THIGH_L if L else THIGH_R] = Vector3(-a - tuck, 0, s * 0.08 * crouch)
+		_off[SHIN_L if L else SHIN_R] = Vector3(2.0 * a + tuck * 1.6, 0, 0)
+		_off[FOOT_L if L else FOOT_R] = Vector3(-a + tuck * 0.25, 0, 0)
+		_off[UARM_L if L else UARM_R] = Vector3(-0.35 * crouch - 0.45 * air, 0, s * 0.3 * air)
+		_off[FARM_L if L else FARM_R] = Vector3(-0.45 * crouch - 0.35 * air, 0, 0)
+	_off[SPINE] = Vector3(0.4 * crouch, 0, 0)
+	_off[CHEST] = Vector3(0.12 * crouch, 0, 0)
+	_off[NECK] = Vector3(-0.45 * crouch, 0, 0)
+	# Thigh 0.40 + shin 0.38 long: the hips drop by what the bent legs lose.
+	var drop := 0.78 * (1.0 - cos(a))
+	return BONES[HIPS][2] + Vector3(0, -drop, 0.03 * sin(a))
 
 
 ## Standing, breathing.
 func pose_idle(t: float) -> void:
-	skeleton.set_bone_pose_position(HIPS, BONES[HIPS][2])
+	skeleton.set_bone_pose_position(HIPS, _overlay())
 	for L in [true, false]:
 		var s := -1.0 if L else 1.0
 		_rot(UARM_L if L else UARM_R, Vector3(0.05, 0, s * 0.1))
@@ -463,6 +497,10 @@ func pose_idle(t: float) -> void:
 ## Walking/running cycle: phase in radians (one stride per TAU), amount 0..1,
 ## run 0 (walk) .. 1 (run). Matches the first-person gait.
 func pose_walk(phase: float, amount: float, run: float) -> void:
+	var hips := _overlay()
+	# Short, careful steps when crouched; legs hardly swing in the air.
+	amount *= 1.0 - 0.45 * crouch
+	amount *= 1.0 - 0.8 * air
 	var swing := lerpf(0.42, 0.75, run) * amount
 	for L in [true, false]:
 		var s := -1.0 if L else 1.0
@@ -473,7 +511,7 @@ func pose_walk(phase: float, amount: float, run: float) -> void:
 		_rot(FOOT_L if L else FOOT_R, Vector3(-knee * 0.35 + sin(ph) * swing * 0.4, 0, 0))
 		_rot(UARM_L if L else UARM_R, Vector3(sin(ph) * swing * 0.75, 0, s * 0.1))
 		_rot(FARM_L if L else FARM_R, Vector3(-lerpf(0.3, 1.25, run) * amount - 0.15, 0, 0))
-	skeleton.set_bone_pose_position(HIPS, BONES[HIPS][2] + Vector3(0, -absf(cos(phase)) * 0.03 * amount, 0))
+	skeleton.set_bone_pose_position(HIPS, hips + Vector3(0, -absf(cos(phase)) * 0.03 * amount, 0))
 	_rot(SPINE, Vector3(lerpf(0.03, 0.15, run) * amount, sin(phase) * 0.06 * amount, 0))
 	_rot(CHEST, Vector3(lerpf(0.01, 0.07, run) * amount, -sin(phase) * 0.1 * amount, 0))
 	_rot(NECK, Vector3(-lerpf(0.02, 0.12, run) * amount + 0.04, 0, 0))

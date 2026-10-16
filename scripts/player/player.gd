@@ -108,7 +108,7 @@ func _apply_settings() -> void:
 	camera.fov = Settings.get_value("graphics/fov")
 	flashlight.shadow_enabled = Settings.get_value("graphics/flashlight_shadows")
 	# Without real-time lights the flashlight is computed in the world shaders.
-	shader_flashlight = not Settings.get_value("graphics/realtime_lights")
+	shader_flashlight = not Settings.light_nodes()
 	set_flashlight(flashlight_on)
 
 

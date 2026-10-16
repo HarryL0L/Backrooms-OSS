@@ -10,6 +10,16 @@ var shots := [
 	["walk", Vector3(2.6, 1.15, 0.9), Vector3(0, 0.92, 0), 38.0, "walk"],
 	["glove", Vector3(0.75, 0.95, 0.55), Vector3(0.23, 0.82, 0.0), 28.0, "idle"],
 	["boots", Vector3(0.55, 0.45, 0.95), Vector3(0.0, 0.1, 0.05), 32.0, "idle"],
+	["crouch_side", Vector3(2.8, 0.9, 0.4), Vector3(0, 0.6, 0), 38.0, "crouch"],
+	["crouch_front", Vector3(1.0, 1.0, 2.6), Vector3(0, 0.6, 0), 38.0, "crouch"],
+	["crouch_walk", Vector3(2.8, 0.9, 0.9), Vector3(0, 0.6, 0), 38.0, "crouchwalk"],
+	["jump", Vector3(2.8, 1.2, 0.9), Vector3(0, 0.9, 0), 40.0, "jump"],
+	["crouch_boots", Vector3(1.0, 0.35, 0.9), Vector3(0, 0.15, 0.1), 32.0, "crouch"],
+	["crouch_hands", Vector3(1.1, 0.8, 1.1), Vector3(0.1, 0.55, 0.1), 32.0, "crouch"],
+	["jump_feet", Vector3(1.2, 0.6, 0.6), Vector3(0, 0.5, 0), 32.0, "jump"],
+	["walk_feet", Vector3(1.3, 0.4, 0.4), Vector3(0, 0.2, 0), 32.0, "walk"],
+	["jump_hands", Vector3(1.0, 1.2, 0.9), Vector3(0.2, 1.1, 0.1), 34.0, "jump"],
+	["walk_hands", Vector3(1.2, 1.0, 0.3), Vector3(0.2, 0.95, 0.0), 34.0, "walk"],
 ]
 var i := 0
 var t := 0.0
@@ -43,8 +53,13 @@ func _setup():
 	var s = shots[i]
 	cam.fov = s[3]
 	cam.look_at_from_position(s[1], s[2])
-	if s[4] == "walk":
+	model.crouch = 1.0 if s[4].begins_with("crouch") else 0.0
+	model.air = 1.0 if s[4] == "jump" else 0.0
+	model.position.y = 0.35 if s[4] == "jump" else 0.0
+	if s[4] == "walk" or s[4] == "crouchwalk":
 		model.pose_walk(0.9, 1.0, 0.0)
+	elif s[4] == "jump":
+		model.pose_walk(0.9, 1.0, 0.6)
 	else:
 		model.pose_idle(0.0)
 
