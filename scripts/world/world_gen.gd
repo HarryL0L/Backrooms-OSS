@@ -319,7 +319,7 @@ func light_state(gx: int, gz: int, b: int) -> int:
 
 ## Seed used by the shaders / audio to flicker a light, always > 0.
 func light_seed(gx: int, gz: int) -> float:
-	return 1.0 + float(hashi(gx, gz, 32) & 0xFFFF)
+	return 1.0 + float(hashi(gx, gz, 32) & 0x7FFF)     # fits the 16-bit lightmap seed
 
 
 ## Global flicker function. Must stay in sync with `flicker()` in the shaders.

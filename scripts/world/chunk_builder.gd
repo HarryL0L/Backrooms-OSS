@@ -709,13 +709,11 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 			lm_bytes.encode_half(o + 2, cl.g)
 			lm_bytes.encode_half(o + 4, cl.b)
 			lm_bytes.encode_half(o + 6, cl.a)
-			# The texel's own flickering lamp, so neighbouring faces lit by the
-			# same lamp flicker together (no hard edge along face borders).
-			# Texels without one take the face's, for filtering at the edges.
+			# The texel's own flickering lamp (0 = none), so neighbouring faces
+			# lit by the same lamp flicker together; the shader blends the
+			# darkening of neighbouring texels, so there are no hard edges.
 			var sd := tseed[tu + tv * n.x]
-			if sd <= 0.0:
-				sd = best
-			lm_seed_bytes.encode_u16(o / 4, maxi(int(sd) - 1, 0))
+			lm_seed_bytes.encode_u16(o / 4, clampi(int(sd), 0, 65535))
 	return best
 
 

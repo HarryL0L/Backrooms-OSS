@@ -108,6 +108,15 @@ func _ready() -> void:
 	# A sound that gives it away when you're close.
 	_audio = AudioStreamPlayer3D.new()
 	_audio.stream = AudioSynth.cached("draught" if not outdoor else "hum")
+	_audio.unit_size = 1.6 if not outdoor else 3.0
+	_audio.max_distance = 14.0 if not outdoor else 40.0
+	_audio.volume_db = -6.0 if not outdoor else -2.0
+	if not outdoor and not mall:
+		# Wind from a wide open space where there shouldn't be one.
+		_audio.stream = AudioSynth.cached("wind")
+		_audio.unit_size = 3.0
+		_audio.max_distance = 30.0
+		_audio.volume_db = -3.0
 	if mall and not inside_mall:
 		# Muzak from the other side, muffled by the door.
 		var st: AudioStream = load(MallLevel.MUSIC).duplicate()
@@ -115,11 +124,11 @@ func _ready() -> void:
 			(st as AudioStreamOggVorbis).loop = true
 		_audio.stream = st
 		_audio.attenuation_filter_cutoff_hz = 900.0
+		_audio.unit_size = 3.5
+		_audio.max_distance = 34.0
+		_audio.volume_db = -1.0
 	elif inside_mall:
 		_audio.stream = AudioSynth.cached("hum")
-	_audio.unit_size = 1.6 if not outdoor else 3.0
-	_audio.max_distance = 14.0 if not outdoor else 40.0
-	_audio.volume_db = -6.0 if not outdoor else -2.0
 	_audio.position = Vector3(0.0, 1.0, 0.1)
 	add_child(_audio)
 	_audio.play()

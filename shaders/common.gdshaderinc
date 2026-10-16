@@ -43,22 +43,41 @@ vec3 baked_light(vec4 custom0, float seed, float t) {
 }
 
 uniform sampler2D lightmap : hint_default_black, filter_linear, repeat_disable;
-// Per texel: seed - 1 of the flickering lamp its flicker share follows (RG8).
+// Per texel: the seed of the flickering lamp its flicker share follows
+// (16 bits in RG8, 0 = none).
 uniform sampler2D lightmap_seed : hint_default_black, filter_nearest, repeat_disable;
 
-// lm = (texel x, texel y, unused). Each texel flickers with its own lamp, so
-// light from one lamp dims evenly across every face it reaches.
+// How much a lightmap texel is dimmed right now: its flicker share times how
+// far its own lamp has dropped.
+float lm_dim(ivec2 i, ivec2 sz) {
+	i = clamp(i, ivec2(0), sz - 1);
+	float share = texelFetch(lightmap, i, 0).a;
+	if (share < 0.002) {
+		return 0.0;
+	}
+	vec2 e = texelFetch(lightmap_seed, i, 0).rg * 255.0;
+	float seed = floor(e.r + 0.5) + floor(e.g + 0.5) * 256.0;
+	return seed < 0.5 ? 0.0 : share * (1.0 - flicker(seed, world_time));
+}
+
+// lm = (texel x, texel y, unused). Each texel dims with its own lamp, and the
+// dimming of the four nearest texels is blended, so light from a flickering
+// lamp fades smoothly across every face it reaches.
 vec3 lightmap_light(vec3 vertex_light, vec3 lm) {
 	if (lm.x < 0.0) {
 		return vertex_light;
 	}
-	vec4 s = texture(lightmap, lm.xy / vec2(textureSize(lightmap, 0)));
-	float f = 1.0;
-	if (s.a > 0.002) {
-		vec2 e = texelFetch(lightmap_seed, ivec2(lm.xy), 0).rg * 255.0;
-		f = flicker(1.0 + floor(e.r + 0.5) + floor(e.g + 0.5) * 256.0, world_time);
+	ivec2 sz = textureSize(lightmap, 0);
+	vec4 s = texture(lightmap, lm.xy / vec2(sz));
+	if (s.a < 0.002) {
+		return s.rgb;
 	}
-	return s.rgb * (1.0 - s.a * (1.0 - f));
+	vec2 tc = lm.xy - 0.5;
+	ivec2 i0 = ivec2(floor(tc));
+	vec2 fr = tc - floor(tc);
+	float d = mix(mix(lm_dim(i0, sz), lm_dim(i0 + ivec2(1, 0), sz), fr.x),
+			mix(lm_dim(i0 + ivec2(0, 1), sz), lm_dim(i0 + ivec2(1, 1), sz), fr.x), fr.y);
+	return s.rgb * (1.0 - d);
 }
 
 // Same as WorldGen.hashi()/rnd(): uint arithmetic wraps exactly like the
