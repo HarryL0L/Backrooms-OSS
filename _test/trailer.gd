@@ -321,13 +321,13 @@ func _build_shots():
 							best = absf(dd - 9.0)
 							S.xf = xf
 			var xf: Transform3D = S.xf
-			S.stand = xf.origin + xf.basis.z.normalized() * 1.9
+			S.stand = xf.origin + xf.basis.z.normalized() * 1.35
 			S.stand.y = 0.05
 			S.y0 = yaw_to(xf.origin - S.stand)
 			S.y1 = yaw_to(xf.basis.x.normalized()),
 		"pose": func(f: float):
-			var y: float = lerp_angle(S.y0, S.y1, sm(clampf((f - 0.35) / 0.65, 0, 1)) * 0.8)
-			return [S.stand, y, -0.04]})
+			var y: float = lerp_angle(S.y0, S.y1, sm(clampf((f - 0.5) / 0.5, 0, 1)) * 0.4)
+			return [S.stand, y, -0.1]})
 	shots.append({"name": "mall_door", "secs": 4.5, "wait": 3.0,
 		"at": func(): return [mpos + Vector3(5.0, 0.05, 0), PI * 0.5, 0.0],
 		"setup": func(): S.d0 = minf(6.0, clear_dist(mpos + Vector3(1.6, 0.05, 0), Vector3.RIGHT, 7.0) - 0.4),

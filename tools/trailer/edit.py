@@ -125,14 +125,14 @@ def main():
         if item[0] == "shot":
             _, name, fin, fout = item
             src = shot_dirs[name]
-            n = len(glob.glob(src + "/*.jpg"))
+            n = len(glob.glob(src + "/*.jpg")) - 1   # frame 0 still shows the last pose
             dur = n / FPS
             vf = []
             if fin > 0:
                 vf.append(f"fade=t=in:st=0:d={fin}")
             if fout > 0:
                 vf.append(f"fade=t=out:st={dur - fout:.3f}:d={fout}")
-            run(["ffmpeg", "-y", "-framerate", str(FPS), "-i", f"{src}/%04d.jpg"]
+            run(["ffmpeg", "-y", "-framerate", str(FPS), "-start_number", "1", "-i", f"{src}/%04d.jpg"]
                 + (["-vf", ",".join(vf)] if vf else [])
                 + ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "17", "-preset", "medium", seg])
             times[name] = (t, dur)
