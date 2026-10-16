@@ -359,10 +359,10 @@ for sx in (-1, 1):
     # light deep inside each.
     eye = ellipsoid("inner_eye", (0.012, 0.012, 0.009), M_INNER, 12, 8)
     eye.parent = inner
-    eye.location = (0.02 * sx, -0.047, 0.014)
+    eye.location = (0.02 * sx, -0.041, 0.014)
     glint = ellipsoid("inner_glint", (0.0018, 0.0015, 0.0018), M_EYE, 8, 6)
     glint.parent = eye
-    glint.location = (0.0, -0.007, 0.0)
+    glint.location = (0.0, -0.004, 0.0)
 mouth = ellipsoid("inner_mouth", (0.012, 0.006, 0.004), M_INNER, 12, 6)
 mouth.parent = inner
 mouth.location = (0, -0.056, -0.03)
@@ -482,9 +482,9 @@ def pose_awake():
     rot("elbow1_l", -18, 0, 0)
     rot("elbow2_l", 34, 0, 0)        # bends backwards
     rot("wrist_l", -25, 0, 0)
-    rot("shoulder_r", -72, 4, 0)
-    rot("elbow1_r", -12, 0, 0)
-    rot("elbow2_r", -18, 0, 0)
+    rot("shoulder_r", -100, 6, 0)
+    rot("elbow1_r", -8, 0, 0)
+    rot("elbow2_r", 22, 0, 0)        # the wrong elbow, bent back
     rot("wrist_r", 12, 0, 0)
     # (the legs inherit the pelvis tilt of 18 degrees)
     rot("hip_r", -53, 0, 4)
@@ -596,12 +596,16 @@ if __name__ == "__main__":
     if GLB:
         pose_display()
         bpy.ops.export_scene.gltf(filepath=GLB, export_format="GLB", use_selection=False)
+    only = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
     pose_display()
     camera((0.9, -3.4, 1.35), (0, 0, 1.05), 40)
-    render("1_display")
+    if not only or "1" in only:
+        render("1_display")
     pose_awake()
-    camera((0.35, -2.4, 0.7), (0.05, -0.3, 1.0), 30)
+    camera((1.7, -1.9, 0.85), (0.0, -0.3, 1.0), 30)
     tube.data.energy = 420
-    render("2_awake")
+    if not only or "2" in only:
+        render("2_awake")
     camera((0.25, -0.95, 1.52), (0.0, -0.05, 1.62), 55)
-    render("3_face", 1000, 1000)
+    if not only or "3" in only:
+        render("3_face", 1000, 1000)
