@@ -326,8 +326,9 @@ func _build_shots():
 			S.y0 = yaw_to(xf.origin - S.stand)
 			S.y1 = yaw_to(xf.basis.x.normalized()),
 		"pose": func(f: float):
-			var y: float = lerp_angle(S.y0, S.y1, sm(clampf((f - 0.5) / 0.5, 0, 1)) * 0.4)
-			return [S.stand, y, -0.1]})
+			var xf: Transform3D = S.xf
+			var p: Vector3 = S.stand.lerp(Vector3(xf.origin.x, 0.05, xf.origin.z), 0.3 * sm(f))
+			return [p, S.y0 + 0.04 * sin(f * 2.0), -0.12]})
 	shots.append({"name": "mall_door", "secs": 4.5, "wait": 3.0,
 		"at": func(): return [mpos + Vector3(5.0, 0.05, 0), PI * 0.5, 0.0],
 		"setup": func(): S.d0 = minf(6.0, clear_dist(mpos + Vector3(1.6, 0.05, 0), Vector3.RIGHT, 7.0) - 0.4),
@@ -382,20 +383,20 @@ func _build_shots():
 	shots.append({"name": "window", "secs": 3.5,
 		"at": func(): return [Vector3(31, Y, 2.5), 0.4, 0.0],
 		"setup": func():
-			var best := -1.0
+			# From the middle of the concourse, looking into the window.
+			var best := INF
 			S.p = Vector3(31, Y, 2.5)
 			S.t = Vector3(33, Y + 1.5, 4.5)
 			for d: WindowDresser in game.mall.decoys:
-				var fz := d.global_basis.z
-				fz.y = 0.0
-				fz = fz.normalized()
 				var dp := d.global_position
-				var free := clear_dist(dp + fz * 0.6, fz, 5.0)
-				if free > best:
-					best = free
-					var back := minf(free + 0.4, 4.0)
-					S.p = Vector3(dp.x + fz.x * back, Y, dp.z + fz.z * back)
-					S.t = dp + Vector3(0, 1.45, 0),
+				if absf(dp.z) < 3.0 or dp.x < 12.0 or dp.x > 110.0:
+					continue
+				var score := absf(dp.x - 40.0)
+				if score < best:
+					best = score
+					S.p = Vector3(dp.x - 0.8, Y, clampf(dp.z - signf(dp.z) * 3.2, -3.0, 3.0))
+					S.t = dp + Vector3(0, 1.45, 0)
+			print("window mannequin at ", S.t, " from ", S.p),
 		"pose": func(f: float):
 			var p: Vector3 = S.p.lerp(Vector3(S.t.x, Y, S.t.z), 0.3 * sm(f))
 			var d: Vector3 = S.t - (p + Vector3(0, 1.62, 0))
@@ -405,6 +406,7 @@ func _build_shots():
 	shots.append({"name": "dresser_still", "secs": 3.5,
 		"at": func(): return [Vector3(22, Y, dz), -PI * 0.5, 0.0],
 		"setup": func():
+			game.player.camera.fov = 50.0     # a longer lens: it fills the frame
 			var ai = game.mall.ai
 			ai.set_physics_process(false)
 			ai.set_process(false)
@@ -415,15 +417,15 @@ func _build_shots():
 			S.body.rotation.y = -PI * 0.5,
 		"pose": func(f: float): return [Vector3(lerpf(24.0, 26.6, sm(f)), Y, dz), -PI * 0.5, 0.1]})
 	shots.append({"name": "dresser_wake", "secs": 2.0,
-		"at": func(): return [Vector3(25.5, Y, dz), -PI * 0.5, 0.1],
+		"at": func(): return [Vector3(25.3, Y, dz), -PI * 0.5, -0.02],
 		"setup": func():
 			S.body = game.mall.ai.body
 			S.body.set_awake(true)
-			S.body.set_pose("hunt")
-			S.body.global_position = Vector3(27.4, MallLevel.MALL_Y, dz),
+			S.body.set_pose("dormant")       # upright, face to camera
+			S.body.global_position = Vector3(27.6, MallLevel.MALL_Y, dz),
 		"pose": func(f: float):
 			var shake := 0.012 * sin(f * 90.0) * (1.0 - f)
-			return [Vector3(25.5 + 0.4 * f, Y, dz), -PI * 0.5 + shake, 0.12 + shake]})
+			return [Vector3(25.3 + 0.15 * f, Y, dz), -PI * 0.5 + shake, 0.0 + shake]})
 	shots.append({"name": "dresser_run", "secs": 2.4,
 		"at": func(): return [Vector3(22, Y, dz), -PI * 0.5, 0.06],
 		"setup": func():

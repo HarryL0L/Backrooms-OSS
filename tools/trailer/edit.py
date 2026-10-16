@@ -42,8 +42,7 @@ EDIT = [
     ("shot", "field_exit", 0.0, 0.5),
     ("card", ["Not every door", "leads somewhere better."], 2.8),
     ("shot", "mall", 0.5, 0.0),
-    ("shot", "court", 0.0, 0.0),
-    ("shot", "window", 0.0, 0.3),
+    ("shot", "court", 0.0, 0.3),
     ("card", ["Don't look away."], 2.0),
     ("shot", "dresser_still", 0.3, 0.0),
     ("shot", "dresser_wake", 0.0, 0.0),
@@ -125,14 +124,16 @@ def main():
         if item[0] == "shot":
             _, name, fin, fout = item
             src = shot_dirs[name]
-            n = len(glob.glob(src + "/*.jpg")) - 1   # frame 0 still shows the last pose
+            # Frame 0 still shows the previous pose and the last frame can catch
+            # the switch to the next shot: keep the ones between.
+            n = len(glob.glob(src + "/*.jpg")) - 2
             dur = n / FPS
             vf = []
             if fin > 0:
                 vf.append(f"fade=t=in:st=0:d={fin}")
             if fout > 0:
                 vf.append(f"fade=t=out:st={dur - fout:.3f}:d={fout}")
-            run(["ffmpeg", "-y", "-framerate", str(FPS), "-start_number", "1", "-i", f"{src}/%04d.jpg"]
+            run(["ffmpeg", "-y", "-framerate", str(FPS), "-start_number", "1", "-i", f"{src}/%04d.jpg", "-frames:v", str(n)]
                 + (["-vf", ",".join(vf)] if vf else [])
                 + ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "17", "-preset", "medium", seg])
             times[name] = (t, dur)
