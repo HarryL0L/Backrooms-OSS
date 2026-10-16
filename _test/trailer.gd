@@ -376,11 +376,30 @@ func _build_shots():
 		"at": func(): return [Vector3(16, Y, 3.0), -PI * 0.5, 0.05],
 		"pose": func(f: float): return [Vector3(lerpf(16, 23, f), Y, 3.0), -PI * 0.5 + 0.12 * sin(f * PI), 0.05]})
 	shots.append({"name": "court", "secs": 5.0,
-		"at": func(): return [Vector3(60, Y, -9), -PI * 0.7, 0.14],
-		"pose": func(f: float): return [Vector3(lerpf(59, 63, f), Y, -9), lerpf(-PI * 0.72, -PI * 0.5, sm(f)), 0.14]})
+		"at": func(): return [Vector3(62, Y, -9), -PI * 0.62, 0.12],
+		"pose": func(f: float): return [Vector3(lerpf(62, 64.5, f), Y, -9), lerpf(-PI * 0.64, -PI * 0.5, sm(f)), 0.12]})
+	# A mannequin in a shop window (one of the decoys), pushed in on.
 	shots.append({"name": "window", "secs": 3.5,
 		"at": func(): return [Vector3(31, Y, 2.5), 0.4, 0.0],
-		"pose": func(f: float): return [Vector3(31, Y, lerpf(2.6, 1.6, sm(f))), 0.4, 0.02]})
+		"setup": func():
+			var best := -1.0
+			S.p = Vector3(31, Y, 2.5)
+			S.t = Vector3(33, Y + 1.5, 4.5)
+			for d: WindowDresser in game.mall.decoys:
+				var fz := d.global_basis.z
+				fz.y = 0.0
+				fz = fz.normalized()
+				var dp := d.global_position
+				var free := clear_dist(dp + fz * 0.6, fz, 5.0)
+				if free > best:
+					best = free
+					var back := minf(free + 0.4, 4.0)
+					S.p = Vector3(dp.x + fz.x * back, Y, dp.z + fz.z * back)
+					S.t = dp + Vector3(0, 1.45, 0),
+		"pose": func(f: float):
+			var p: Vector3 = S.p.lerp(Vector3(S.t.x, Y, S.t.z), 0.3 * sm(f))
+			var d: Vector3 = S.t - (p + Vector3(0, 1.62, 0))
+			return [p, yaw_to(Vector3(d.x, 0, d.z)), atan2(d.y, Vector2(d.x, d.z).length())]})
 	# The Window Dresser, staged by hand (its brain switched off).
 	var dz := 1.0
 	shots.append({"name": "dresser_still", "secs": 3.5,
@@ -394,14 +413,14 @@ func _build_shots():
 			S.body.set_pose("dormant")
 			S.body.global_position = Vector3(29.5, MallLevel.MALL_Y, dz)
 			S.body.rotation.y = -PI * 0.5,
-		"pose": func(f: float): return [Vector3(lerpf(22, 24.5, sm(f)), Y, dz), -PI * 0.5, 0.06]})
+		"pose": func(f: float): return [Vector3(lerpf(24.0, 26.6, sm(f)), Y, dz), -PI * 0.5, 0.1]})
 	shots.append({"name": "dresser_wake", "secs": 2.0,
 		"at": func(): return [Vector3(25.5, Y, dz), -PI * 0.5, 0.1],
 		"setup": func():
 			S.body = game.mall.ai.body
 			S.body.set_awake(true)
 			S.body.set_pose("hunt")
-			S.body.global_position = Vector3(29.0, MallLevel.MALL_Y, dz),
+			S.body.global_position = Vector3(27.4, MallLevel.MALL_Y, dz),
 		"pose": func(f: float):
 			var shake := 0.012 * sin(f * 90.0) * (1.0 - f)
 			return [Vector3(25.5 + 0.4 * f, Y, dz), -PI * 0.5 + shake, 0.12 + shake]})
@@ -416,8 +435,8 @@ func _build_shots():
 			var k := int(f * 2.4 * 9.0)        # stop-motion: 9 poses a second
 			if k != S.step:
 				S.step = k
-				S.body.global_position = Vector3(lerpf(36.0, 23.6, float(k) / (2.4 * 9.0)), MallLevel.MALL_Y, dz),
-		"pose": func(f: float): return [Vector3(22 - 0.6 * f, Y, dz), -PI * 0.5 + 0.01 * sin(f * 40.0), 0.06]})
+				S.body.global_position = Vector3(lerpf(33.0, 22.9, float(k) / (2.4 * 9.0)), MallLevel.MALL_Y, dz),
+		"pose": func(f: float): return [Vector3(21.6 - 0.4 * f, Y, dz), -PI * 0.5 + 0.01 * sin(f * 40.0), 0.06]})
 	shots.append({"name": "dresser_lunge", "secs": 0.9,
 		"at": func(): return [Vector3(22, Y, dz), -PI * 0.5, 0.06],
 		"setup": func(): game.mall.ai.lunge_at(game.player.camera),
