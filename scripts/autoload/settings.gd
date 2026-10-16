@@ -309,11 +309,13 @@ func reset_bindings() -> void:
 # ---------------------------------------------------------------- apply ---
 
 func apply() -> void:
-	# PS1 style: per-vertex (Gouraud) lighting like the real thing, no god rays.
+	# PS1 style: per-vertex (Gouraud) lighting like the real thing, and
+	# god rays as flat banded polygons (cheap at its low resolution, so even
+	# on Potato).
 	var ps1: bool = get_value("graphics/ps1")
 	ChunkBuilder.lightmaps = get_value("graphics/lightmaps") and not ps1
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
-	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 and not ps1
+	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 or ps1
 	RenderingServer.global_shader_parameter_set("dark_lift", 0.18 if int(get_value("graphics/preset")) == 0 else 0.0)
 	var fps: int = get_value("graphics/fps_cap")
 	Engine.max_fps = [30, 60, 0][clampi(fps, 0, 2)]

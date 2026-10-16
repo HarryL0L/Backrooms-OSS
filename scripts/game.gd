@@ -34,6 +34,7 @@ var _remotes := {}               # peer id -> RemotePlayer
 var radar: Radar
 var _net_t := 0.0
 var _built_lightmaps := true
+var _built_rays := true
 var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
 var world_env: WorldEnvironment
@@ -255,8 +256,9 @@ func _apply_settings() -> void:
 	retro.set_active(Settings.get_value("graphics/ps1"))
 	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
 	# the loaded chunks in place.
-	if ChunkBuilder.lightmaps != _built_lightmaps:
+	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays:
 		_built_lightmaps = ChunkBuilder.lightmaps
+		_built_rays = ChunkBuilder.god_rays
 		chunks.rebuild()
 	_update_touch_visibility()
 

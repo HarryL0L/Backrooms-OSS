@@ -26,6 +26,12 @@ func _process(delta):
 	match step:
 		0:
 			if game.state == game.State.MENU:
+				if OS.get_environment("PS1") != "":
+					Settings.apply_preset(int(OS.get_environment("PS1")))
+					Settings.set_value("graphics/auto_quality", false)
+					Settings.set_value("graphics/ps1", true)
+					out = OS.get_user_data_dir() + "/gallery_ps1"
+					DirAccess.make_dir_recursive_absolute(out)
 				game.new_game(); step = 1
 		1:
 			if game.state == game.State.PLAYING:
@@ -53,7 +59,7 @@ func _process(delta):
 				game.player.teleport(pos, views[0][0], views[0][1])
 				step = 2; t = 0
 		2:
-			if t > 8.0 and game.chunks.is_area_ready(game.player.global_position, 2):
+			if t > 8.0 and game.chunks.is_area_ready(game.player.global_position, 1):
 				step = 3; t = 0
 		3:
 			if t > 1.0:

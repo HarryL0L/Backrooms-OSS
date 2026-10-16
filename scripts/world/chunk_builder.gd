@@ -115,6 +115,8 @@ var _cur_cell := Vector2.ZERO
 var _no_sun := false
 # Lightmap atlas (RGBA half floats, shelf packed, grows downwards).
 var lm_bytes := PackedByteArray()
+## Per texel: which flickering lamp (seed - 1, 16 bit) its flicker share follows.
+var lm_seed_bytes := PackedByteArray()
 # Per-face light visibility while baking a face: 0 hidden, 1 visible, 2 test
 # per texel. Empty when not baking.
 var _face_vis := PackedByteArray()
@@ -183,7 +185,7 @@ func build() -> Dictionary:
 		var b: Buf = bufs[m]
 		if b != null and b.v.size() > 0:
 			surfaces[m] = b.to_arrays()
-	return {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image()}
+	return {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image()}
 
 
 func _lm_alloc(w: int, h: int) -> Vector2i:
@@ -197,6 +199,7 @@ func _lm_alloc(w: int, h: int) -> Vector2i:
 	var need := (_lm_y + _lm_shelf) * LM_W * 8
 	if lm_bytes.size() < need:
 		lm_bytes.resize(maxi(need, lm_bytes.size() * 2))
+		lm_seed_bytes.resize(lm_bytes.size() / 4)
 	return at
 
 
@@ -209,6 +212,17 @@ func _lm_image() -> Image:
 	if bytes.size() < h * LM_W * 8:
 		bytes.resize(h * LM_W * 8)
 	return Image.create_from_data(LM_W, h, false, Image.FORMAT_RGBAH, bytes)
+
+
+func _lm_seed_image() -> Image:
+	var h := _lm_y + _lm_shelf
+	if h == 0:
+		return null
+	h = (h + 3) & ~3
+	var bytes := lm_seed_bytes.slice(0, h * LM_W * 2)
+	if bytes.size() < h * LM_W * 2:
+		bytes.resize(h * LM_W * 2)
+	return Image.create_from_data(LM_W, h, false, Image.FORMAT_RG8, bytes)
 
 
 func _compute_layout() -> void:
@@ -626,6 +640,8 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 	var seeds := {}
 	var vals := PackedColorArray()
 	vals.resize(n.x * n.y)
+	var tseed := PackedFloat32Array()
+	tseed.resize(n.x * n.y)
 	var done := PackedByteArray()
 	done.resize(n.x * n.y)
 	# Pass 1: every other texel (plus the last row/column). Pass 2: texels in
@@ -660,6 +676,9 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					var lmin := minf(minf(l00, l10), minf(l01, l11))
 					if lmax - lmin <= 0.05 + lmax * 0.22 and absf(c00.a - c11.a) < 0.1 and absf(c10.a - c01.a) < 0.1:
 						vals[k] = (c00 + c10 + c01 + c11) * 0.25
+						tseed[k] = maxf(maxf(tseed[u0 + v0 * n.x], tseed[u1 + v0 * n.x]), maxf(tseed[u0 + v1 * n.x], tseed[u1 + v1 * n.x]))
+						if c00.a >= c11.a and c00.a >= c10.a and c00.a >= c01.a:
+							tseed[k] = tseed[u0 + v0 * n.x]
 						done[k] = 1
 						continue
 				var p := p0 + du * (float(tu) / (n.x - 1)) + dv * (float(tv) / (n.y - 1))
@@ -673,7 +692,15 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
 				vals[k] = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+				tseed[k] = _seed
 				done[k] = 1
+	_face_on = false
+	var best := 0.0
+	var best_w := 0.0
+	for sd in seeds:
+		if seeds[sd] > best_w:
+			best_w = seeds[sd]
+			best = sd
 	for tv in n.y:
 		for tu in n.x:
 			var cl := vals[tu + tv * n.x]
@@ -682,13 +709,13 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 			lm_bytes.encode_half(o + 2, cl.g)
 			lm_bytes.encode_half(o + 4, cl.b)
 			lm_bytes.encode_half(o + 6, cl.a)
-	_face_on = false
-	var best := 0.0
-	var best_w := 0.0
-	for sd in seeds:
-		if seeds[sd] > best_w:
-			best_w = seeds[sd]
-			best = sd
+			# The texel's own flickering lamp, so neighbouring faces lit by the
+			# same lamp flicker together (no hard edge along face borders).
+			# Texels without one take the face's, for filtering at the edges.
+			var sd := tseed[tu + tv * n.x]
+			if sd <= 0.0:
+				sd = best
+			lm_seed_bytes.encode_u16(o / 4, maxi(int(sd) - 1, 0))
 	return best
 
 

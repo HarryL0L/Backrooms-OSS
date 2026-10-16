@@ -191,14 +191,17 @@ func _make_chunk(data: Dictionary) -> Node3D:
 	# Each chunk has its own lightmap, so lightmapped materials get a per-chunk
 	# copy that points at it (same shader, so no extra shader compiles).
 	var lm_tex: ImageTexture = null
+	var seed_tex: ImageTexture = null
 	if data.get("lightmap") != null:
 		lm_tex = ImageTexture.create_from_image(data.lightmap)
+		seed_tex = ImageTexture.create_from_image(data.lightmap_seed)
 	for m in surfaces:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surfaces[m], [], {}, fmt)
 		var mat: Material = mats.materials[m]
 		if lm_tex != null and ChunkBuilder.LIGHTMAPPED.has(m):
 			mat = mat.duplicate()
 			(mat as ShaderMaterial).set_shader_parameter("lightmap", lm_tex)
+			(mat as ShaderMaterial).set_shader_parameter("lightmap_seed", seed_tex)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh

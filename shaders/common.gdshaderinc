@@ -43,14 +43,22 @@ vec3 baked_light(vec4 custom0, float seed, float t) {
 }
 
 uniform sampler2D lightmap : hint_default_black, filter_linear, repeat_disable;
+// Per texel: seed - 1 of the flickering lamp its flicker share follows (RG8).
+uniform sampler2D lightmap_seed : hint_default_black, filter_nearest, repeat_disable;
 
-// lm = (texel x, texel y, flicker factor of the face's lamp).
+// lm = (texel x, texel y, unused). Each texel flickers with its own lamp, so
+// light from one lamp dims evenly across every face it reaches.
 vec3 lightmap_light(vec3 vertex_light, vec3 lm) {
 	if (lm.x < 0.0) {
 		return vertex_light;
 	}
 	vec4 s = texture(lightmap, lm.xy / vec2(textureSize(lightmap, 0)));
-	return s.rgb * (1.0 - s.a * (1.0 - lm.z));
+	float f = 1.0;
+	if (s.a > 0.002) {
+		vec2 e = texelFetch(lightmap_seed, ivec2(lm.xy), 0).rg * 255.0;
+		f = flicker(1.0 + floor(e.r + 0.5) + floor(e.g + 0.5) * 256.0, world_time);
+	}
+	return s.rgb * (1.0 - s.a * (1.0 - f));
 }
 
 // Same as WorldGen.hashi()/rnd(): uint arithmetic wraps exactly like the

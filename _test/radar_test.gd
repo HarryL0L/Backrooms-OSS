@@ -49,6 +49,11 @@ func _process(delta):
 			fake(p + Vector3.UP * maxf(h, 0.0), not jumping, not jumping or h <= 0.0, vy, 42, 5)
 			fake(base + fwd * 14.0 - right * 9.0, false, true, 0.0, 7, 6)
 			fake(base - fwd * 60.0 + right * 10.0, false, true, 0.0, 3, 7)
+			game.radar.shown = t >= 2.0
+			# Pick-up animation frames.
+			for f in [0.15, 0.3, 0.45, 0.75]:
+				if t > 2.0 + f and t - delta <= 2.0 + f:
+					shot("raise_%d" % int(f * 100))
 			if t > 3.0 and shots == 0:
 				shot("crouch"); shots = 1
 			if t > 4.32 and shots == 1:

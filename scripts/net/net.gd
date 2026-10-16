@@ -51,7 +51,7 @@ func _ready() -> void:
 		join_failed.emit("Couldn't connect to that game."))
 	multiplayer.server_disconnected.connect(func() -> void:
 		_close()
-		disconnected.emit("The host left the game."))
+		disconnected.emit("Lost the connection to the host."))
 
 
 func my_id() -> int:
@@ -162,8 +162,20 @@ func _on_connected() -> void:
 	_hello.rpc_id(1, _number, _name)
 
 
-func _on_peer_connected(_id: int) -> void:
-	pass
+func _on_peer_connected(id: int) -> void:
+	_relax_timeout(id)
+
+
+## ENet drops a peer after ~30 s without an answer at most. A weak phone can
+## stall that long (building the Field, compiling shaders) and phone Wi-Fi
+## naps in power saving, so allow up to 90 s before calling it lost.
+func _relax_timeout(id: int) -> void:
+	var mp := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if mp == null:
+		return
+	var p := mp.get_peer(id)
+	if p:
+		p.set_timeout(0, 20000, 90000)
 
 
 func _on_peer_disconnected(id: int) -> void:

@@ -6,7 +6,10 @@ extends Node3D
 
 const RANGE := 28.0
 const UP := Vector3(-0.15, -0.125, -0.32)
-const DOWN := Vector3(-0.16, -0.42, -0.26)
+const DOWN := Vector3(-0.2, -0.5, -0.2)
+const ROT_UP := Vector3(0.4, 0.3, 0.06)
+const ROT_DOWN := Vector3(1.3, 1.1, 0.9)     # lying in the hand at the hip
+const RAISE_TIME := 0.6
 
 var shown := false
 var _raise := 0.0
@@ -15,6 +18,8 @@ var _body_mat: StandardMaterial3D
 var _labels: Array[Label3D] = []
 var _hand: Array[MeshInstance3D] = []
 var _sweep := 0.0
+var _sway := Vector2.ZERO
+var _last_look := Vector2.INF
 const SCREEN_R := 0.036
 const SCREEN_C := Vector3(0, 0.022, 0.0151)
 
@@ -93,7 +98,7 @@ func _ready() -> void:
 		_hand.append(mi)
 	for mi in [body, ant, tip, screen]:
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	rotation = Vector3(0.4, 0.3, 0.06)
+	rotation = ROT_DOWN
 	scale = Vector3.ONE * 0.85
 	position = DOWN
 	visible = false
@@ -107,14 +112,38 @@ static func warm_materials() -> Array[Material]:
 	return out
 
 
+## Pick-up: the hand brings it up from the hip in an arc, turning it to face
+## you and settling with a small overshoot; putting it away runs backwards.
+## While held it lags a little behind turns and bobs with your steps.
+func _pose(delta: float, me: Player) -> void:
+	var k := _raise
+	# Ease out with overshoot (back), position slightly ahead of rotation.
+	var c := 1.6
+	var e := 1.0 + (c + 1.0) * pow(k - 1.0, 3.0) + c * pow(k - 1.0, 2.0)
+	var er := smoothstep(0.0, 1.0, clampf(k * 1.15 - 0.1, 0.0, 1.0))
+	var arc := Vector3(-0.06, 0.0, 0.05) * sin(k * PI)   # swings in from the side
+	var look := Vector2(me.yaw, me.pitch)
+	if _last_look.is_finite():
+		var d := Vector2(angle_difference(_last_look.x, look.x), look.y - _last_look.y)
+		_sway = (_sway + d * 0.6).limit_length(0.12)
+	_last_look = look
+	_sway = _sway.lerp(Vector2.ZERO, 1.0 - exp(-7.0 * delta))
+	var hs := Vector2(me.velocity.x, me.velocity.z).length()
+	var bob := minf(hs / Player.WALK, 1.4) * 0.006
+	var ph := me._step_phase
+	var held := Vector3(_sway.x * 0.25 + sin(ph) * bob, -_sway.y * 0.2 - absf(cos(ph)) * bob, 0.0)
+	position = DOWN.lerp(UP, e) + arc + held * k
+	rotation = ROT_DOWN.lerp(ROT_UP, er) + Vector3(_sway.y * 0.6, _sway.x * 0.8, -_sway.x * 0.5) * k
+
+
 ## others: Array of [world position, suit number]. me: the local player.
 func update(delta: float, me: Player, others: Array, light: float) -> void:
-	_raise = move_toward(_raise, 1.0 if shown else 0.0, delta * 4.0)
+	_raise = move_toward(_raise, 1.0 if shown else 0.0, delta / RAISE_TIME)
 	visible = _raise > 0.0
 	if not visible:
+		_last_look = Vector2.INF
 		return
-	var e := smoothstep(0.0, 1.0, _raise)
-	position = DOWN.lerp(UP, e)
+	_pose(delta, me)
 	_sweep = fmod(_sweep + delta * 2.4, TAU)
 	_screen_mat.set_shader_parameter("sweep", _sweep)
 	# The world is self-lit: match the device and hand to where you stand.

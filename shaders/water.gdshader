@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx, fog_disabled;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
 
@@ -13,6 +13,11 @@ uniform float reflection_on = 0.0;
 uniform sampler2D ripple_tex : hint_default_black, filter_linear, repeat_disable;
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 16.0);   // grid min corner x, z and size (m)
 uniform float ripple_on = 0.0;
+// Own fog instead of the room's: the pale Poolrooms fog turned distant water
+// grey-white while the white walls barely changed. Water fades into a teal
+// haze (as if seen through more water) and a bit more slowly.
+uniform vec3 water_fog : source_color = vec3(0.34, 0.44, 0.43);
+uniform float water_fog_density = 0.014;
 
 varying vec3 v_light;
 varying vec3 v_wpos;
@@ -93,9 +98,15 @@ void fragment() {
 		refl = mix(refl, planar, 0.92);
 		fres = max(fres, 0.12);
 	}
-	ALBEDO = deep_color;
-	ALPHA = clamp(0.22 + fres * 0.75, 0.0, 0.97);
+	// Reflections pick up the water's colour, so grazing angles far away
+	// don't turn milky white.
+	refl *= mix(vec3(1.0), deep_color * 1.5, 0.3);
+	float dist = length(CAMERA_POSITION_WORLD - v_wpos);
+	float fogk = 1.0 - exp(-water_fog_density * dist);
+	ALBEDO = deep_color * (1.0 - fogk);
+	ALPHA = clamp(max(0.22 + fres * 0.75, fogk * 1.2), 0.0, 0.97);
 	ROUGHNESS = 0.03;
 	SPECULAR = 0.7;
-	EMISSION = deep_color * v_light * 0.45 * (1.0 - fres) + refl * min(fres * 1.5 + 0.06, 1.0) + deep_color * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.95) + dither(FRAGCOORD.xy);
+	vec3 em = deep_color * v_light * 0.45 * (1.0 - fres) + refl * min(fres * 1.5 + 0.06, 1.0) + deep_color * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.95);
+	EMISSION = mix(em, water_fog * max(v_light, vec3(0.3)), fogk) + dither(FRAGCOORD.xy);
 }
