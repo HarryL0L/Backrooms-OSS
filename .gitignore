@@ -14,3 +14,4 @@ build/
 
 # Dev-only harness output
 _test/*.uid
+__pycache__/
