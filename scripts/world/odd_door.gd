@@ -15,6 +15,11 @@ const H := 2.06
 var outdoor := false
 ## Standing alone in the field (frame and back visible) rather than on a wall.
 var freestanding := false
+## Mall style: dark bronze frame, frosted glass lit warm from behind, a push
+## bar. In the Backrooms it leads to the Dead Mall (you can hear the music
+## through it); in the mall it is the way back (you hear the hum).
+var mall := false
+var inside_mall := false
 
 var _pivot: Node3D
 var _glow: MeshInstance3D
@@ -25,6 +30,9 @@ var _used := false
 func _ready() -> void:
 	var paint := _mat(Color(0.33, 0.62, 0.86), 0.55)
 	var frame := _mat(Color(0.93, 0.92, 0.88), 0.6)
+	if mall:
+		paint = _mat(Color(0.86, 0.8, 0.66), 0.2)        # frosted glass, lit from behind
+		frame = _mat(Color(0.2, 0.16, 0.12), 0.45)
 	var brass := _mat(Color(0.78, 0.62, 0.30), 0.3)
 	brass.metallic = 0.9
 	var light := StandardMaterial3D.new()
@@ -39,12 +47,20 @@ func _ready() -> void:
 	_pivot.position = Vector3(-W * 0.5, 0.0, 0.0)
 	add_child(_pivot)
 	var leaf := _box(paint, Vector3(W, H - 0.02, 0.045), Vector3(W * 0.5, H * 0.5 + 0.01, 0.0), _pivot)
+	if mall:
+		_box(frame, Vector3(W, 0.09, 0.06), Vector3(W * 0.5, 0.05, 0.0), _pivot)
+		_box(frame, Vector3(W, 0.09, 0.06), Vector3(W * 0.5, H - 0.05, 0.0), _pivot)
+		_box(frame, Vector3(0.07, H, 0.06), Vector3(0.035, H * 0.5, 0.0), _pivot)
+		_box(frame, Vector3(0.07, H, 0.06), Vector3(W - 0.035, H * 0.5, 0.0), _pivot)
+		_box(brass, Vector3(W * 0.75, 0.04, 0.04), Vector3(W * 0.5, 1.0, 0.06), _pivot)   # push bar
 	# Raised panels for a hand-made look.
-	for py in [0.55, 1.45]:
+	for py in ([] if mall else [0.55, 1.45]):
 		_box(paint, Vector3(W * 0.62, 0.62, 0.012), Vector3(W * 0.5, py, 0.028), _pivot)
 		if freestanding:
 			_box(paint, Vector3(W * 0.62, 0.62, 0.012), Vector3(W * 0.5, py, -0.028), _pivot)
 	var knob := MeshInstance3D.new()
+	if mall:
+		knob.visible = false
 	var sm := SphereMesh.new()
 	sm.radius = 0.035
 	sm.height = 0.07
@@ -92,6 +108,15 @@ func _ready() -> void:
 	# A sound that gives it away when you're close.
 	_audio = AudioStreamPlayer3D.new()
 	_audio.stream = AudioSynth.cached("draught" if not outdoor else "hum")
+	if mall and not inside_mall:
+		# Muzak from the other side, muffled by the door.
+		var st: AudioStream = load(MallLevel.MUSIC).duplicate()
+		if st is AudioStreamOggVorbis:
+			(st as AudioStreamOggVorbis).loop = true
+		_audio.stream = st
+		_audio.attenuation_filter_cutoff_hz = 900.0
+	elif inside_mall:
+		_audio.stream = AudioSynth.cached("hum")
 	_audio.unit_size = 1.6 if not outdoor else 3.0
 	_audio.max_distance = 14.0 if not outdoor else 40.0
 	_audio.volume_db = -6.0 if not outdoor else -2.0

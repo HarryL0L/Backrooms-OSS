@@ -211,7 +211,7 @@ for k in range(6):
     ))
 lunge = [mixed(H, uarm_r=(0.15, -1.0, 0.1), uarm_l=(-0.15, -1.0, 0.1), marm_r=(0.05, -1.0, 0.0),
                marm_l=(-0.05, -1.0, 0.0), farm_r=(0.0, -1.0, 0.0), farm_l=(0.0, -1.0, 0.0),
-               spine=(0.0, -1.0, 0.8), neck=(0.0, -1.0, 0.3), head=(0.0, -1.0, 0.25))]
+               spine=(0.0, -1.0, 0.8), neck=(0.0, -0.8, 0.6), head=(0.05, -0.28, 1.0))]
 key_pose("dormant", [W.DISPLAY])
 key_pose("stalk_a", [stalk[0]])
 key_pose("stalk_b", [stalk[1]])

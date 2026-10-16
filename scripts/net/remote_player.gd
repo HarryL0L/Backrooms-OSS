@@ -27,6 +27,7 @@ var _light_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _last_pos := Vector3.INF
 var in_field := false
+var in_mall := false
 
 
 func _ready() -> void:
@@ -113,6 +114,7 @@ func _process(delta: float) -> void:
 	rotation = Vector3(0, yaw + PI, 0)        # the model faces +Z, players look -Z
 	var pitch := lerpf(float(sa.x), float(sb.x), k)
 	in_field = bool(sb.get("fl", false))
+	in_mall = bool(sb.get("ml", false))
 	visible = true
 	# Gait from their actual movement.
 	var vel: Vector3 = sb.get("v", Vector3.ZERO)
@@ -147,7 +149,7 @@ func _process(delta: float) -> void:
 	if _light_t <= 0.0 and gen:
 		_light_t = 0.3
 		var c := Color.BLACK
-		if not in_field:
+		if not in_field and not in_mall:
 			c = Color(1.0, 0.97, 0.9) * clampf(gen.light_level_near(pos + Vector3.UP * 1.2) * 0.35, 0.04, 1.1)
 		model.set_env_light(c)
 
@@ -171,7 +173,7 @@ func _place_shadow(pos: Vector3) -> void:
 func _footstep() -> void:
 	if ambience == null or gen == null:
 		return
-	var surf := Player.SURF_GRASS if in_field else Player.surface_for(gen, global_position)
+	var surf := Player.SURF_GRASS if in_field else (Player.SURF_TILE if in_mall else Player.surface_for(gen, global_position))
 	var st := ambience.step_stream(surf)
 	if st == null:
 		return

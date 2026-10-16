@@ -57,6 +57,8 @@ var _idle_t := 0.0
 var _safe_pos := Vector3.ZERO
 ## True while in the outdoor Field level (grass, no pools, no Backrooms rules).
 var field_mode := false
+## In the Dead Mall (tiled floors, far below the Backrooms).
+var mall_mode := false
 
 
 func _ready() -> void:
@@ -201,6 +203,8 @@ static func _is_emulated_mouse(event: InputEvent) -> bool:
 func surface_at() -> int:
 	if field_mode:
 		return SURF_GRASS
+	if mall_mode:
+		return SURF_TILE
 	return surface_for(gen, global_position)
 
 
@@ -218,7 +222,7 @@ static func surface_for(g: WorldGen, pos: Vector3) -> int:
 
 
 func in_water() -> bool:
-	return not field_mode and global_position.y < WorldGen.WATER_Y - 0.1
+	return not field_mode and not mall_mode and global_position.y < WorldGen.WATER_Y - 0.1
 
 
 func _physics_process(delta: float) -> void:
@@ -274,9 +278,9 @@ func _physics_process(delta: float) -> void:
 	_update_crouch(delta)
 	_update_bob(delta, input)
 	if is_on_floor():
-		if global_position.y > -1.0 or field_mode:
+		if global_position.y > -1.0 or field_mode or mall_mode:
 			_safe_pos = global_position
-	if global_position.y < (_safe_pos.y - 30.0 if field_mode else -12.0):
+	if global_position.y < (_safe_pos.y - 30.0 if field_mode or mall_mode else -12.0):
 		teleport(_safe_pos + Vector3(0, 0.2, 0), yaw, pitch)
 	_update_flash_rig(delta)
 

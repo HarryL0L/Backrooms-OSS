@@ -37,6 +37,8 @@ var _built_lightmaps := true
 var _built_rays := true
 var odd_doors: OddDoors
 var field: FieldLevel          # Level 10, only while you're in it
+var mall: MallLevel            # the Dead Mall, only while you're in it
+var _in_mall := false
 var world_env: WorldEnvironment
 var _in_field := false
 # Frame-rate watchdog (auto quality): seconds of steady play measured, frames
@@ -444,8 +446,7 @@ func new_game() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	_play_time = 0.0
 	await hud.fade_to(1.0, 0.6)
-	if _in_field:
-		_leave_field()
+	_leave_side_levels()
 	_world_seed = -1
 	var g := WorldGen.new(seed_value)
 	_load_world(seed_value, g.spawn_position(), PI * 0.25, 0.0, func() -> void:
@@ -474,6 +475,16 @@ func continue_game() -> void:
 	main_menu.hide()
 	_play_time = save.get("time", 0.0)
 	await hud.fade_to(1.0, 0.4)
+	if save.get("mall", false):
+		# Saved in the Dead Mall: load the Backrooms (for the way back), then
+		# go straight to the mall.
+		var mg := WorldGen.new(save.seed)
+		_load_world(save.seed, mg.spawn_position(), 0.0, 0.0, func() -> void:
+			player.set_flashlight(save.get("flashlight", false))
+			_start_playing()
+			await _enter_mall(save.pos, save.yaw)
+			hud.fade_to(0.0, 1.0))
+		return
 	if save.has("field_exit"):
 		# Saved in the Field: load the Backrooms world (for the way back) at its
 		# spawn, then go straight to the Field.
@@ -513,7 +524,7 @@ func pause() -> void:
 	_update_touch_visibility()
 	var c := gen.cell_of(player.global_position)
 	var info := pause_menu.find_child("Info", true, false) as Label
-	var where: String = FIELD_NAME if _in_field else WorldGen.BIOME_NAMES[gen.biome_at(c.x, c.y)]
+	var where: String = FIELD_NAME if _in_field else (MallLevel.NAME if _in_mall else WorldGen.BIOME_NAMES[gen.biome_at(c.x, c.y)])
 	info.text = "%s\nSeed %d  ·  %s explored" % [where, gen.seed_value, _format_time(_play_time)]
 	if net.active:
 		var nums := []
@@ -543,8 +554,7 @@ func exit_to_menu() -> void:
 	pause_menu.hide()
 	get_tree().paused = false
 	await hud.fade_to(1.0, 0.5)
-	if _in_field:
-		_leave_field()
+	_leave_side_levels()
 	_enter_menu()
 
 
@@ -699,11 +709,11 @@ func _process(delta: float) -> void:
 			_net_t = 0.05
 			net.send_state({"p": player.global_position, "y": player.yaw, "x": player.pitch,
 				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching,
-				"g": player.is_on_floor(), "fl": _in_field})
+				"g": player.is_on_floor(), "fl": _in_field, "ml": _in_mall})
 	_update_radar(delta)
-	lining.allowed = state == State.PLAYING and not _in_field and not _transition
+	lining.allowed = state == State.PLAYING and not _away() and not _transition
 	hall_figure.allowed = lining.allowed
-	if _in_field:
+	if _away():
 		return
 	_scan_t -= delta
 	if _scan_t <= 0.0:
@@ -788,7 +798,10 @@ func _perf_watch(delta: float) -> void:
 # ---------------------------------------------------------------- field ---
 
 func _on_odd_door(door: OddDoor) -> void:
-	if state != State.PLAYING or _transition or _in_field:
+	if state != State.PLAYING or _transition or _away():
+		return
+	if door.mall:
+		_go_to_mall(door)
 		return
 	_transition = true
 	player.controls_enabled = false
@@ -876,6 +889,150 @@ func _on_field_exit() -> void:
 		hud.fade_to(0.0, 1.5))
 
 
+# ------------------------------------------------------------- dead mall ---
+
+func _away() -> bool:
+	return _in_field or _in_mall
+
+
+func _leave_side_levels() -> void:
+	if _in_field:
+		_leave_field()
+	if _in_mall:
+		_leave_mall()
+
+
+func _go_to_mall(door: OddDoor) -> void:
+	_transition = true
+	player.controls_enabled = false
+	await door.open()
+	await hud.fade_to(1.0, 1.1)
+	await _enter_mall()
+	hud.show_level(MallLevel.NAME, "Closed for years. The music is still playing.")
+	await hud.fade_to(0.0, 2.2)
+	player.controls_enabled = true
+	_transition = false
+
+
+## Swaps the Backrooms out and the Dead Mall in (a fresh arrival unless a
+## saved position is given). Compiles the mall's shaders behind the fade.
+func _enter_mall(pos := Vector3.INF, yaw := 0.0) -> void:
+	_in_mall = true
+	mall = MallLevel.new()
+	mall.process_mode = Node.PROCESS_MODE_PAUSABLE
+	mall.player = player
+	add_child(mall)
+	mall.build(gen.hashi(int(_play_time * 10.0), gen.seed_value, 977))
+	mall.exit_entered.connect(_on_mall_exit)
+	mall.caught.connect(_on_dresser_caught)
+	world_env.environment = mall.environment
+	chunks.visible = false
+	chunks.process_mode = Node.PROCESS_MODE_DISABLED
+	odd_doors.visible = false
+	odd_doors.process_mode = Node.PROCESS_MODE_DISABLED
+	if fixtures:
+		fixtures.max_lights = 0
+		fixtures._place()
+	ripples.active = false
+	reflection.set_active(false)
+	player.mall_mode = true
+	player.camera.far = 140.0
+	if pos.is_finite():
+		player.teleport(pos, yaw)
+	else:
+		var t := mall.arrival()
+		player.teleport(t.origin + Vector3(0, 0.05, 0), t.basis.get_euler().y)
+	await _warm_now(MallLevel.warm_materials() + WindowDresser.warm_materials())
+
+
+func _leave_mall() -> void:
+	_in_mall = false
+	if mall:
+		mall.queue_free()
+		mall = null
+	world_env.environment = env
+	chunks.visible = true
+	chunks.process_mode = Node.PROCESS_MODE_PAUSABLE
+	odd_doors.visible = true
+	odd_doors.process_mode = Node.PROCESS_MODE_PAUSABLE
+	player.mall_mode = false
+	player.camera.far = 95.0
+	_apply_settings()
+
+
+func _on_mall_exit() -> void:
+	if state != State.PLAYING or _transition:
+		return
+	_transition = true
+	player.controls_enabled = false
+	await mall.open_exit()
+	await hud.fade_to(1.0, 0.8)
+	_leave_mall()
+	_return_somewhere_else()
+
+
+## The Window Dresser got you: its broken face in yours, a shriek, the
+## camera shaking, then darkness, and you wake somewhere else.
+func _on_dresser_caught() -> void:
+	if state != State.PLAYING or _transition or mall == null:
+		return
+	_transition = true
+	player.controls_enabled = false
+	mall.loop_on = false
+	if mall.ai:
+		mall.ai.set_physics_process(false)
+		mall.ai.lunge_at(player.camera)
+	for i in 14:
+		player.camera.h_offset = randf_range(-0.035, 0.035)
+		player.camera.v_offset = randf_range(-0.025, 0.025)
+		await get_tree().create_timer(0.045).timeout
+	player.camera.h_offset = 0.0
+	player.camera.v_offset = 0.0
+	await hud.fade_to(1.0, 0.15)
+	await get_tree().create_timer(1.2).timeout
+	_leave_mall()
+	hud.show_level("Caught", "You wake up somewhere else. Your arms feel stiff.")
+	_return_somewhere_else()
+
+
+## Back into the Backrooms, but somewhere else entirely.
+func _return_somewhere_else() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var g := gen
+	var c := g.cell_of(Vector3.ZERO)
+	for _try in 200:
+		var a := rng.randf() * TAU
+		var d := rng.randf_range(300.0, 900.0) / WorldGen.CELL
+		c = Vector2i(int(cos(a) * d), int(sin(a) * d)) + g.spawn_cell
+		var b := g.biome_at(c.x, c.y)
+		if b != WorldGen.POOL and not g.is_solid(c.x, c.y, b) and not g.pool_noise(c.x, c.y):
+			break
+	var pos := Vector3((c.x + 0.5) * WorldGen.CELL, 0.05, (c.y + 0.5) * WorldGen.CELL)
+	_load_world(g.seed_value, pos, rng.randf() * TAU, 0.0, func() -> void:
+		_start_playing()
+		_transition = false
+		hud.fade_to(0.0, 1.5))
+
+
+## Draws the given materials once in front of the camera and waits a few
+## frames (shader compiles happen behind a fade, not in your face later).
+func _warm_now(list: Array[Material]) -> void:
+	var holder := Node3D.new()
+	player.camera.add_child(holder)
+	for i in list.size():
+		var mi := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(0.004, 0.004)
+		mi.mesh = q
+		mi.material_override = list[i]
+		mi.position = Vector3(i * 0.005, 0.0, -0.3)
+		holder.add_child(mi)
+	for _f in 3:
+		await get_tree().process_frame
+	holder.queue_free()
+
+
 # ----------------------------------------------------------------- save ---
 
 func _write_save() -> void:
@@ -892,6 +1049,8 @@ func _write_save() -> void:
 	cf.set_value("save", "time", _play_time)
 	if _in_field:
 		cf.set_value("save", "field_exit", field.exit_pos)
+	if _in_mall:
+		cf.set_value("save", "mall", true)
 	cf.save(SAVE_PATH)
 
 
@@ -949,7 +1108,7 @@ func _join_game(ip: String) -> void:
 func _net_world_info() -> Dictionary:
 	var pos: Vector3 = gen.spawn_position() if gen else Vector3.ZERO
 	var yaw := 0.0
-	if gen and state != State.MENU and not _in_field:
+	if gen and state != State.MENU and not _away():
 		# Right next to the host (even while they're still loading or in the
 		# intro), on whichever side has room.
 		yaw = player.yaw
@@ -971,8 +1130,7 @@ func _on_net_joined(info: Dictionary) -> void:
 	main_menu.hide()
 	_play_time = 0.0
 	await hud.fade_to(1.0, 0.5)
-	if _in_field:
-		_leave_field()
+	_leave_side_levels()
 	_world_seed = -1
 	_load_world(int(info.seed), info.pos, float(info.yaw), 0.0, func() -> void:
 		player.set_flashlight(false)
@@ -987,8 +1145,7 @@ func _on_net_disconnected(reason: String) -> void:
 		pause_menu.hide()
 		get_tree().paused = false
 		await hud.fade_to(1.0, 0.5)
-		if _in_field:
-			_leave_field()
+		_leave_side_levels()
 		_enter_menu()
 		hud.show_level("Disconnected", reason)
 
@@ -1032,10 +1189,10 @@ func _update_radar(delta: float) -> void:
 	var others := []
 	for id in _remotes:
 		var r := _remotes[id] as RemotePlayer
-		if r.visible and r.in_field == _in_field:
+		if r.visible and r.in_field == _in_field and r.in_mall == _in_mall:
 			others.append([r.global_position, r.number])
 	var light := 1.0
-	if gen and not _in_field:
+	if gen and not _away():
 		light = gen.light_level_near(player.global_position + Vector3.UP * 1.2) * 0.35
 	radar.update(delta, player, others, light)
 

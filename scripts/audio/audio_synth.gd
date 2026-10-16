@@ -39,6 +39,14 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return paper()
 		"exhale":
 			return exhale()
+		"clack":
+			return clack()
+		"crack":
+			return crack()
+		"creak":
+			return creak()
+		"shriek":
+			return shriek()
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -441,3 +449,93 @@ static func distant(kind: int) -> AudioStreamWAV:
 						v += (lp * 5.0 + sin(TAU * 70.0 * kt) * 0.6) * exp(-kt * 30.0)
 		s[i] = v
 	return to_wav(_normalize(s, 0.7))
+
+
+# -------------------------------------------------------- Window Dresser ---
+
+## A hollow fibreglass foot on tile: a hard knock and a short boxy ring.
+static func clack() -> AudioStreamWAV:
+	var n := int(RATE * 0.22)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 501
+	var bp := _Svf.new(1900.0, 0.35)
+	var body := _Svf.new(430.0, 0.06)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0) * exp(-t * 90.0)
+		bp.step(x)
+		body.step(x * 3.0)
+		s[i] = bp.band * 0.8 + body.band * exp(-t * 28.0) * 0.9
+	return to_wav(_normalize(s, 0.8))
+
+
+## The shell snapping as it wakes: a sharp crack and splintering crackle.
+static func crack() -> AudioStreamWAV:
+	var n := int(RATE * 0.9)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 502
+	var hp := _Svf.new(2400.0, 0.5)
+	var lo := _Svf.new(160.0, 0.4)
+	var next := 0
+	var amp := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		if i >= next:
+			amp = rng.randf_range(0.3, 1.0) * exp(-t * 5.0)
+			next = i + int(RATE * rng.randf_range(0.004, 0.04) * (1.0 + t * 4.0))
+		var x := rng.randf_range(-1.0, 1.0)
+		hp.step(x)
+		lo.step(x)
+		var bang := exp(-t * 60.0)
+		s[i] = hp.high * (bang + amp * 0.35) + lo.low * bang * 2.5
+	return to_wav(_normalize(s, 0.9))
+
+
+## Stiff joints turning: a slow, stuttering creak.
+static func creak() -> AudioStreamWAV:
+	var n := int(RATE * 0.7)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 503
+	var bp := _Svf.new(700.0, 0.05)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		# Stick-slip: a train of tiny clicks whose rate wanders.
+		ph += (38.0 + 30.0 * sin(t * 9.0) + 15.0 * sin(t * 23.0)) / RATE
+		var click := 1.0 if fposmod(ph, 1.0) < 0.06 else 0.0
+		bp.f = 2.0 * sin(PI * (650.0 + 200.0 * sin(t * 3.0)) / RATE)
+		bp.step(click + rng.randf_range(-0.05, 0.05))
+		s[i] = bp.band * smoothstep(0.0, 0.05, t) * smoothstep(0.7, 0.45, t)
+	return to_wav(_normalize(s, 0.6))
+
+
+## The catch: a torn, rising shriek (noise and detuned saws, distorted).
+static func shriek() -> AudioStreamWAV:
+	var n := int(RATE * 1.3)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 504
+	var bp := _Svf.new(1500.0, 0.3)
+	var ph := [0.0, 0.0, 0.0]
+	var det := [1.0, 1.013, 0.981]
+	for i in n:
+		var t := float(i) / RATE
+		var f := 420.0 + 900.0 * smoothstep(0.0, 0.25, t) - 300.0 * t
+		var v := 0.0
+		for k in 3:
+			ph[k] = fposmod(ph[k] + f * det[k] / RATE, 1.0)
+			v += ph[k] * 2.0 - 1.0
+		var x := rng.randf_range(-1.0, 1.0)
+		bp.f = 2.0 * sin(PI * minf(f * 2.2, 6000.0) / RATE)
+		bp.step(x)
+		var env := smoothstep(0.0, 0.02, t) * pow(1.0 - t / 1.3, 1.2)
+		var y := (v * 0.3 + bp.band * 1.6) * env
+		s[i] = tanh(y * 3.0) * 0.7
+	return to_wav(_normalize(s, 0.95))

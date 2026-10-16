@@ -116,6 +116,19 @@ func set_awake(on: bool) -> void:
 		s.visible = not on
 
 
+## World position of the head bone in the current pose (INF if unknown).
+func head_position() -> Vector3:
+	if anim:
+		anim.advance(0.0)
+	for sk in find_children("*", "Skeleton3D", true, false):
+		var skel := sk as Skeleton3D
+		var i := skel.find_bone("head")
+		if i >= 0:
+			skel.force_update_all_bone_transforms()
+			return skel.global_transform * skel.get_bone_global_pose(i).origin
+	return Vector3.INF
+
+
 func set_env_light(c: Color) -> void:
 	for m in _meshes:
 		m.set_instance_shader_parameter("env_light", Vector3(c.r, c.g, c.b))
