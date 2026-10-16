@@ -272,13 +272,16 @@ HOLES = (((-0.08, -0.1, 1.27), 0.055, 1.0), ((0.11, -0.055, 0.78), 0.042, 3.0), 
 
 
 # ------------------------------------------------------------------ body ---
-def build_body():
+def build_body(levels=3, name="body", fine=True):
+    """levels: subdivision of the skin hull (3 for renders / baking, 1 for
+    the game mesh). fine=False skips detail that the game mesh gets from a
+    baked normal map instead (ribs, vertebrae, cracks, lumps)."""
     used = {a for e in EDGES for a in e}
     names = [nm for nm in JP if nm in used]     # (H is only a bone end, not skin)
     idx = {n: i for i, n in enumerate(names)}
-    me = bpy.data.meshes.new("body")
+    me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(JP[n]) for n in names], [(idx[a], idx[b]) for a, b in EDGES], [])
-    ob = bpy.data.objects.new("body", me)
+    ob = bpy.data.objects.new(name, me)
     scene.collection.objects.link(ob)
     bpy.context.view_layer.objects.active = ob
     sk = ob.modifiers.new("Skin", "SKIN")
@@ -288,16 +291,16 @@ def build_body():
         me.skin_vertices[0].data[idx[n]].radius = RAD[n]
     me.skin_vertices[0].data[idx["P0"]].use_root = True
     sub = ob.modifiers.new("Sub", "SUBSURF")
-    sub.levels = 3
+    sub.levels = levels
     dg = bpy.context.evaluated_depsgraph_get()
     mesh = bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
     ob.modifiers.clear()
     ob.data = mesh
-    sculpt(ob)
+    sculpt(ob, fine)
     return ob
 
 
-def sculpt(ob):
+def sculpt(ob, fine=True):
     """Procedural sculpting on the rest pose."""
     me = ob.data
     n = len(me.vertices)
@@ -317,12 +320,15 @@ def sculpt(ob):
     np.add.at(deg, ed[:, 0], 1)
     np.add.at(deg, ed[:, 1], 1)
     region = (np.abs(co[:, 0]) < 0.21) & (co[:, 2] > 0.98) & (co[:, 2] < 1.6)
-    for _ in range(14):
+    # Taubin smoothing (a shrink step, then an inflate step): irons out the
+    # fold without thinning the body, whatever the mesh density.
+    for it in range(28):
         acc = np.zeros_like(co)
         np.add.at(acc, ed[:, 0], co[ed[:, 1]])
         np.add.at(acc, ed[:, 1], co[ed[:, 0]])
         avg = acc / np.maximum(deg, 1)[:, None]
-        co[region] += 0.5 * (avg[region] - co[region])
+        k = 0.5 if it % 2 == 0 else -0.53
+        co[region] += k * (avg[region] - co[region])
     me.vertices.foreach_set("co", co.ravel())
     me.update()
     nrm = np.empty(n * 3)
@@ -341,7 +347,7 @@ def sculpt(ob):
     # chest, fading towards the sternum and the back.
     wave = np.cos(2 * np.pi * rz / 0.036)
     side = np.clip(np.abs(x) / 0.09, 0, 1) * np.clip(front * 1.5, 0, 1)
-    disp += np.where(ribs, (0.0042 * np.maximum(wave, 0) ** 3 - 0.0012) * side, 0)
+    disp += np.where(ribs & fine, (0.0042 * np.maximum(wave, 0) ** 3 - 0.0012) * side, 0)
     # Sternum ridge and a hollow belly under the ribcage.
     disp += np.where(ribs & (np.abs(x) < 0.018) & (front > 0.6), 0.004, 0)
     belly = torso & (z > 1.0) & (z < 1.18) & (front > 0.2)
@@ -355,7 +361,7 @@ def sculpt(ob):
     disp += np.where((front > 0.4) & (np.abs(x) > 0.025) & (np.abs(x) < 0.18), 0.011 * np.exp(-((z - clz) / 0.011) ** 2), 0)
     # Spine: a row of vertebrae down the back; shoulder blades.
     vert = torso & (back > 0.6) & (np.abs(x) < 0.022)
-    disp += np.where(vert, 0.01 * np.maximum(np.sin(2 * np.pi * z / 0.034), 0) ** 0.5, 0)
+    disp += np.where(vert & fine, 0.01 * np.maximum(np.sin(2 * np.pi * z / 0.034), 0) ** 0.5, 0)
     for sx in (-1, 1):
         d = np.sqrt(((x - 0.085 * sx) / 1.3) ** 2 + (z - 1.42) ** 2)
         disp += np.where(back > 0.5, 0.013 * np.exp(-(d / 0.04) ** 2), 0)
@@ -396,6 +402,8 @@ def sculpt(ob):
     for p in me.polygons:
         p.use_smooth = True
     me.update()
+    if not fine:
+        return
     # Real cracks: Voronoi F2-F1 edges cut into the surface, plus fine lumps.
     tex = bpy.data.textures.new("cracks", "VORONOI")
     tex.distance_metric = "DISTANCE"
@@ -425,7 +433,7 @@ def sculpt(ob):
 
 
 # ------------------------------------------------------------------ rig ---
-def build_rig(body):
+def build_rig(body, holes=True):
     ad = bpy.data.armatures.new("rig")
     arm = bpy.data.objects.new("rig", ad)
     scene.collection.objects.link(arm)
@@ -507,9 +515,20 @@ def build_rig(body):
         for k in range(4):
             if ws[k] > 0.01:
                 groups[names[top[i, k]]].add([i], float(ws[k]), "REPLACE")
-    # Broken-away chunks: subdivide around each hole so the edge can be
-    # ragged, cut it out, and put a dark inner skin 1 cm inside (same
-    # weights) under each one, so the shell reads as hollow fibreglass.
+    inner = cut_holes(body) if holes else None
+    for ob in (body, inner):
+        if ob is None:
+            continue
+        ob.parent = arm
+        mod = ob.modifiers.new("Armature", "ARMATURE")
+        mod.object = arm
+    return arm
+
+
+def cut_holes(body):
+    """Broken-away chunks: subdivide around each hole so the edge can be
+    ragged, cut it out, and put a dark inner skin 1 cm inside (same
+    weights) under each one, so the shell reads as hollow fibreglass."""
     def hole_r(c, r, seed, p):
         d = p - c
         ang = math.atan2(d.z, d.x + d.y)
@@ -555,11 +574,7 @@ def build_rig(body):
         inner.data.materials.append(m)
     for g in body.vertex_groups:
         inner.vertex_groups.new(name=g.name)
-    for ob in (body, inner):
-        ob.parent = arm
-        mod = ob.modifiers.new("Armature", "ARMATURE")
-        mod.object = arm
-    return arm
+    return inner
 
 
 def bone_parent(ob, arm, bone_name, world):
@@ -707,7 +722,7 @@ def build_head(arm):
     return show
 
 
-def build_props(arm):
+def build_props(arm, body_name="body"):
     stand = []
     plate = cyl("stand_plate", 0.2, 0.012, M_PIN, 32)
     plate.location = (0, 0.12, 0.006)
@@ -749,7 +764,7 @@ def build_props(arm):
         to.parent = tag
         to.location = (0, -0.0026, zz)
         to.rotation_euler = (math.pi / 2, 0, 0)
-    body = bpy.data.objects["body"]
+    body = bpy.data.objects[body_name]
     hit, loc, nrm, _ = body.ray_cast(Vector((0.075, -0.4, 1.41)), Vector((0, 1, 0)))
     if not hit:
         loc, nrm = Vector((0.075, -0.112, 1.41)), Vector((0, -1, 0))
