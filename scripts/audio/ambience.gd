@@ -152,7 +152,14 @@ func step_stream(surface: int) -> AudioStream:
 	return list[_rng.randi() % list.size()]
 
 
+## When >= 0, the world clock is pinned to this (recording at a fixed frame
+## rate, where real time runs at a different speed from game time).
+static var fixed_clock := -1.0
+
+
 static func world_time() -> float:
+	if fixed_clock >= 0.0:
+		return fixed_clock
 	return fmod(Time.get_ticks_msec() / 1000.0, 3600.0)
 
 
