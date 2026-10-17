@@ -182,6 +182,7 @@ func _build_graphics() -> void:
 	_toggle(p, "Bloom", "graphics/bloom")
 	_option(p, "Water reflections", "graphics/water_reflections", ["Off (fake)", "Low", "High"])
 	_toggle(p, "Interactive water ripples & splashes", "graphics/water_ripples")
+	_option(p, "Found footage camera (looks like real recorded footage)", "graphics/found_footage", ["Off", "Phone camera", "Camcorder (tape)"])
 	_toggle(p, "Film grain & vignette", "graphics/film_grain")
 	_toggle(p, "Lens effects (chromatic aberration)", "graphics/lens_fx")
 	_toggle(p, "Light halos (haze glow)", "graphics/halos")

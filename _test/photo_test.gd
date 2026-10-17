@@ -25,6 +25,7 @@ func _process(delta):
 				tag = str(pr)
 				Settings.set_value("graphics/ps1", false)      # a fair comparison
 				Settings.apply_preset(pr)
+				Settings.set_value("graphics/found_footage", int(OS.get_environment("FF")) if OS.get_environment("FF") != "" else 0)
 				Settings.set_value("graphics/auto_quality", false)
 				(game.main_menu.find_child("SeedEdit", true, false) as LineEdit).text = "1234"
 				game.new_game(); step = 1

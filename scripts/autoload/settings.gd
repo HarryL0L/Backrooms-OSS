@@ -81,6 +81,7 @@ func defaults() -> Dictionary:
 		"gameplay/entities": true,
 		"graphics/ps1": false,
 		"graphics/photoreal": false,
+		"graphics/found_footage": 0,
 		"net/name": "Player",
 		"net/number": 7,
 		"graphics/ps1_lines": 240,

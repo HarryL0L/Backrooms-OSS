@@ -38,6 +38,7 @@ var _built_rays := true
 var odd_doors: OddDoors
 var details: LobbyDetails
 var _photoreal := false
+var footage: FoundFootage
 var _built_lm_scale := 1.0
 var _adapt := 1.0          # Photoreal eye adaptation (exposure multiplier)
 var field: FieldLevel          # the Meadow, only while you're in it
@@ -172,6 +173,9 @@ func _build_ui() -> void:
 	layer.add_child(root)
 	hud = HUD.new()
 	root.add_child(hud)
+	footage = FoundFootage.new()
+	footage.player = player
+	add_child(footage)
 	touch = TouchControls.new()
 	touch.player = player
 	touch.visible = false
@@ -266,6 +270,7 @@ func _apply_settings() -> void:
 	var photoreal: bool = Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1")
 	EnvironmentFactory.photoreal_grade(env, photoreal)
 	_photoreal = photoreal
+	footage.set_mode(0 if Settings.get_value("graphics/ps1") else int(Settings.get_value("graphics/found_footage")))
 	retro.lines = int(Settings.get_value("graphics/ps1_lines"))
 	retro.set_active(Settings.get_value("graphics/ps1"))
 	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
@@ -307,6 +312,7 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		odd_doors.gen = gen
 		details.clear()
 		details.gen = gen
+		footage.gen = gen
 		lining.gen = gen
 		hall_figure.gen = gen
 		lining.odd_doors = odd_doors
