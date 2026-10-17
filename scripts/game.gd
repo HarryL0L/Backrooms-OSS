@@ -40,6 +40,7 @@ var details: LobbyDetails
 var _photoreal := false
 var footage: FoundFootage
 var _built_lm_scale := 1.0
+var _built_detail := false
 var _adapt := 1.0          # Photoreal eye adaptation (exposure multiplier)
 var field: FieldLevel          # the Meadow, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
@@ -275,10 +276,12 @@ func _apply_settings() -> void:
 	retro.set_active(Settings.get_value("graphics/ps1"))
 	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
 	# the loaded chunks in place.
-	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays or ChunkBuilder.lm_scale != _built_lm_scale:
+	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays or ChunkBuilder.lm_scale != _built_lm_scale \
+			or ChunkBuilder.detail != _built_detail:
 		_built_lightmaps = ChunkBuilder.lightmaps
 		_built_rays = ChunkBuilder.god_rays
 		_built_lm_scale = ChunkBuilder.lm_scale
+		_built_detail = ChunkBuilder.detail
 		chunks.rebuild()
 	_update_touch_visibility()
 

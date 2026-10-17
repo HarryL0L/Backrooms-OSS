@@ -25,6 +25,15 @@ static var god_rays := true
 static var lm_scale := 1.0
 ## Photoreal: bake corner occlusion on walls too.
 static var photoreal_ao := false
+## Photoreal: trim geometry (skirting boards, door casings, the ceiling's
+## T-bar grid, light fittings with a rim).
+static var detail := false
+## Photoreal: also bake which way the light comes from (directional
+## lightmap), so normal-mapped detail responds to the baked light.
+static var dir_lm := false
+## Photoreal: bounce light from a coarse per-chunk field of lit cells (with
+## visibility and the colour of what it bounced off) instead of the fake term.
+static var gi := false
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
@@ -33,7 +42,7 @@ const LM_TEXEL_SUN := 0.15       # ... on sun gallery floors (sharp sun patches)
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
 	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE,
-	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_COUNT
+	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_TRIM, MAT_COUNT
 }
 ## Materials whose shaders read the per-chunk lightmap.
 const LIGHTMAPPED := [MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_WALL,
@@ -121,6 +130,12 @@ var _no_sun := false
 var lm_bytes := PackedByteArray()
 ## Per texel: which flickering lamp (seed - 1, 16 bit) its flicker share follows.
 var lm_seed_bytes := PackedByteArray()
+## Per texel (dir_lm): where the baked light mostly comes from, RGBA8.
+var lm_dir_bytes := PackedByteArray()
+var _ldir := Vector3.ZERO          # set by shade(): light-weighted direction
+# Bounce field (gi): indirect light at the cell corners, (W+1)^2.
+var _gi_field := PackedColorArray()
+var _gi_ready := false
 # Per-face light visibility while baking a face: 0 hidden, 1 visible, 2 test
 # per texel. Empty when not baking.
 var _face_vis := PackedByteArray()
@@ -176,6 +191,8 @@ func build() -> Dictionary:
 	bufs.resize(MAT_COUNT)
 	_compute_layout()
 	_compute_lights()
+	if gi and lightmaps:
+		_compute_gi()
 	for j in N:
 		for i in N:
 			var li := M + i
@@ -189,7 +206,10 @@ func build() -> Dictionary:
 		var b: Buf = bufs[m]
 		if b != null and b.v.size() > 0:
 			surfaces[m] = b.to_arrays()
-	return {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image()}
+	var out := {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image()}
+	if dir_lm:
+		out["lightmap_dir"] = _lm_dir_image()
+	return out
 
 
 func _lm_alloc(w: int, h: int) -> Vector2i:
@@ -204,6 +224,8 @@ func _lm_alloc(w: int, h: int) -> Vector2i:
 	if lm_bytes.size() < need:
 		lm_bytes.resize(maxi(need, lm_bytes.size() * 2))
 		lm_seed_bytes.resize(lm_bytes.size() / 4)
+		if dir_lm:
+			lm_dir_bytes.resize(lm_bytes.size() / 2)
 	return at
 
 
@@ -227,6 +249,17 @@ func _lm_seed_image() -> Image:
 	if bytes.size() < h * LM_W * 2:
 		bytes.resize(h * LM_W * 2)
 	return Image.create_from_data(LM_W, h, false, Image.FORMAT_RG8, bytes)
+
+
+func _lm_dir_image() -> Image:
+	var h := _lm_y + _lm_shelf
+	if h == 0:
+		return null
+	h = (h + 3) & ~3
+	var bytes := lm_dir_bytes.slice(0, h * LM_W * 4)
+	if bytes.size() < h * LM_W * 4:
+		bytes.resize(h * LM_W * 4)
+	return Image.create_from_data(LM_W, h, false, Image.FORMAT_RGBA8, bytes)
 
 
 func _compute_layout() -> void:
@@ -380,6 +413,8 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 	var tot := 0.0
 	var fl_amt := 0.0
 	var fl_best := 0.0
+	var dacc := Vector3.ZERO
+	var bounce_k := 0.3 if (gi and _gi_ready) else 1.0
 	for k in (_face_lights if _face_on else _candidates(li, lj)):
 		var lp := lpos[k]
 		var dx := lp.x - p.x
@@ -398,13 +433,14 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		var ndl := (nrm.x * dx + nrm.y * dy + nrm.z * dz) / d
 		var e := 0.25 + 0.75 * maxf(dy / d, 0.0)
 		var direct := maxf(ndl, 0.0) * e * att
-		var bounce := att * 0.32
+		var bounce := att * 0.32 * bounce_k
 		var c := lcol[k]
 		r += c.r * (direct + bt.r * bounce)
 		g += c.g * (direct + bt.g * bounce)
 		bl += c.b * (direct + bt.b * bounce)
 		var lum := (direct + bounce) * (c.r + c.g + c.b)
 		tot += lum
+		dacc += Vector3(dx, dy, dz) * (direct * (c.r + c.g + c.b) / d)
 		if lseed[k] > 0.0:
 			fl_amt += lum
 			if lum > fl_best:
@@ -424,8 +460,64 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		g += sc.g * (sky + sun)
 		bl += sc.b * (sky + sun)
 		tot += (sky + sun) * 3.0
+		dacc += sd * sun * 3.0 + Vector3.UP * sky
+	if gi and _gi_ready:
+		var ind := _gi_sample(u, v)
+		r += ind.r
+		g += ind.g
+		bl += ind.b
+		tot += ind.r + ind.g + ind.b
+	_ldir = dacc
 	var share := fl_amt / tot if tot > 0.0 else 0.0
 	return Color(r, g, bl, share)
+
+
+# -------------------------------------------------------- bounce field (gi) ---
+const GI_RADIUS := 2
+const GI_STRENGTH := 0.16
+
+
+## Light that bounced once off the floors around: each cell's floor is lit
+## (direct light only), takes the colour of its level, and lights the cell
+## corners it can see within two cells, falling off with distance.
+func _compute_gi() -> void:
+	var rad := PackedColorArray()
+	rad.resize(W * W)
+	for j in W:
+		for i in W:
+			if solid[i + j * W] == 1:
+				continue
+			var p := Vector3((rx0 + i + 0.5) * CELL, fl(i, j) + 0.05, (rz0 + j + 0.5) * CELL)
+			var e := shade(p, Vector3.UP)
+			var bt: Color = WorldGen.BOUNCE_TINT[bio(i, j)]
+			rad[i + j * W] = Color(e.r * bt.r, e.g * bt.g, e.b * bt.b)
+	_gi_field.resize((W + 1) * (W + 1))
+	for cj in W + 1:
+		for ci in W + 1:
+			var acc := Color(0, 0, 0)
+			for j in range(cj - GI_RADIUS - 1, cj + GI_RADIUS + 1):
+				for i in range(ci - GI_RADIUS - 1, ci + GI_RADIUS + 1):
+					if i < 0 or j < 0 or i >= W or j >= W or solid[i + j * W] == 1:
+						continue
+					var du := (i + 0.5) - ci
+					var dv := (j + 0.5) - cj
+					var d2 := (du * du + dv * dv) * CELL * CELL + 1.4
+					if d2 > 1.0 + 2.0 * CELL * CELL and not _visible(i + 0.5, j + 0.5, 1.0, ci, cj, 1.2):
+						continue
+					acc += rad[i + j * W] * (1.0 / (1.0 + d2 * 0.55))
+			_gi_field[ci + cj * (W + 1)] = acc * GI_STRENGTH
+	_gi_ready = true
+
+
+func _gi_sample(u: float, v: float) -> Color:
+	var i := clampi(floori(u), 0, W - 1)
+	var j := clampi(floori(v), 0, W - 1)
+	var fu := clampf(u - i, 0.0, 1.0)
+	var fv := clampf(v - j, 0.0, 1.0)
+	var s := W + 1
+	var a := _gi_field[i + j * s].lerp(_gi_field[i + 1 + j * s], fu)
+	var b := _gi_field[i + (j + 1) * s].lerp(_gi_field[i + 1 + (j + 1) * s], fu)
+	return a.lerp(b, fv)
 
 
 ## True if the sun reaches local point (u, v in cells, y in metres): walks the
@@ -673,6 +765,9 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 	tseed.resize(n.x * n.y)
 	var done := PackedByteArray()
 	done.resize(n.x * n.y)
+	var dirs := PackedVector3Array()
+	if dir_lm:
+		dirs.resize(n.x * n.y)
 	# Pass 1: every other texel (plus the last row/column). Pass 2: texels in
 	# between are interpolated where their neighbours agree, shaded otherwise.
 	# Light is smooth almost everywhere, so this roughly halves the cost while
@@ -705,6 +800,8 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					var lmin := minf(minf(l00, l10), minf(l01, l11))
 					if lmax - lmin <= 0.05 + lmax * 0.22 and absf(c00.a - c11.a) < 0.1 and absf(c10.a - c01.a) < 0.1:
 						vals[k] = (c00 + c10 + c01 + c11) * 0.25
+						if dir_lm:
+							dirs[k] = dirs[u0 + v0 * n.x] + dirs[u1 + v0 * n.x] + dirs[u0 + v1 * n.x] + dirs[u1 + v1 * n.x]
 						tseed[k] = maxf(maxf(tseed[u0 + v0 * n.x], tseed[u1 + v0 * n.x]), maxf(tseed[u0 + v1 * n.x], tseed[u1 + v1 * n.x]))
 						if c00.a >= c11.a and c00.a >= c10.a and c00.a >= c01.a:
 							tseed[k] = tseed[u0 + v0 * n.x]
@@ -723,6 +820,8 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
 				vals[k] = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+				if dir_lm:
+					dirs[k] = _ldir
 				tseed[k] = _seed
 				done[k] = 1
 	_face_on = false
@@ -745,6 +844,16 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 			# darkening of neighbouring texels, so there are no hard edges.
 			var sd := tseed[tu + tv * n.x]
 			lm_seed_bytes.encode_u16(o / 4, clampi(int(sd), 0, 65535))
+			if dir_lm:
+				# Direction (0..255 per axis); alpha = how directional the
+				# light is (1: one lamp, 0: none, so the shader leaves it).
+				var dl := dirs[tu + tv * n.x]
+				var dn := dl.normalized() if dl.length() > 0.0001 else nrm
+				var od := o / 2
+				lm_dir_bytes[od] = clampi(int((dn.x * 0.5 + 0.5) * 255.0 + 0.5), 0, 255)
+				lm_dir_bytes[od + 1] = clampi(int((dn.y * 0.5 + 0.5) * 255.0 + 0.5), 0, 255)
+				lm_dir_bytes[od + 2] = clampi(int((dn.z * 0.5 + 0.5) * 255.0 + 0.5), 0, 255)
+				lm_dir_bytes[od + 3] = 255 if dl.length() > 0.0001 else 0
 	return best
 
 
@@ -873,6 +982,8 @@ func _emit_cell(li: int, lj: int) -> void:
 	_grid(CEIL_MAT[b], Vector3(xa, c, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), cr, cr,
 			Vector3.DOWN, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL_CEIL)
 	_col_quad(Vector3(xa, f, za), Vector3(xa + CELL, f, za), Vector3(xa + CELL, f, za + CELL), Vector3(xa, f, za + CELL))
+	if detail and CEIL_MAT[b] == MAT_CEILING_TILE:
+		_tbar_grid(xa, za, c, gen.light_state(gx, gz, b) != WorldGen.L_NONE, PANEL_SIZE[b])
 	if is_pool:
 		_emit_water(xa, za)
 	# Light fixture.
@@ -899,6 +1010,8 @@ func _emit_cell(li: int, lj: int) -> void:
 			pb.add(Vector3(cx + o.x * sz.x * 0.5, y, cz + o.y * sz.y * 0.5), Vector3.DOWN, Vector3.RIGHT,
 					Vector2((o.x + 1.0) * 0.5, (o.y + 1.0) * 0.5) * sz, Vector2(sd, 1.0 if s != WorldGen.L_DEAD else 0.0), emit)
 		_tri_quad(pb, st, st + 1, st + 2, st + 3, Vector3(1, 0, 0).cross(Vector3(0, 0, 1)).dot(Vector3.DOWN) > 0.0)
+		if detail and CEIL_MAT[b] == MAT_CEILING_TILE:
+			_troffer_rim(cx, cz, sz, c)
 		if s != WorldGen.L_DEAD:
 			_emit_halo(Vector3(cx, y - 0.05, cz), emit, sd, HALO_SIZE[b])
 	# Props.
@@ -1034,6 +1147,8 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 	if e == WorldGen.E_WALL:
 		for sd in sides:
 			_vface(WALL_MAT[sd[2]], axis, sd[1], sd[0], a0, a1, sd[3], sd[4], sd[3], sd[4])
+			if detail and WALL_MAT[sd[2]] == MAT_WALLPAPER:
+				_skirting(axis, sd[1], sd[0], a0 - T, a1 + T, sd[3], sd[4])
 			if (sd[2] == WorldGen.LOBBY or sd[2] == WorldGen.DARK) and gen.rnd(floori(plane * 10.0), floori(s0 * 10.0) + int(sd[0]), 93) < 0.08:
 				var at := s0 + 0.4 + 1.6 * gen.rnd(floori(plane * 10.0), floori(s0 * 10.0), 94)
 				_emit_outlet(axis, sd[1], sd[0], at, sd[3] + 0.32)
@@ -1057,6 +1172,10 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 		var c: float = sd[4]
 		_vface(m, axis, sd[1], sd[0], a0, o0, f, c, f, c)
 		_vface(m, axis, sd[1], sd[0], o1, a1, f, c, f, c)
+		if detail and m == MAT_WALLPAPER:
+			_skirting(axis, sd[1], sd[0], a0 - T, o0 - 0.07, f, c)
+			_skirting(axis, sd[1], sd[0], o1 + 0.07, a1 + T, f, c)
+			_casing(axis, sd[1], sd[0], o0, o1, yb, yt, f, c)
 		_vface(m, axis, sd[1], sd[0], o0, o1, yt, c, f, c)
 		_vface(m, axis, sd[1], sd[0], o0, o1, f, yb, f, c)
 	# Door reveals (jamb sides), lintel underside, sill top.
@@ -1237,6 +1356,98 @@ func _quad4(mat: int, a: Vector3, b2: Vector3, c2: Vector3, d: Vector3, nrm: Vec
 			tan = Vector3.RIGHT
 		b.add(p, nrm, tan.normalized(), t, Vector2(_seed, 0.0), light)
 	_tri_quad(b, start, start + 1, start + 2, start + 3, (b2 - a).cross(d - a).dot(nrm) > 0.0)
+
+
+# ------------------------------------------------------- trim (Photoreal) ---
+
+## A box-shaped trim piece against a wall face: its front and top (and the
+## two ends). axis/face/sgn as in _vface; a0..a1 along the wall, y0..y1 up,
+## sticking out `depth` metres into the room.
+func _trim_on_wall(axis: int, face: float, sgn: float, a0: float, a1: float, y0: float, y1: float, depth: float,
+		f: float, c: float, ends := true) -> void:
+	if a1 - a0 < 0.02:
+		return
+	var out := face + sgn * depth
+	var nrm := Vector3(sgn, 0, 0) if axis == 0 else Vector3(0, 0, sgn)
+	var P := func(along: float, y: float, off: float) -> Vector3:
+		return Vector3(off, y, along) if axis == 0 else Vector3(along, y, off)
+	_quad4(MAT_TRIM, P.call(a0, y0, out), P.call(a1, y0, out), P.call(a1, y1, out), P.call(a0, y1, out), nrm, 1 if axis == 0 else 2, f, c)
+	_quad4(MAT_TRIM, P.call(a0, y1, face), P.call(a1, y1, face), P.call(a1, y1, out), P.call(a0, y1, out), Vector3.UP, 0, f, c)
+	if ends:
+		var en := Vector3(0, 0, 1) if axis == 0 else Vector3(1, 0, 0)
+		_quad4(MAT_TRIM, P.call(a0, y0, face), P.call(a0, y0, out), P.call(a0, y1, out), P.call(a0, y1, face), -en, 0, f, c)
+		_quad4(MAT_TRIM, P.call(a1, y0, face), P.call(a1, y0, out), P.call(a1, y1, out), P.call(a1, y1, face), en, 0, f, c)
+
+
+func _skirting(axis: int, face: float, sgn: float, a0: float, a1: float, f: float, c: float) -> void:
+	_trim_on_wall(axis, face, sgn, a0, a1, f, f + 0.1, 0.014, f, c)
+
+
+## Door casing: a flat frame round the opening on this side of the wall.
+func _casing(axis: int, face: float, sgn: float, o0: float, o1: float, yb: float, yt: float, f: float, c: float) -> void:
+	const CW := 0.07
+	_trim_on_wall(axis, face, sgn, o0 - CW, o0, yb, yt + CW, 0.02, f, c)
+	_trim_on_wall(axis, face, sgn, o1, o1 + CW, yb, yt + CW, 0.02, f, c)
+	_trim_on_wall(axis, face, sgn, o0, o1, yt, yt + CW, 0.02, f, c, false)
+
+
+## A flat strip under the ceiling (bottom plus two sides), lit at its two ends
+## only: cheap enough for the whole grid.
+func _ceiling_strip(x0: float, z0: float, x1: float, z1: float, y: float, drop: float) -> void:
+	var b := buf(MAT_TRIM)
+	var la := shade(Vector3(x0, y - drop - 0.05, z0), Vector3.DOWN)
+	var lb := shade(Vector3(x1, y - drop - 0.05, z1), Vector3.DOWN)
+	var along_x := absf(x1 - x0) > absf(z1 - z0)
+	var hw := 0.012
+	var side := Vector3(0, 0, hw) if along_x else Vector3(hw, 0, 0)
+	var yb := y - drop
+	var A := Vector3(x0, yb, z0)
+	var B := Vector3(x1, yb, z1)
+	var quads := [
+		[A - side, B - side, B + side, A + side, Vector3.DOWN],
+		[A - side + Vector3(0, drop, 0), B - side + Vector3(0, drop, 0), B - side, A - side, -side.normalized()],
+		[A + side, B + side, B + side + Vector3(0, drop, 0), A + side + Vector3(0, drop, 0), side.normalized()],
+	]
+	for q in quads:
+		var st := b.v.size()
+		var nrm: Vector3 = q[4]
+		var tan := Vector3(1, 0, 0) if along_x else Vector3(0, 0, 1)
+		for k in 4:
+			var p: Vector3 = q[k]
+			var l := la if k == 0 or k == 3 else lb
+			b.add(p, nrm, tan, Vector2(p.x + p.z, p.y), Vector2(0.0, 0.0), Color(l.r * 0.85, l.g * 0.85, l.b * 0.85, 0.0))
+		var p0: Vector3 = q[0]
+		_tri_quad(b, st, st + 1, st + 2, st + 3, (q[1] - p0).cross(q[3] - p0).dot(nrm) > 0.0)
+
+
+## The suspended ceiling's T-bar grid (0.6 m), matching the tile shader's
+## pattern; the bar through a light fitting is left out.
+func _tbar_grid(xa: float, za: float, c: float, has_light: bool, panel: Vector2) -> void:
+	const G := 0.6
+	const DROP := 0.012
+	var cx := xa + CELL * 0.5
+	var cz := za + CELL * 0.5
+	for k in 4:
+		var x := xa + k * G
+		if has_light and absf(x - cx) < panel.x * 0.5 - 0.02:
+			_ceiling_strip(x, za, x, cz - panel.y * 0.5, c, DROP)
+			_ceiling_strip(x, cz + panel.y * 0.5, x, za + CELL, c, DROP)
+		else:
+			_ceiling_strip(x, za, x, za + CELL, c, DROP)
+	for k in 4:
+		var z := za + 0.3 + k * G
+		_ceiling_strip(xa, z, xa + CELL, z, c, DROP)
+
+
+## Light fitting (troffer) rim round the panel: the diffuser sits up in a
+## metal frame instead of being painted on the ceiling.
+func _troffer_rim(cx: float, cz: float, sz: Vector2, c: float) -> void:
+	var hx := sz.x * 0.5 + 0.02
+	var hz := sz.y * 0.5 + 0.02
+	_ceiling_strip(cx - hx, cz - hz, cx + hx, cz - hz, c, 0.035)
+	_ceiling_strip(cx - hx, cz + hz, cx + hx, cz + hz, c, 0.035)
+	_ceiling_strip(cx - hx, cz - hz, cx - hx, cz + hz, c, 0.035)
+	_ceiling_strip(cx + hx, cz - hz, cx + hx, cz + hz, c, 0.035)
 
 
 ## Doorway with a semicircular top and a curved soffit.

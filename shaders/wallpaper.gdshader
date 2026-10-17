@@ -79,7 +79,7 @@ void fragment() {
 	chev *= smoothstep(0.08, 0.14, cu) * smoothstep(0.92, 0.86, cu);
 	float pin = smoothstep(0.012, 0.0, abs(cu - 0.015)) + smoothstep(0.012, 0.0, abs(cu - 0.045));
 	float pattern = mix(clamp(chev * 0.8 + pin * 0.7, 0.0, 1.0), 0.18, smoothstep(0.15, 0.6, aa));
-	vec3 col = mix(base_color, stripe_color, pattern);
+	vec3 col = mix(base_color, stripe_color, pattern) * photo_detail(uv);
 	float n = texture(noise_fine, uv * 1.7).r;
 	col *= 0.92 + 0.14 * n;
 	// Paper strips with faint seams.
@@ -96,7 +96,9 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = 0.8;
 	SPECULAR = 0.3;
-	NORMAL_MAP = texture(noise_normal, uv * 1.3).rgb;
+	vec3 nm = photo_nmap(uv, texture(noise_normal, uv * 1.3).rgb);
+	NORMAL_MAP = nm;
 	NORMAL_MAP_DEPTH = 0.3;
-	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.15) * mix(1.0, lin_k, 0.75) + dither(FRAGCOORD.xy);
+	float bump = baked_bump(v_lm, nmap_normal(nm, 0.22, uv_frame(NORMAL, VERTEX, uv)), NORMAL, VIEW_MATRIX);
+	EMISSION = col * v_light * bump + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.15) * mix(1.0, lin_k, 0.75) + dither(FRAGCOORD.xy);
 }

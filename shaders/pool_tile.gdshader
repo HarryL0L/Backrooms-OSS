@@ -31,10 +31,37 @@ float caustics(vec2 p, float t) {
 	return pow(clamp(1.0 - abs(n1 - n2) * 3.5, 0.0, 1.0), 3.0);
 }
 
+// 1 on a tile, 0 down in the grout, with a rounded bevel.
+float tile_height(vec2 uv, float tile) {
+	vec2 f = fract(uv / tile);
+	float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * tile;
+	return smoothstep(0.0015, 0.009, edge);
+}
+
 void fragment() {
 	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = ps1_uv(UV);
 	const float TILE = 0.15;
+	mat3 tbn = uv_frame(NORMAL, VERTEX, uv);
+	vec3 pnorm = NORMAL;
+	if (photoreal > 0.5) {
+		// Parallax: each tile stands proud of a sunken grout line, with a
+		// rounded edge that catches the light.
+		vec3 vt = normalize(vec3(dot(VIEW, tbn[0]), dot(VIEW, tbn[1]), dot(VIEW, NORMAL)));
+		vec2 stp = -vt.xy / max(vt.z, 0.25) * 0.007 / 8.0;
+		float layer = 0.0;
+		for (int i = 0; i < 8; i++) {
+			if (layer >= 1.0 - tile_height(uv, TILE)) {
+				break;
+			}
+			uv += stp;
+			layer += 0.125;
+		}
+		float e = 0.002;
+		float hx = tile_height(uv + vec2(e, 0.0), TILE) - tile_height(uv - vec2(e, 0.0), TILE);
+		float hy = tile_height(uv + vec2(0.0, e), TILE) - tile_height(uv - vec2(0.0, e), TILE);
+		pnorm = normalize(tbn * vec3(-hx * 0.7, -hy * 0.7, 1.0));
+	}
 	vec2 g = uv / TILE;
 	vec2 cell = floor(g);
 	vec2 f = fract(g);
@@ -67,8 +94,13 @@ void fragment() {
 		float fres = 0.04 + 0.5 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
 		emission_extra += ceiling_reflection(v_wpos, CAMERA_POSITION_WORLD, vec3(0.0, 1.0, 0.0), ceiling_y, 0, world_time) * fres * (1.0 - grout);
 	}
+	float bump = 1.0;
+	if (photoreal > 0.5) {
+		NORMAL = pnorm;
+		bump = baked_bump(v_lm, pnorm, tbn[2], VIEW_MATRIX);
+	}
 	ALBEDO = col * mix(0.85, 1.0, bevel);
 	ROUGHNESS = mix(0.07, 0.7, grout);
 	SPECULAR = 0.6;
-	EMISSION = col * mix(0.85, 1.0, bevel) * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.8) + emission_extra + dither(FRAGCOORD.xy);
+	EMISSION = col * mix(0.85, 1.0, bevel) * v_light * bump + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.8) + emission_extra + dither(FRAGCOORD.xy);
 }

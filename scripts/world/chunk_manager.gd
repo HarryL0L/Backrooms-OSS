@@ -192,9 +192,12 @@ func _make_chunk(data: Dictionary) -> Node3D:
 	# copy that points at it (same shader, so no extra shader compiles).
 	var lm_tex: ImageTexture = null
 	var seed_tex: ImageTexture = null
+	var dir_tex: ImageTexture = null
 	if data.get("lightmap") != null:
 		lm_tex = ImageTexture.create_from_image(data.lightmap)
 		seed_tex = ImageTexture.create_from_image(data.lightmap_seed)
+		if data.get("lightmap_dir") != null:
+			dir_tex = ImageTexture.create_from_image(data.lightmap_dir)
 	for m in surfaces:
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surfaces[m], [], {}, fmt)
 		var mat: Material = mats.materials[m]
@@ -202,6 +205,8 @@ func _make_chunk(data: Dictionary) -> Node3D:
 			mat = mat.duplicate()
 			(mat as ShaderMaterial).set_shader_parameter("lightmap", lm_tex)
 			(mat as ShaderMaterial).set_shader_parameter("lightmap_seed", seed_tex)
+			if dir_tex != null:
+				(mat as ShaderMaterial).set_shader_parameter("lightmap_dir", dir_tex)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh

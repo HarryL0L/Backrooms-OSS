@@ -187,3 +187,67 @@ vec3 flashlight(vec3 wpos, vec3 n, vec3 cam, float gloss) {
 float dither(vec2 frag) {
 	return (hash12(frag) - 0.5) / 255.0;
 }
+
+// ---------------------------------------------------------------- Photoreal ---
+// Set from Settings: 1 in the Photoreal preset.
+global uniform float photoreal;
+// Directional lightmap (Photoreal): rgb = where the baked light comes from
+// (world space, 0..1 encoded), a = 1 where there is a direction.
+uniform sampler2D lightmap_dir : hint_default_black, filter_linear, repeat_disable;
+// Optional photographed material (assets/textures/<surface>/), Photoreal only.
+uniform sampler2D photo_albedo : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D photo_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float photo_on = 0.0;
+uniform float photo_scale = 1.0;          // metres per repeat
+uniform vec3 photo_mean = vec3(0.5);      // average colour, so it adds detail, not a tint
+
+// Photo detail as a multiplier around 1 (keeps our colours, adds the real grain).
+vec3 photo_detail(vec2 uv) {
+	if (photo_on < 0.5 || photoreal < 0.5) {
+		return vec3(1.0);
+	}
+	return texture(photo_albedo, uv / photo_scale).rgb / max(photo_mean, vec3(0.05));
+}
+
+vec3 photo_nmap(vec2 uv, vec3 fallback) {
+	if (photo_on < 0.5 || photoreal < 0.5) {
+		return fallback;
+	}
+	return texture(photo_normal, uv / photo_scale).rgb;
+}
+
+// Tangent frame from screen derivatives (view space), so bump and parallax
+// follow the surface's own UVs whatever way the mesh was built.
+mat3 uv_frame(vec3 n, vec3 p, vec2 uv) {
+	vec3 dp1 = dFdx(p);
+	vec3 dp2 = dFdy(p);
+	vec2 du1 = dFdx(uv);
+	vec2 du2 = dFdy(uv);
+	vec3 p2 = cross(dp2, n);
+	vec3 p1 = cross(n, dp1);
+	vec3 t = p2 * du1.x + p1 * du2.x;
+	vec3 b = p2 * du1.y + p1 * du2.y;
+	float inv = inversesqrt(max(max(dot(t, t), dot(b, b)), 1e-12));
+	return mat3(t * inv, b * inv, n);
+}
+
+// A normal map sample (0..1 rgb, `depth` strength) as a view-space normal.
+vec3 nmap_normal(vec3 nm, float depth, mat3 tbn) {
+	vec2 xy = (nm.xy * 2.0 - 1.0) * depth;
+	return normalize(tbn * vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0))));
+}
+
+// How the surface detail tilts the baked light (directional lightmap): bumps
+// facing the lamp get brighter, those facing away darker. 1 = no change.
+float baked_bump(vec3 lm, vec3 n_detail, vec3 n_geom, mat4 view) {
+	if (photoreal < 0.5 || lm.x < 0.0) {
+		return 1.0;
+	}
+	vec4 d = texture(lightmap_dir, lm.xy / vec2(textureSize(lightmap_dir, 0)));
+	if (d.a < 0.5) {
+		return 1.0;
+	}
+	vec3 l = normalize((view * vec4(d.xyz * 2.0 - 1.0, 0.0)).xyz);
+	float base = max(dot(n_geom, l), 0.3);
+	return clamp(mix(1.0, max(dot(n_detail, l), 0.0) / base, 0.8), 0.3, 1.7);
+}

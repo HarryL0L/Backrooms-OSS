@@ -34,6 +34,49 @@ func _init() -> void:
 	materials[ChunkBuilder.MAT_BRICK] = _mat("concrete", {"kind": 4})
 	materials[ChunkBuilder.MAT_HALO] = _mat("light_halo")
 	materials[ChunkBuilder.MAT_HALO].render_priority = 3
+	materials[ChunkBuilder.MAT_TRIM] = _mat("trim")
+	# Photographed materials for Photoreal, if any are in assets/textures/.
+	# (metres per repeat: a real carpet / paper / tile sample is ~1-2 m.)
+	_photo([ChunkBuilder.MAT_CARPET], "carpet", 1.5)
+	_photo([ChunkBuilder.MAT_WALLPAPER], "wallpaper", 1.2)
+	_photo([ChunkBuilder.MAT_CEILING_TILE], "ceiling_tile", 1.2)
+	_photo([ChunkBuilder.MAT_CONC_WALL, ChunkBuilder.MAT_CONC_FLOOR, ChunkBuilder.MAT_CONC_CEIL], "concrete", 2.0)
+
+
+## Optional photo textures: assets/textures/<surface>/albedo.(jpg|png|webp) and
+## normal.(...). Only used in the Photoreal preset; their average colour is
+## divided out, so a photo adds the real grain and wear but not its own tint.
+## Use only CC0 or your own photos.
+func _photo(mats: Array, surface: String, scale: float) -> void:
+	var albedo := _find_tex("res://assets/textures/%s/albedo" % surface)
+	if albedo == null:
+		return
+	var normal := _find_tex("res://assets/textures/%s/normal" % surface)
+	var img := albedo.get_image()
+	if img == null:
+		return
+	img = img.duplicate()
+	if img.is_compressed():
+		img.decompress()
+	img.resize(1, 1, Image.INTERPOLATE_BILINEAR)
+	var mean := img.get_pixel(0, 0)
+	for m in mats:
+		var sm := materials[m] as ShaderMaterial
+		sm.set_shader_parameter("photo_albedo", albedo)
+		if normal:
+			sm.set_shader_parameter("photo_normal", normal)
+		sm.set_shader_parameter("photo_scale", scale)
+		sm.set_shader_parameter("photo_mean", Vector3(mean.r, mean.g, mean.b))
+		sm.set_shader_parameter("photo_on", 1.0)
+	print("Photoreal: using photo texture for ", surface)
+
+
+static func _find_tex(base: String) -> Texture2D:
+	for ext in ["jpg", "png", "webp"]:
+		var path := "%s.%s" % [base, ext]
+		if ResourceLoader.exists(path):
+			return load(path)
+	return null
 
 
 func set_world_seed(seed_value: int) -> void:

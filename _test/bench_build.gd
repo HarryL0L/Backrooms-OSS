@@ -3,14 +3,23 @@ extends SceneTree
 # Run: godot --headless --path . --script res://_test/bench_build.gd
 
 func _init() -> void:
+	# `-- photoreal`: the Photoreal bake (finer lightmaps, corner AO, trim,
+	# directional lightmap, bounce field).
+	if OS.get_cmdline_user_args().has("photoreal"):
+		ChunkBuilder.lm_scale = 0.5
+		ChunkBuilder.photoreal_ao = true
+		ChunkBuilder.detail = true
+		ChunkBuilder.dir_lm = true
+		ChunkBuilder.gi = true
 	var gen := WorldGen.new(12345)
 	var c0 := ChunkManager.chunk_of(gen.spawn_position())
 	var t := Time.get_ticks_usec()
 	var n := 0
 	var verts := 0
 	var texels := 0
-	for dz in range(-2, 3):
-		for dx in range(-2, 3):
+	var r := 1 if OS.get_cmdline_user_args().has("small") else 2
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
 			var b := ChunkBuilder.new(gen, c0 + Vector2i(dx, dz))
 			var d := b.build()
 			n += 1

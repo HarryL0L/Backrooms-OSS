@@ -49,6 +49,12 @@ func _process(delta):
 				views.append(["baths", pool, 0.4, 0.0])
 				views.append(["unlit", dark, 0.0, -0.05])
 				views.append(["mall", Vector3(24, MallLevel.MALL_Y + 0.05, 3.5), -PI * 0.5, 0.05])
+				var lamp_cell := g.cell_of(sp)
+				lamp_cell.y -= posmod(lamp_cell.y, 2)
+				views.append(["ceiling", Vector3((lamp_cell.x + 0.5) * 2.4 + 1.6, 0.05, (lamp_cell.y + 0.5) * 2.4), PI * 0.5, 0.75])
+				views.append(["tiles", pool, 0.4, -0.75])
+				var mall_v = views.filter(func(v): return v[0] == "mall")
+				views = views.filter(func(v): return v[0] != "mall") + mall_v
 				if OS.get_environment("ONLY") != "":
 					views = views.filter(func(v): return v[0] in OS.get_environment("ONLY").split(","))
 				tag += OS.get_environment("TAG")

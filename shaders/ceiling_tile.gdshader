@@ -29,7 +29,7 @@ void fragment() {
 	vec2 f = fract(g);
 	float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * 0.6;
 	float h = hash12(cell + 17.0);
-	vec3 tile = tile_color * (0.92 + 0.12 * h);
+	vec3 tile = tile_color * (0.92 + 0.12 * h) * photo_detail(uv);
 	float sp = texture(noise_fine, uv * 5.0).r;
 	tile *= 0.88 + 0.14 * smoothstep(0.3, 0.7, sp);
 	// Fissured acoustic tile: small dark pits.

@@ -326,6 +326,9 @@ func apply() -> void:
 	ChunkBuilder.lightmaps = get_value("graphics/lightmaps") and not ps1
 	ChunkBuilder.lm_scale = 0.5 if photoreal and ChunkBuilder.lightmaps else 1.0
 	ChunkBuilder.photoreal_ao = photoreal
+	ChunkBuilder.detail = photoreal
+	ChunkBuilder.dir_lm = photoreal and ChunkBuilder.lightmaps
+	ChunkBuilder.gi = photoreal and ChunkBuilder.lightmaps
 	RenderingServer.global_shader_parameter_set("photoreal", 1.0 if photoreal else 0.0)
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
 	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 or ps1

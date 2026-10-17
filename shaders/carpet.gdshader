@@ -28,7 +28,7 @@ void fragment() {
 	float n2 = texture(noise_fine, uv * 11.3 + 0.37).r;
 	float loops = texture(noise_fine, uv * 37.0 + 0.71).r;
 	float blot = texture(noise_blot, uv * 0.085).r;
-	vec3 col = base_color * (0.86 + 0.24 * n1) * (0.84 + 0.22 * n2) * (0.85 + 0.25 * loops);
+	vec3 col = base_color * (0.86 + 0.24 * n1) * (0.84 + 0.22 * n2) * (0.85 + 0.25 * loops) * photo_detail(uv);
 	// Damp, musty patches: darker, browner and slightly glossy.
 	float damp = smoothstep(0.62, 0.8, blot);
 	col = mix(col, col * vec3(0.66, 0.6, 0.46), damp * 0.6);
@@ -37,7 +37,9 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = mix(0.98, 0.55, damp);
 	SPECULAR = mix(0.2, 0.45, damp);
-	NORMAL_MAP = texture(noise_normal, uv * 3.0).rgb;
+	vec3 nm = photo_nmap(uv, texture(noise_normal, uv * 3.0).rgb);
+	NORMAL_MAP = nm;
 	NORMAL_MAP_DEPTH = 0.8;
-	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.1) + dither(FRAGCOORD.xy);
+	float bump = baked_bump(v_lm, nmap_normal(nm, 1.3, uv_frame(NORMAL, VERTEX, uv)), NORMAL, VIEW_MATRIX);
+	EMISSION = col * v_light * bump + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.1) + dither(FRAGCOORD.xy);
 }

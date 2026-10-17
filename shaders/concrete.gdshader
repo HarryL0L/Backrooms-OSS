@@ -24,13 +24,41 @@ void vertex() {
 	v_ps1_aff = vec3(UV * POSITION.w, POSITION.w);
 }
 
+// Brick pavers: 1 on a brick, 0 down in the mortar (running bond, as below).
+float brick_height(vec2 uv) {
+	vec2 b = uv / vec2(0.2, 0.1);
+	b.x += step(1.0, mod(floor(b.y), 2.0)) * 0.5;
+	vec2 bf = fract(b);
+	float joint = min(min(bf.x, 1.0 - bf.x) * 0.2, min(bf.y, 1.0 - bf.y) * 0.1);
+	return smoothstep(0.003, 0.011, joint);
+}
+
 void fragment() {
 	vec3 v_light = lightmap_light(v_vlight, v_lm);
 	vec2 uv = ps1_uv(UV);
+	mat3 tbn = uv_frame(NORMAL, VERTEX, uv);
+	vec3 bnorm = NORMAL;
+	if (kind == 4 && photoreal > 0.5) {
+		// Parallax: the pavers stand proud of sunken mortar joints.
+		vec3 vt = normalize(vec3(dot(VIEW, tbn[0]), dot(VIEW, tbn[1]), dot(VIEW, NORMAL)));
+		vec2 stp = -vt.xy / max(vt.z, 0.25) * 0.014 / 10.0;
+		float layer = 0.0;
+		for (int i = 0; i < 10; i++) {
+			if (layer >= 1.0 - brick_height(uv)) {
+				break;
+			}
+			uv += stp;
+			layer += 0.1;
+		}
+		float e = 0.004;
+		float hx = brick_height(uv + vec2(e, 0.0)) - brick_height(uv - vec2(e, 0.0));
+		float hy = brick_height(uv + vec2(0.0, e)) - brick_height(uv - vec2(0.0, e));
+		bnorm = normalize(tbn * vec3(-hx * 0.9, -hy * 0.9, 1.0));
+	}
 	float n1 = texture(noise_fine, uv * 1.3).r;
 	float n2 = texture(noise_fine, uv * 7.0 + 0.3).r;
 	float blot = texture(noise_blot, uv * 0.11).r;
-	vec3 col = base_color * (0.8 + 0.3 * n1) * (0.92 + 0.12 * n2);
+	vec3 col = base_color * (0.8 + 0.3 * n1) * (0.92 + 0.12 * n2) * photo_detail(uv);
 	col = mix(col, col * vec3(0.8, 0.78, 0.74), smoothstep(0.45, 0.75, blot) * 0.6);
 	float rough = 0.88;
 	vec3 extra = vec3(0.0);
@@ -91,7 +119,15 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	SPECULAR = 0.4;
-	NORMAL_MAP = texture(noise_normal, uv * 0.9).rgb;
-	NORMAL_MAP_DEPTH = 0.6;
-	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 1.0 - rough) + extra + dither(FRAGCOORD.xy);
+	vec3 nm = photo_nmap(uv, texture(noise_normal, uv * 0.9).rgb);
+	float bump = 1.0;
+	if (kind == 4 && photoreal > 0.5) {
+		NORMAL = bnorm;
+		bump = baked_bump(v_lm, bnorm, tbn[2], VIEW_MATRIX);
+	} else {
+		NORMAL_MAP = nm;
+		NORMAL_MAP_DEPTH = 0.6;
+		bump = baked_bump(v_lm, nmap_normal(nm, 1.0, tbn), NORMAL, VIEW_MATRIX);
+	}
+	EMISSION = col * v_light * bump + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 1.0 - rough) + extra + dither(FRAGCOORD.xy);
 }
