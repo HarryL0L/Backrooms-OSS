@@ -463,6 +463,8 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		dacc += sd * sun * 3.0 + Vector3.UP * sky
 	if gi and _gi_ready:
 		var ind := _gi_sample(u, v)
+		if b == WorldGen.DARK:
+			ind *= 0.3          # the Unlit Halls stay dark
 		r += ind.r
 		g += ind.g
 		bl += ind.b
@@ -1393,7 +1395,7 @@ func _casing(axis: int, face: float, sgn: float, o0: float, o1: float, yb: float
 
 ## A flat strip under the ceiling (bottom plus two sides), lit at its two ends
 ## only: cheap enough for the whole grid.
-func _ceiling_strip(x0: float, z0: float, x1: float, z1: float, y: float, drop: float) -> void:
+func _ceiling_strip(x0: float, z0: float, x1: float, z1: float, y: float, drop: float, sides := true) -> void:
 	var b := buf(MAT_TRIM)
 	var la := shade(Vector3(x0, y - drop - 0.05, z0), Vector3.DOWN)
 	var lb := shade(Vector3(x1, y - drop - 0.05, z1), Vector3.DOWN)
@@ -1403,11 +1405,10 @@ func _ceiling_strip(x0: float, z0: float, x1: float, z1: float, y: float, drop: 
 	var yb := y - drop
 	var A := Vector3(x0, yb, z0)
 	var B := Vector3(x1, yb, z1)
-	var quads := [
-		[A - side, B - side, B + side, A + side, Vector3.DOWN],
-		[A - side + Vector3(0, drop, 0), B - side + Vector3(0, drop, 0), B - side, A - side, -side.normalized()],
-		[A + side, B + side, B + side + Vector3(0, drop, 0), A + side + Vector3(0, drop, 0), side.normalized()],
-	]
+	var quads := [[A - side, B - side, B + side, A + side, Vector3.DOWN]]
+	if sides:
+		quads.append([A - side + Vector3(0, drop, 0), B - side + Vector3(0, drop, 0), B - side, A - side, -side.normalized()])
+		quads.append([A + side, B + side, B + side + Vector3(0, drop, 0), A + side + Vector3(0, drop, 0), side.normalized()])
 	for q in quads:
 		var st := b.v.size()
 		var nrm: Vector3 = q[4]
@@ -1430,13 +1431,13 @@ func _tbar_grid(xa: float, za: float, c: float, has_light: bool, panel: Vector2)
 	for k in 4:
 		var x := xa + k * G
 		if has_light and absf(x - cx) < panel.x * 0.5 - 0.02:
-			_ceiling_strip(x, za, x, cz - panel.y * 0.5, c, DROP)
-			_ceiling_strip(x, cz + panel.y * 0.5, x, za + CELL, c, DROP)
+			_ceiling_strip(x, za, x, cz - panel.y * 0.5, c, DROP, false)
+			_ceiling_strip(x, cz + panel.y * 0.5, x, za + CELL, c, DROP, false)
 		else:
-			_ceiling_strip(x, za, x, za + CELL, c, DROP)
+			_ceiling_strip(x, za, x, za + CELL, c, DROP, false)
 	for k in 4:
 		var z := za + 0.3 + k * G
-		_ceiling_strip(xa, z, xa + CELL, z, c, DROP)
+		_ceiling_strip(xa, z, xa + CELL, z, c, DROP, false)
 
 
 ## Light fitting (troffer) rim round the panel: the diffuser sits up in a

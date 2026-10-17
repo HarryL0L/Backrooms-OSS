@@ -275,7 +275,7 @@ const PRESETS := [
 	# (any renderer, no Forward+ needed): lightmaps baked twice as sharp, our
 	# screen-space ambient occlusion, eye adaptation, a neutral filmic grade
 	# and a clean image (no grain, lens fringing, PS1 or dither).
-	{"graphics/render_scale": 1.0, "graphics/fsr": false, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": false, "graphics/aa": 2, "graphics/view_distance": 6, "graphics/water_reflections": 2,
+	{"graphics/render_scale": 1.0, "graphics/fsr": false, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": false, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
 		"graphics/lens_fx": false, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true,
 		"graphics/ps1": false, "graphics/photoreal": true},
 ]
