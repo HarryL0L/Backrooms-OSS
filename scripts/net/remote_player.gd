@@ -148,9 +148,22 @@ func _process(delta: float) -> void:
 	_light_t -= delta
 	if _light_t <= 0.0 and gen:
 		_light_t = 0.3
-		var c := Color.BLACK
-		if not in_field and not in_mall:
-			c = Color(1.0, 0.97, 0.9) * clampf(gen.light_level_near(pos + Vector3.UP * 1.2) * 0.35, 0.04, 1.1)
+		var c: Color
+		if in_mall:
+			c = Color(0.55, 0.53, 0.5)            # same as the mannequins there
+		elif in_field:
+			c = Color(0.32, 0.34, 0.38)           # sky light; the sun adds the rest
+		else:
+			# Lamps further out light big open halls too (the old 2-cell
+			# search left people black in the middle of a lit room), and
+			# never darker than the level's own ambient, plus a little so
+			# you can always make out a fellow wanderer.
+			var cl := gen.cell_of(pos)
+			var bio := gen.biome_at(cl.x, cl.y)
+			var lv := gen.light_level_near(pos + Vector3.UP * 1.2, 4)
+			var floor_v := 0.09 if bio == WorldGen.DARK else 0.16
+			var tint: Color = WorldGen.BOUNCE_TINT[bio].lerp(Color.WHITE, 0.5)
+			c = tint * clampf(lv * 0.4, floor_v, 1.1) + WorldGen.AMBIENT[bio] * 2.0
 		model.set_env_light(c)
 
 

@@ -352,11 +352,11 @@ func spawn_position() -> Vector3:
 
 
 ## Rough local light level at a position (used by audio for the fluorescent hum).
-func light_level_near(p: Vector3) -> float:
+func light_level_near(p: Vector3, radius := 2) -> float:
 	var c := cell_of(p)
 	var total := 0.0
-	for dz in range(-2, 3):
-		for dx in range(-2, 3):
+	for dz in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
 			var gx := c.x + dx
 			var gz := c.y + dz
 			var b := biome_at(gx, gz)
