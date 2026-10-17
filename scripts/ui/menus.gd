@@ -12,7 +12,7 @@ static func button(text: String, cb: Callable, min_w := 340) -> Button:
 	return b
 
 
-## Main menu shown over a slowly drifting view of the Lobby.
+## Main menu shown over a slowly drifting view of the Yellow Halls.
 static func main_menu(game: Node) -> Control:
 	var root := Control.new()
 	root.name = "MainMenu"
@@ -49,7 +49,7 @@ static func main_menu(game: Node) -> Control:
 	var sub := UITheme.title_label("O P E N   S O U R C E   ·   v" + str(ProjectSettings.get_setting("application/config/version")), 18)
 	sub.add_theme_color_override("font_color", UITheme.DIM)
 	v.add_child(sub)
-	var quote := UITheme.title_label("\"If you're not careful and you noclip out of reality\nin the wrong areas, you'll end up in the Backrooms.\"", 17)
+	var quote := UITheme.title_label("\"There's a hum behind the walls. Follow it far enough\nand you won't find the way back.\"", 17)
 	quote.add_theme_color_override("font_color", Color(0.75, 0.72, 0.6, 0.8))
 	v.add_child(quote)
 	var spacer := Control.new()

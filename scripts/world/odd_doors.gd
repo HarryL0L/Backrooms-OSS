@@ -1,6 +1,6 @@
 class_name OddDoors
 extends Node3D
-## Places the rare mysterious doors (OddDoor) on Lobby walls near the player.
+## Places the rare mysterious doors (OddDoor) on Yellow Halls walls near the player.
 ## Each REGION x REGION cell area may hold one, at a spot derived from the world
 ## seed, so a door is always in the same place for a given seed.
 

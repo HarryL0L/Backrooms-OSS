@@ -1,5 +1,5 @@
 extends Node
-# Dev harness: Potato preset in the Unlit Halls and a dim Lobby corner, with
+# Dev harness: Potato preset in the Unlit Halls and a dim Yellow Halls corner, with
 # and without the dark lift, plus the shader flashlight.
 var game
 var out := OS.get_user_data_dir() + "/dark"

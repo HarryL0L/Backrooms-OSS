@@ -62,7 +62,7 @@ func _ready():
 		for k in 12:
 			var o := Vector3(float(k % 3 - 1) * 2.4, 1.6, float(k / 3 - 1) * 2.4)
 			shots.append([sp + o, k * PI / 6.0, "close%02d" % k, -0.35 if k % 2 == 0 else 0.0])
-	# `-- <seed> pipes`: views inside Pipe Dreams (pipe joints, corners, wall bends).
+	# `-- <seed> pipes`: views inside Pipeworks (pipe joints, corners, wall bends).
 	if args.size() > 1 and args[1] == "pipes":
 		shots.clear()
 		var pc := Vector2i.ZERO

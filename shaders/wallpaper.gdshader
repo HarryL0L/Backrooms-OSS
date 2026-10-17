@@ -70,7 +70,7 @@ void fragment() {
 	}
 	float y = -uv.y;
 	// Columns of stacked chevrons separated by thin double pinstripes,
-	// the classic Level 0 wallpaper.
+	// the classic yellow-halls wallpaper.
 	const float COL_W = 0.21;
 	float cu = fract(uv.x / COL_W);
 	float aa = clamp(fwidth(uv.x / COL_W) * 3.0, 0.0, 1.0);

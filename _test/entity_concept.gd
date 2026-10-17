@@ -1,5 +1,5 @@
 extends Node3D
-# Concept render of "The Lining": a figure pressing out through the Lobby
+# Concept render of "The Lining": a figure pressing out through the Yellow Halls
 # wallpaper. Uses the game's own wallpaper/carpet/ceiling shaders.
 # Run: godot --path . res://_test/entity_concept.tscn -- <out_prefix>
 

@@ -268,7 +268,7 @@ func _build_shots():
 			var pitch := atan2(lp.y - 1.62, d.length()) * 0.8
 			return [e, yaw_to(d) + 0.05 * f, pitch]})
 
-	# Level 37: the sun gallery's god rays, then the water.
+	# the sun gallery's god rays, then the water.
 	var gc := find_cell(func(c: Vector2i):
 		var y0: int = c.y - posmod(c.y, 5) + 1
 		for dx in range(-6, 7):
@@ -288,11 +288,11 @@ func _build_shots():
 		"at": func(): return [pp, 0.0, -0.45],
 		"pose": func(f: float): return [pp + Vector3(0, 0, -1.6 * sm(f)), 0.1 * f, -0.45 + 0.15 * f]})
 
-	# Pipe Dreams, the Habitable Zone, the Unlit Halls.
+	# Pipeworks, the Grey Floors, the Unlit Halls.
 	var pdc := find_cell(func(c: Vector2i): return g.biome_at(c.x, c.y) == 4 and posmod(c.x, 4) == 0 and biome_block(c, 4, 3) and not g.is_solid(c.x, c.y - 1, 4))
 	shots.append(dolly("pipes", cpos(pdc), 4.5, 3.5, 0.08))
 	var hc := find_cell(func(c: Vector2i): return biome_block(c, 2, 3))
-	shots.append(dolly("habitable", cpos(hc), 4.0, 3.5, -0.06))
+	shots.append(dolly("grey_floors", cpos(hc), 4.0, 3.5, -0.06))
 	var uc := find_cell(func(c: Vector2i): return biome_block(c, 3, 4))
 	var ud := dolly("unlit", cpos(uc), 5.5, 3.0, -0.08, 0.15)
 	ud.prep = func(): game.player.set_flashlight(true)
@@ -346,7 +346,7 @@ func _build_shots():
 			S.fade = clampf((f - 0.72) / 0.28, 0, 1),
 		"pose": func(f: float): return [fpos + Vector3(lerpf(3.4, 1.3, sm(f)), 0.05, 0), PI * 0.5, 0.0]})
 
-	# Level 10: the Field.
+	# The Meadow.
 	shots.append({"name": "field", "secs": 6.5, "wait": 4.0,
 		"prep": func():
 			game._enter_field()

@@ -1,5 +1,5 @@
 extends Node
-# Dev harness: finds a Dead Mall door in the Lobby, walks through it, checks
+# Dev harness: finds a Dead Mall door in the Yellow Halls, walks through it, checks
 # the mall loads; then walks out through the mall's exit door.
 var game
 var out := OS.get_user_data_dir() + "/mall_door"

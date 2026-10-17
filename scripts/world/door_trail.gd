@@ -72,7 +72,7 @@ static func _open(g: WorldGen, a: Vector2i, b: Vector2i) -> bool:
 func _compute(g: WorldGen, start_cell: Vector2i, seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	# Stay in the door's own level: wanderers marked the Lobby, not the
+	# Stay in the door's own level: wanderers marked the Yellow Halls, not the
 	# pipes or the concrete halls next to it.
 	var home := g.biome_at(start_cell.x, start_cell.y)
 	var dist := {start_cell: 0}

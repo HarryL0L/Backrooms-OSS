@@ -1,7 +1,7 @@
 extends Node
-# Dev harness: Level 0 details. Photographs a wall with an empty mount and
+# Dev harness: Yellow Halls details. Photographs a wall with an empty mount and
 # outlets, a sodden patch of carpet; then steps on it (the floor gives way:
-# you fall through The Void into the Lobby somewhere else).
+# you fall through the dark into the Lobby somewhere else).
 var game
 var out := OS.get_user_data_dir() + "/lobby"
 var step := 0

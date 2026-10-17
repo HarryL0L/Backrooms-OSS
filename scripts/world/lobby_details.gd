@@ -1,6 +1,6 @@
 class_name LobbyDetails
 extends Node3D
-## The small things Level 0 is known for, around the player:
+## The small things in the Yellow Halls, around the player:
 ##  - scattered electrical outlets, light switches and vent grilles low on
 ##    the walls, and empty mounts (a paler patch with screw holes where
 ##    something once hung);

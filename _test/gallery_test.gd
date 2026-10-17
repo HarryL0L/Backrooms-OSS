@@ -1,5 +1,5 @@
 extends Node
-# Dev harness: screenshots of a Poolrooms sun gallery (windows, sun patches, god rays).
+# Dev harness: screenshots of a Tiled Baths sun gallery (windows, sun patches, god rays).
 var game
 var out := OS.get_user_data_dir() + "/gallery"
 var step := 0

@@ -13,7 +13,7 @@ uniform float reflection_on = 0.0;
 uniform sampler2D ripple_tex : hint_default_black, filter_linear, repeat_disable;
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 16.0);   // grid min corner x, z and size (m)
 uniform float ripple_on = 0.0;
-// Own fog instead of the room's: the pale Poolrooms fog turned distant water
+// Own fog instead of the room's: the pale Tiled Baths fog turned distant water
 // grey-white while the white walls barely changed. Water fades into a teal
 // haze (as if seen through more water) and a bit more slowly.
 uniform vec3 water_fog : source_color = vec3(0.34, 0.44, 0.43);

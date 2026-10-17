@@ -1134,7 +1134,7 @@ func _smooth_grid(mat: int, pos: PackedVector3Array, nrm: PackedVector3Array, uv
 			_tri_quad(b, a, a + 1, a + 1 + nu, a + nu, flip)
 
 
-## Round tiled column (Poolrooms).
+## Round tiled column (Tiled Baths).
 func _emit_column(mat: int, cx: float, cz: float, r: float, f: float, c: float) -> void:
 	var segs := 14
 	var ys := _rows(f, c)
@@ -1408,8 +1408,8 @@ func _emit_skylight(cx: float, cz: float, _f: float, c: float) -> void:
 	_emit_halo(Vector3(cx, c - 0.1, cz), emit * 0.6, 0.0, 5.0)
 
 
-## Service pipes running along every wall of a Pipe Dreams corridor.
-## Pipe runs along the walls of a Pipe Dreams cell. Each wall section draws
+## Service pipes running along every wall of a Pipeworks corridor.
+## Pipe runs along the walls of a Pipeworks cell. Each wall section draws
 ## its stretch of every pipe and decides what happens at both ends: carry on
 ## straight into the next section (with a coupling), meet the pipe on the
 ## perpendicular wall at an inside corner (elbow fitting), or, where the wall

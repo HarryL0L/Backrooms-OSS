@@ -1,9 +1,9 @@
 class_name WaterReflection
 extends Node
-## Real-time planar reflection for the Poolrooms water. Every pool in the world
+## Real-time planar reflection for the Tiled Baths water. Every pool in the world
 ## shares one water height, so a single mirrored camera rendering at reduced
 ## resolution gives true reflections of walls, arches, columns and lights.
-## Only active while the player is in the Poolrooms.
+## Only active while the player is in the Tiled Baths.
 
 var source: Camera3D
 var material: ShaderMaterial

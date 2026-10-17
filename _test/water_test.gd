@@ -1,5 +1,5 @@
 extends Node
-# Dev harness: looks across a big Poolrooms pool (Medium preset) to compare
+# Dev harness: looks across a big Tiled Baths pool (Medium preset) to compare
 # near and far water colour.
 var game
 var out := OS.get_user_data_dir() + "/water"

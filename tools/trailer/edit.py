@@ -25,14 +25,14 @@ SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 # The cut: ("shot", name, fade_in, fade_out) or ("card", lines, secs) or
 # ("black", secs). Fades are in seconds (to/from black).
 EDIT = [
-    ("card", ["You noclipped out of reality."], 3.0),
+    ("card", ["You stepped through a wall that wasn't there."], 3.0),
     ("shot", "lobby", 0.8, 0.0),
     ("shot", "flicker", 0.0, 0.3),
     ("card", ["The hum never stops."], 2.2),
     ("shot", "gallery", 0.3, 0.0),
     ("shot", "pool", 0.0, 0.0),
     ("shot", "pipes", 0.0, 0.0),
-    ("shot", "habitable", 0.0, 0.0),
+    ("shot", "grey_floors", 0.0, 0.0),
     ("shot", "unlit", 0.0, 0.4),
     ("card", ["Someone left arrows on the walls."], 2.4),
     ("shot", "arrow", 0.3, 0.0),
@@ -73,7 +73,7 @@ def card_frames(lines, secs, out_dir, title=False):
         f1 = font(SANS_B, 92)
         t = "BACKROOMS-OSS"
         tw = d.textlength(t, font=f1)
-        # A sodium-yellow glow behind the title, like the Lobby's light.
+        # A sodium-yellow glow behind the title, like the Yellow Halls' light.
         glow = Image.new("RGB", (W, H), (0, 0, 0))
         gd = ImageDraw.Draw(glow)
         gd.text(((W - tw) / 2, H / 2 - 80), t, font=f1, fill=(200, 180, 90))

@@ -1,5 +1,5 @@
 extends Node
-# Dev harness: PS1 style screenshots (Lobby, Poolrooms, sun gallery) plus a normal-mode Lobby for comparison.
+# Dev harness: PS1 style screenshots (Yellow Halls, Tiled Baths, sun gallery) plus a normal-mode Yellow Halls for comparison.
 var game
 var out := OS.get_user_data_dir() + "/ps1"
 var step := 0

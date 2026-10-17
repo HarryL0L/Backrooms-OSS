@@ -8,8 +8,8 @@ extends RefCounted
 ##
 ## The world is a flat grid of square cells. Walls live on cell *edges*, lights
 ## at cell centres, pillars at cell *vertices*. Large Voronoi regions decide the
-## "level" (biome) a cell belongs to, so the Lobby flows into the Poolrooms, the
-## concrete Habitable Zone and the unlit halls without loading screens.
+## "level" (biome) a cell belongs to, so the Yellow Halls flow into the Tiled Baths, the
+## concrete Grey Floors and the unlit halls without loading screens.
 
 const CELL := 2.4
 const CHUNK := 8
@@ -18,8 +18,7 @@ const REGION := 34.0
 
 enum { LOBBY, POOL, CONCRETE, DARK, PIPES }
 const BIOME_COUNT := 5
-const BIOME_NAMES := ["Level 0 - The Lobby", "Level 37 - The Poolrooms", "Level 1 - Habitable Zone",
-	"Level 0.1 - The Unlit Halls", "Level 2 - Pipe Dreams"]
+const BIOME_NAMES := ["The Yellow Halls", "The Tiled Baths", "The Grey Floors", "The Unlit Halls", "The Pipeworks"]
 
 # Edge kinds.
 const E_OPEN := 0
@@ -30,7 +29,7 @@ const E_GATE := 4
 const E_WINDOW := 5
 const DOOR_W := [0.0, 0.0, 1.1, 1.7, 1.7, 0.95]
 const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95]
-# Sun gallery windows (Poolrooms): absolute sill height (top is DOOR_H[E_WINDOW]).
+# Sun gallery windows (Tiled Baths): absolute sill height (top is DOOR_H[E_WINDOW]).
 const WIN_Y0 := 0.45
 
 # Per-biome constants.
@@ -43,7 +42,7 @@ const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0, 7.0]
 const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.09, 0.10, 0.10), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008)]
 # Approximate colour of light after bouncing off the room surfaces.
 const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.65, 0.65, 0.65), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42)]
-# Skylights in the Poolrooms: warm "sunlight" pouring in from above.
+# Skylights in the Tiled Baths: warm "sunlight" pouring in from above.
 const SKY_COLOR := Color(1.0, 0.9, 0.72)
 const SKY_POWER := 5.0
 const SKY_RADIUS := 10.5
@@ -173,7 +172,7 @@ func pool_noise(gx: int, gz: int) -> bool:
 	return vnoise(gx * 0.11, gz * 0.11, 21) > 0.47
 
 
-## Pipe Dreams is a maze of narrow service corridors cut through solid rock:
+## Pipeworks is a maze of narrow service corridors cut through solid rock:
 ## corridors run along every 4th row/column, with random segments missing.
 func is_solid(gx: int, gz: int, b: int) -> bool:
 	if b != PIPES or near_spawn(gx, gz, 1):
@@ -186,7 +185,7 @@ func is_solid(gx: int, gz: int, b: int) -> bool:
 	return vnoise(gx * 0.3, gz * 0.3, 83) < 0.78
 
 
-## Part of a sun gallery (only meaningful inside the Poolrooms).
+## Part of a sun gallery (only meaningful inside the Tiled Baths).
 func gallery(gx: int, gz: int) -> bool:
 	return vnoise(gx * 0.045, gz * 0.045, 58) > 0.6 and not near_spawn(gx, gz, 6)
 

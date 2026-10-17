@@ -1,7 +1,7 @@
 class_name Ambience
 extends Node3D
 ## Drives all world audio: the omnipresent fluorescent hum (louder under
-## working lights), room tone, Poolroom water, buzzing faulty tubes in sync
+## working lights), room tone, Tiled Baths water, buzzing faulty tubes in sync
 ## with their visual flicker, footsteps, and rare distant noises.
 
 const REVERB := [
@@ -79,7 +79,7 @@ func _generate() -> void:
 	g.water = AudioSynth.water_loop()
 	g.buzz = AudioSynth.buzz()
 	g.click = AudioSynth.click()
-	# Shared by the doors, the Field and the Poolroom drips; made here, off the
+	# Shared by the doors, the Field and the Tiled Baths drips; made here, off the
 	# main thread, so they never cause a hitch later.
 	for fn in ["draught", "hum", "wind", "drip", "paper", "exhale"]:
 		AudioSynth.cached(fn)

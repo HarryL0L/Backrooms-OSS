@@ -1,7 +1,7 @@
 class_name FieldLevel
 extends Node3D
-## Level 10 - The Field: an endless sunlit lawn under a deep blue sky with
-## towering cumulus clouds. Reached through a rare door in the Lobby; the way
+## The Meadow: an endless sunlit lawn under a deep blue sky with
+## towering cumulus clouds. Reached through a rare door in the Yellow Halls; the way
 ## back is a lone door standing somewhere out in the grass.
 ##
 ## It lives far below the Backrooms (FIELD_Y) so both can exist in one scene

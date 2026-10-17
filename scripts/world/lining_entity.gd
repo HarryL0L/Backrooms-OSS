@@ -1,8 +1,8 @@
 class_name LiningEntity
 extends Node
-## "The Lining": something behind the wallpaper of the Unlit Halls (Level
-## 0.1; the Lobby itself is devoid of entities, as the wiki has it). You only ever see a
-## face pressing out through the paper (sometimes hands too), slowly
+## "The Lining": something behind the wallpaper of the Unlit Halls (the
+## Yellow Halls themselves have nothing in them). You only ever see a face
+## pressing out through the paper (sometimes hands too), slowly
 ## breathing. It never attacks and never chases; it appears in dim spots at
 ## the edge of your view or behind you, moves closer whenever you look away,
 ## and smooths back into the wall soon after you look straight at it.
@@ -135,7 +135,7 @@ func _end_episode() -> void:
 	_timer = _rng.randf_range(45.0, 120.0)
 
 
-## Moves it to a Lobby wall dmin..dmax metres away that is out of view (but
+## Moves it to a wall dmin..dmax metres away that is out of view (but
 ## in line of sight once you turn). It forms there from flat.
 func _relocate(dmin: float, dmax: float) -> bool:
 	var cand := _candidates(dmin, dmax)

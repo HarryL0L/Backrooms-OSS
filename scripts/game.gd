@@ -6,9 +6,9 @@ enum State { BOOT, MENU, LOADING, PLAYING, PAUSED, EDIT_TOUCH }
 
 const SAVE_PATH := "user://save.cfg"
 const MENU_SEED := 7355608
-const FIELD_NAME := "Level 10 - The Field"
+const FIELD_NAME := "The Meadow"
 const SUBTITLES := [
-	"Mono-yellow wallpaper. Damp carpet. The hum.",
+	"Yellow wallpaper. Damp carpet. The hum of the lights.",
 	"Warm water. White tiles. Nobody else.",
 	"Concrete, puddles and flickering tubes.",
 	"The lights have died here. Use your flashlight.",
@@ -37,7 +37,7 @@ var _built_lightmaps := true
 var _built_rays := true
 var odd_doors: OddDoors
 var details: LobbyDetails
-var field: FieldLevel          # Level 10, only while you're in it
+var field: FieldLevel          # the Meadow, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
 var _in_mall := false
 var world_env: WorldEnvironment
@@ -284,7 +284,7 @@ func _update_touch_visibility() -> void:
 func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: Callable) -> void:
 	state = State.LOADING
 	hud.set_fade(1.0)
-	hud.set_loading(true, "Noclipping...")
+	hud.set_loading(true, "Slipping through...")
 	player.controls_enabled = false
 	player.set_physics_process(false)
 	if seed_value != _world_seed:
@@ -373,7 +373,7 @@ func _check_loading() -> void:
 		parts.append("building rooms")
 	if not ambience.is_ready():
 		parts.append("making sounds")
-	hud.set_loading(true, "Noclipping...\n" + ", ".join(parts))
+	hud.set_loading(true, "Slipping through...\n" + ", ".join(parts))
 
 
 func _enter_menu() -> void:
@@ -465,7 +465,7 @@ func new_game() -> void:
 func _intro() -> void:
 	ambience.enabled = false
 	await hud.story([
-		"You noclipped out of reality.",
+		"You stepped through a wall that wasn't there.",
 		"The smell of old, moist carpet. The endless hum of fluorescent lights.",
 		"Rooms without end. Find a way out.",
 	], 2.2)
@@ -1011,8 +1011,7 @@ func _on_dresser_caught() -> void:
 
 
 ## Stepped on a sodden patch of carpet: the floor gives way, and you fall
-## through The Void (the wiki's other way out of Level 0 through the floor),
-## landing somewhere far off in the Lobby.
+## through the dark under it, landing somewhere far off in the Yellow Halls.
 func _on_floor_gave_way() -> void:
 	if state != State.PLAYING or _transition or _away():
 		return
@@ -1036,7 +1035,7 @@ func _on_floor_gave_way() -> void:
 	add_child(rush)
 	rush.play()
 	ambience.enabled = false
-	await hud.story(["The floor gave way.", "You fall through The Void for what feels like hours.", "Then: damp carpet, and the hum."], 2.0)
+	await hud.story(["The floor gave way.", "You fall through the dark for what feels like hours.", "Then: damp carpet, and the hum."], 2.0)
 	rush.queue_free()
 	crack.queue_free()
 	player.set_physics_process(true)

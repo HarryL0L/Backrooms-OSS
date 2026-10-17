@@ -100,7 +100,7 @@ float hash12(vec2 p) {
 }
 
 // Reflection of the ceiling light grid seen in a mirror-like horizontal surface.
-// mode 0 = Poolrooms (checker, 1.1 m panels), 1 = Habitable Zone (tubes every 3 cells).
+// mode 0 = Tiled Baths (checker, 1.1 m panels), 1 = Grey Floors (tubes every 3 cells).
 vec3 ceiling_reflection(vec3 wpos, vec3 cam, vec3 n, float ceil_y, int mode, float t) {
 	vec3 v = normalize(wpos - cam);
 	vec3 r = reflect(v, n);
@@ -140,7 +140,7 @@ vec3 ceiling_reflection(vec3 wpos, vec3 cam, vec3 n, float ceil_y, int mode, flo
 	return col * mask * on / (1.0 + dist * 0.15);
 }
 
-// Height of the water surface in the Poolrooms (WorldGen.WATER_Y). The planar
+// Height of the water surface in the Tiled Baths (WorldGen.WATER_Y). The planar
 // reflection camera sits below it; for that camera everything under the plane is
 // squashed onto the plane so it can't block the reflected view. Done in the vertex
 // shader (not with discard) to keep early-Z intact on mobile GPUs.

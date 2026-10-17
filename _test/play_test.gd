@@ -59,7 +59,7 @@ func _process(d):
 				shot("bindings"); step = 8; t = 0
 				game.settings_menu.close()
 				game.resume()
-				# teleport into the poolrooms to test water + climbing
+				# teleport into the tiled baths to test water + climbing
 				var g = game.gen
 				for r in range(5, 300):
 					var found = false

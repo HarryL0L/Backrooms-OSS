@@ -137,7 +137,7 @@ static func drone() -> AudioStreamWAV:
 	return to_wav(_normalize(_make_loop(s, length), 0.6), true)
 
 
-## Gentle lapping water for the Poolrooms.
+## Gentle lapping water for the Tiled Baths.
 static func water_loop() -> AudioStreamWAV:
 	var length := RATE * 6
 	var n := length + RATE / 2

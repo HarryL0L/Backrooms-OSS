@@ -2,7 +2,7 @@ class_name OddDoor
 extends Node3D
 ## The mysterious door: a sky-blue painted door in a white frame with a brass
 ## knob, daylight leaking from the gap under it. Nothing else in the Backrooms
-## looks like it. In the Lobby it sits on a wall; in the Field it stands alone
+## looks like it. In the Yellow Halls it sits on a wall; in the Field it stands alone
 ## in the grass (and the Backrooms hum leaks out of it instead).
 ## The door faces local +Z; the player walks into it to go through.
 
