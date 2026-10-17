@@ -75,7 +75,7 @@ void fragment() {
 	float cu = fract(uv.x / COL_W);
 	float aa = clamp(fwidth(uv.x / COL_W) * 3.0, 0.0, 1.0);
 	float chev_v = fract(y / 0.16 + abs(cu - 0.5) * 1.1);
-	float chev = smoothstep(0.0, 0.05, chev_v) * smoothstep(0.24, 0.17, chev_v);
+	float chev = smoothstep(0.0, 0.05, chev_v) * smoothstep(0.24, 0.17, chev_v) * 0.75;
 	chev *= smoothstep(0.08, 0.14, cu) * smoothstep(0.92, 0.86, cu);
 	float pin = smoothstep(0.012, 0.0, abs(cu - 0.015)) + smoothstep(0.012, 0.0, abs(cu - 0.045));
 	float pattern = mix(clamp(chev * 0.8 + pin * 0.7, 0.0, 1.0), 0.18, smoothstep(0.15, 0.6, aa));

@@ -3,7 +3,8 @@
 Bakes the detailed sculpt (window_dresser.py) onto a light mesh: colour and
 tangent-space normal maps, so the ribs, cracks and broken shell still read
 at a fraction of the triangles. Same rig; stop-motion animations as actions
-(one pose each, or a cycle with constant interpolation). Exports one GLB.
+(one pose each held still, stop-motion; the run and walk cycles are
+interpolated so the chase moves fluidly). Exports one GLB.
 
 Run:  python window_dresser_game.py <out.glb> [--tex 1024] [--preview dir]
 """
@@ -150,8 +151,9 @@ for o in stand:
 
 
 # ----------------------------------------------------------- animations ---
-def key_pose(action_name, frames, cycle=False):
-    """frames: list of bone-direction dicts, one per stop-motion frame."""
+def key_pose(action_name, frames, cycle=False, smooth=False):
+    """frames: list of bone-direction dicts, one per stop-motion frame
+    (smooth: interpolated between them instead, for the chase cycles)."""
     act = bpy.data.actions.new(action_name)
     arm.animation_data_create()
     arm.animation_data.action = act
@@ -167,7 +169,7 @@ def key_pose(action_name, frames, cycle=False):
             pb.keyframe_insert("location", frame=len(frames) * 3 + 1)
     for fc in _fcurves(act):
         for k in fc.keyframe_points:
-            k.interpolation = "CONSTANT"
+            k.interpolation = "LINEAR" if smooth else "CONSTANT"
     act.use_fake_user = True
     return act
 
@@ -196,18 +198,42 @@ stalk = [
     mixed(REST, head=(-0.3, -0.35, 1.0), neck=(0.0, -0.3, 1.0), farm_r=(0.1, -1.0, 0.2), hand_r=(0.0, -1.0, 0.5)),
     mixed(REST, spine=(0.0, -0.25, 1.0), head=(0.55, -0.5, 0.7), uarm_r=(0.2, -0.6, -1.0), marm_r=(0.1, -1.0, -0.2)),
 ]
+# The sprint: 12 poses, interpolated. Bent double, long loping strides,
+# the long arms reaching ahead in turn, the head bobbing and twitching on
+# its neck (it doesn't move like anything with one elbow per arm).
 run = []
-for k in range(6):
-    a = 2 * math.pi * k / 6
+for k in range(12):
+    a = 2 * math.pi * k / 12
     s, c = math.sin(a), math.cos(a)
+    twitch = 0.55 if k in (4, 5) else 0.0          # a sudden tilt, every stride
     run.append(mixed(
         H,
-        thigh_r=(0.05, -0.85 * s, -1.0), shin_r=(0.0, 0.3 + 0.55 * max(c, 0), -1.0),
-        thigh_l=(-0.05, 0.85 * s, -1.0), shin_l=(0.0, 0.3 + 0.55 * max(-c, 0), -1.0),
-        foot_r=(0, -1, -0.25 - 0.4 * max(-s, 0)), foot_l=(0, -1, -0.25 - 0.4 * max(s, 0)),
-        uarm_r=(0.25, -0.9 + 0.5 * s, -0.4), farm_r=(0.04, -1.0, 0.25),
-        uarm_l=(-0.3, -0.4 - 0.5 * s, -1.0),
-        head=(0.12 + 0.15 * math.sin(a * 2.3), -0.95, 0.55 + 0.1 * c),
+        pelvis=(0.06 * s, -0.5, 1.0), spine=(0.1 * s, -0.95, 0.7), chest=(-0.08 * s, -0.85, 0.75),
+        neck=(0.05 * s, -1.0, 0.45),
+        head=(0.12 + 0.18 * math.sin(a * 3.0) + twitch, -0.9, 0.5 + 0.15 * c),
+        thigh_r=(0.06, -1.05 * s, -1.0), shin_r=(0.0, 0.25 + 0.95 * max(c, 0.0), -1.0),
+        thigh_l=(-0.06, 1.05 * s, -1.0), shin_l=(0.0, 0.25 + 0.95 * max(-c, 0.0), -1.0),
+        foot_r=(0, -1, -0.2 - 0.6 * max(-s, 0.0)), foot_l=(0, -1, -0.2 - 0.6 * max(s, 0.0)),
+        uarm_r=(0.22, -1.0, -0.35 + 0.55 * s), marm_r=(0.1, -1.0, -0.25 + 0.3 * s), farm_r=(0.04, -1.0, 0.15),
+        hand_r=(0.0, -1.0, -0.1),
+        uarm_l=(-0.22, -1.0, -0.35 - 0.55 * s), marm_l=(-0.1, -1.0, -0.25 - 0.3 * s), farm_l=(-0.04, -1.0, 0.15),
+        hand_l=(0.0, -1.0, -0.1),
+    ))
+# Searching: a slow, stiff-legged prowl, the head sweeping side to side.
+walk = []
+for k in range(16):
+    a = 2 * math.pi * k / 16
+    s, c = math.sin(a), math.cos(a)
+    walk.append(mixed(
+        H,
+        pelvis=(0.03 * s, -0.3, 1.0), spine=(0.0, -0.55, 1.0), chest=(0.0, -0.45, 1.0),
+        neck=(0.45 * math.sin(a * 0.5), -0.7, 0.75),
+        head=(0.7 * math.sin(a * 0.5), -0.75, 0.6),
+        thigh_r=(0.05, -0.55 * s, -1.0), shin_r=(0.0, 0.15 + 0.5 * max(c, 0.0), -1.0),
+        thigh_l=(-0.05, 0.55 * s, -1.0), shin_l=(0.0, 0.15 + 0.5 * max(-c, 0.0), -1.0),
+        foot_r=(0, -1, -0.3), foot_l=(0, -1, -0.3),
+        uarm_r=(0.15, -0.35 + 0.2 * s, -1.0), marm_r=(0.1, -0.4, -1.0), farm_r=(0.05, -0.8, -0.6),
+        uarm_l=(-0.15, -0.35 - 0.2 * s, -1.0), marm_l=(-0.1, -0.4, -1.0), farm_l=(-0.05, -0.8, -0.6),
     ))
 lunge = [mixed(H, uarm_r=(0.15, -1.0, 0.1), uarm_l=(-0.15, -1.0, 0.1), marm_r=(0.05, -1.0, 0.0),
                marm_l=(-0.05, -1.0, 0.0), farm_r=(0.0, -1.0, 0.0), farm_l=(0.0, -1.0, 0.0),
@@ -217,7 +243,8 @@ key_pose("stalk_a", [stalk[0]])
 key_pose("stalk_b", [stalk[1]])
 key_pose("stalk_c", [stalk[2]])
 key_pose("hunt", [H])
-key_pose("run", run, cycle=True)
+key_pose("run", run, cycle=True, smooth=True)
+key_pose("walk", walk, cycle=True, smooth=True)
 key_pose("lunge", lunge)
 arm.animation_data.action = bpy.data.actions["dormant"]
 

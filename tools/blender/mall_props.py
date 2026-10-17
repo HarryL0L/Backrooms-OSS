@@ -417,10 +417,95 @@ def mannequin_base():
     return b
 
 
+def round_rack():
+    """Department-store round clothes rack, a few garments left on it."""
+    b = Builder()
+    b.cyl(0.32, 0.36, 0.04, (0, 0, 0.02), "metal_bright", 20)
+    b.cyl(0.02, 0.02, 1.3, (0, 0, 0.67), "metal_bright", 8)
+    b.lathe([(0.55, 1.3), (0.57, 1.3), (0.57, 1.33), (0.55, 1.33)], (0, 0, 0), "metal_bright", 24)
+    for k in range(4):
+        a = k * math.pi / 2
+        b.tube([(0, 0, 1.3), (math.cos(a) * 0.56, math.sin(a) * 0.56, 1.31)], 0.01, "metal_bright", 6)
+    import random
+    rnd = random.Random(9)
+    for k in range(22):
+        if rnd.random() < 0.5:
+            continue
+        a = 2 * math.pi * k / 22
+        b.box((0.42, 0.04, 0.75), (math.cos(a) * 0.56, math.sin(a) * 0.56, 0.92), "fabric", (0, 0, a + math.pi / 2), bevel=0.01)
+    return b
+
+
+def display_table():
+    """Low display table with a few folded clothes and a price card."""
+    b = Builder()
+    b.box((1.6, 0.9, 0.06), (0, 0, 0.78), "wood", bevel=0.01)
+    for x in (-0.72, 0.72):
+        b.box((0.08, 0.8, 0.75), (x, 0, 0.375), "wood")
+    b.box((1.4, 0.7, 0.03), (0, 0, 0.25), "wood")
+    import random
+    rnd = random.Random(13)
+    for k in range(rnd.randint(2, 5)):
+        b.box((0.32, 0.26, 0.05 * rnd.randint(1, 3)), (rnd.uniform(-0.55, 0.55), rnd.uniform(-0.2, 0.2), 0.83), rnd.choice(["fabric", "sign_cream", "sign_teal"]), (0, 0, rnd.uniform(-0.3, 0.3)))
+    b.box((0.12, 0.02, 0.09), (0.6, -0.3, 0.86), "sign_cream", (-0.4, 0, 0))
+    return b
+
+
+def glass_case():
+    """Cosmetics / jewellery counter: glass box on a dark base, a lit shelf."""
+    b = Builder()
+    b.box((1.8, 0.6, 0.55), (0, 0, 0.275), "metal_frame", bevel=0.01)
+    b.box((1.8, 0.6, 0.03), (0, 0, 0.56), "stone")
+    for x in (-0.89, 0.89):
+        b.box((0.02, 0.6, 0.45), (x, 0, 0.8), "metal_bright")
+    b.quad([(-0.88, -0.3, 0.58), (0.88, -0.3, 0.58), (0.88, -0.3, 1.02), (-0.88, -0.3, 1.02)], "glass")
+    b.quad([(-0.88, 0.3, 0.58), (-0.88, -0.3, 1.02), (0.88, -0.3, 1.02), (0.88, 0.3, 0.58)], "glass")
+    b.box((1.8, 0.6, 0.02), (0, 0, 1.03), "metal_bright")
+    b.box((1.7, 0.4, 0.01), (0, 0, 0.6), "light_panel")
+    import random
+    rnd = random.Random(17)
+    for k in range(6):
+        b.cyl(0.03, 0.03, rnd.uniform(0.06, 0.14), (rnd.uniform(-0.75, 0.75), rnd.uniform(-0.15, 0.15), 0.66), rnd.choice(["sign_red", "sign_cream", "metal_bright"]), 8)
+    return b
+
+
+def fitting_rooms():
+    """Three fitting-room booths with curtains (one torn half down)."""
+    b = Builder()
+    for k in range(4):
+        b.box((0.05, 1.3, 2.2), (-1.5 + k * 1.0, 0, 1.1), "wall_paint")
+    b.box((3.05, 0.05, 2.2), (0, 0.65, 1.1), "wall_paint")
+    b.box((3.1, 1.35, 0.05), (0, 0, 2.22), "wall_paint")
+    for k in range(3):
+        x = -1.0 + k * 1.0
+        b.tube([(x - 0.47, -0.62, 2.05), (x + 0.47, -0.62, 2.05)], 0.01, "metal_bright", 6)
+        h = 1.9 if k != 1 else 1.1
+        b.box((0.9 if k != 2 else 0.4, 0.02, h), (x if k != 2 else x - 0.25, -0.62, 2.05 - h / 2), "fabric")
+        b.box((0.5, 0.02, 0.9), (x, 0.62, 1.4), "glass")       # mirror
+        b.box((0.4, 0.3, 0.05), (x + 0.2, 0.45, 0.45), "wood")  # stool seat
+    return b
+
+
+def arcade_cabinet():
+    """Upright arcade cabinet, its attract screen still glowing."""
+    b = Builder()
+    b.box((0.7, 0.75, 1.0), (0, 0, 0.5), "dark", bevel=0.02)
+    b.box((0.7, 0.4, 0.8), (0, 0.17, 1.4), "dark", bevel=0.02)
+    b.box((0.72, 0.5, 0.06), (0, -0.12, 1.02), "sign_red", (-0.25, 0, 0))     # control panel
+    b.box((0.56, 0.02, 0.44), (0, -0.04, 1.4), "screen", (-0.15, 0, 0))
+    b.box((0.7, 0.42, 0.22), (0, 0.15, 1.92), "sign_teal", bevel=0.01)         # marquee
+    b.box((0.6, 0.02, 0.14), (0, -0.07, 1.92), "light_panel")
+    for x in (-0.15, 0.15):
+        b.cyl(0.025, 0.025, 0.08, (x, -0.2, 1.1), "sign_cream", 8)
+    b.box((0.2, 0.02, 0.12), (0, -0.38, 0.55), "sign_cream")                    # coin slot plate
+    return b
+
+
 PROPS = {
     "bench": bench, "planter_palm": lambda: planter(True), "planter_shrub": lambda: planter(False),
     "trash_bin": trash_bin, "wet_floor_sign": wet_floor_sign, "kiosk": kiosk, "directory": directory_sign,
     "table_set": table_set, "shopping_cart": shopping_cart, "payphone": payphone, "fountain": fountain,
     "escalator": escalator, "clothes_rack": clothes_rack, "shelving": shelving, "counter": counter,
-    "empty_stand": mannequin_base,
+    "empty_stand": mannequin_base, "round_rack": round_rack, "display_table": display_table,
+    "glass_case": glass_case, "fitting_rooms": fitting_rooms, "arcade_cabinet": arcade_cabinet,
 }

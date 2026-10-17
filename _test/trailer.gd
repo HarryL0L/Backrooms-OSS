@@ -38,7 +38,7 @@ func _ready():
 			# Just write the game's procedural sounds out as WAVs for the edit.
 			var d := a.substr(4)
 			DirAccess.make_dir_recursive_absolute(d)
-			for nm in ["hum", "wind", "crack", "shriek", "clack", "creak", "draught", "drip"]:
+			for nm in ["hum", "wind", "crack", "shriek", "clack", "creak", "draught", "drip", "rasp", "sting", "heartbeat"]:
 				AudioSynth.cached(nm).save_to_wav("%s/%s.wav" % [d, nm])
 			AudioSynth.buzz().save_to_wav(d + "/buzz.wav")
 			AudioSynth.drone().save_to_wav(d + "/drone.wav")

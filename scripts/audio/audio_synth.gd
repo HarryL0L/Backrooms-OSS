@@ -47,6 +47,12 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return creak()
 		"shriek":
 			return shriek()
+		"rasp":
+			return rasp()
+		"sting":
+			return sting()
+		"heartbeat":
+			return heartbeat()
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -516,26 +522,142 @@ static func creak() -> AudioStreamWAV:
 
 
 ## The catch: a torn, rising shriek (noise and detuned saws, distorted).
+## The Window Dresser's scream, right in your face. Layers: a sub-bass hit
+## and a burst of noise (the startle); a voice gliding up into a howl,
+## through vowel formants that slide from "ah" to "ee", ring-modulated so it
+## sounds like it comes out of fibreglass rather than a throat; a second
+## voice a tritone above and a third a quarter-tone flat, beating against
+## it; a rising screech of filtered noise; crackling shell; and a wet
+## gurgle as it dies away.
 static func shriek() -> AudioStreamWAV:
-	var n := int(RATE * 1.3)
+	var dur := 2.4
+	var n := int(RATE * dur)
 	var s := PackedFloat32Array()
 	s.resize(n)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 504
-	var bp := _Svf.new(1500.0, 0.3)
+	var f1 := _Svf.new(800.0, 0.18)
+	var f2 := _Svf.new(1200.0, 0.14)
+	var f3 := _Svf.new(2900.0, 0.12)
+	var scr := _Svf.new(2500.0, 0.2)
+	var hit := _Svf.new(90.0, 0.5)
 	var ph := [0.0, 0.0, 0.0]
-	var det := [1.0, 1.013, 0.981]
+	var ratio := [1.0, 1.414, 0.971]
+	var gain := [1.0, 0.55, 0.6]
+	var ring := 0.0
+	var sub := 0.0
+	var jit := 0.0
+	var next_click := 0
+	var click := 0.0
 	for i in n:
 		var t := float(i) / RATE
-		var f := 420.0 + 900.0 * smoothstep(0.0, 0.25, t) - 300.0 * t
-		var v := 0.0
+		# Pitch: a lurch up, then a ragged, wavering howl, sagging at the end.
+		jit = lerpf(jit, rng.randf_range(-1.0, 1.0), 0.002)
+		var f := 260.0 + 880.0 * smoothstep(0.0, 0.14, t) - 220.0 * smoothstep(1.2, dur, t)
+		f *= 1.0 + 0.05 * sin(TAU * 7.5 * t) * smoothstep(0.2, 0.5, t) + 0.06 * jit
+		var voice := 0.0
 		for k in 3:
-			ph[k] = fposmod(ph[k] + f * det[k] / RATE, 1.0)
-			v += ph[k] * 2.0 - 1.0
+			ph[k] = fposmod(ph[k] + f * ratio[k] / RATE, 1.0)
+			voice += (ph[k] * 2.0 - 1.0) * gain[k]
+		voice += rng.randf_range(-0.12, 0.12)                     # breath in the scream
+		# Formants sliding from "ah" to "ee".
+		var e := smoothstep(0.1, 0.9, t)
+		f1.f = 2.0 * sin(PI * lerpf(820.0, 380.0, e) / RATE)
+		f2.f = 2.0 * sin(PI * lerpf(1250.0, 2300.0, e) / RATE)
+		f1.step(voice)
+		f2.step(voice)
+		f3.step(voice)
+		var v := f1.band * 1.2 + f2.band * 1.0 + f3.band * 0.6
+		ring = fposmod(ring + 233.0 / RATE, 1.0)
+		v = lerpf(v, v * sin(TAU * ring) * 1.6, 0.4)
+		# Screech: noise swept up behind the voice.
+		scr.f = 2.0 * sin(PI * minf(lerpf(2000.0, 5200.0, smoothstep(0.0, 1.0, t)), RATE * 0.16) / RATE)
+		scr.step(rng.randf_range(-1.0, 1.0))
+		# Fibreglass cracking under it.
+		if i >= next_click:
+			click = rng.randf_range(0.4, 1.0)
+			next_click = i + int(RATE * rng.randf_range(0.01, 0.07))
+		click *= 0.993
+		var crackle := rng.randf_range(-1.0, 1.0) * click * click
+		# The hit: a falling sub thump and a noise burst.
+		sub = fposmod(sub + lerpf(70.0, 32.0, minf(t * 2.5, 1.0)) / RATE, 1.0)
+		hit.step(rng.randf_range(-1.0, 1.0))
+		var thump := sin(TAU * sub) * exp(-t * 3.5) * 1.4 + hit.low * exp(-t * 18.0) * 3.0
+		var env := smoothstep(0.0, 0.012, t) * (1.0 - smoothstep(1.7, dur, t))
+		var gurgle := 1.0 - 0.6 * smoothstep(1.4, 1.9, t) * (0.5 + 0.5 * sin(TAU * 31.0 * t))
+		var y := (v * 1.6 + scr.band * 0.22 * smoothstep(0.05, 0.4, t) + crackle * 0.25) * env * gurgle
+		s[i] = tanh(y * 1.7) * 0.8 + thump * 0.6
+	return to_wav(_normalize(s, 0.98))
+
+
+## Its breathing while it hunts: a dry, rattling rasp in and out.
+static func rasp() -> AudioStreamWAV:
+	var dur := 1.1
+	var n := int(RATE * dur)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 611
+	var a := _Svf.new(650.0, 0.35)
+	var b := _Svf.new(1500.0, 0.3)
+	var hp := _Svf.new(300.0, 0.7)
+	for i in n:
+		var t := float(i) / RATE
 		var x := rng.randf_range(-1.0, 1.0)
-		bp.f = 2.0 * sin(PI * minf(f * 2.2, 6000.0) / RATE)
-		bp.step(x)
-		var env := smoothstep(0.0, 0.02, t) * pow(1.0 - t / 1.3, 1.2)
-		var y := (v * 0.3 + bp.band * 1.6) * env
-		s[i] = tanh(y * 3.0) * 0.7
+		hp.step(x)
+		a.step(hp.high)
+		b.step(hp.high)
+		# In (short) then out (longer), with a vocal-fry rattle.
+		var env := sin(PI * clampf(t / 0.35, 0.0, 1.0)) * 0.6 + sin(PI * clampf((t - 0.4) / 0.7, 0.0, 1.0))
+		var fry := 0.45 + 0.55 * pow(0.5 + 0.5 * sin(TAU * 38.0 * t + 2.0 * sin(TAU * 3.0 * t)), 3.0)
+		s[i] = (a.band * 1.2 + b.band * 0.7) * env * fry
+	return to_wav(_normalize(s, 0.7))
+
+
+## The moment its face cracks open: a dissonant orchestral stab, a cluster
+## of low brass-like tones and a smashed-glass top, ringing out.
+static func sting() -> AudioStreamWAV:
+	var dur := 2.6
+	var n := int(RATE * dur)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 712
+	var freqs := [46.25, 49.0, 69.3, 98.0, 277.2, 293.7, 415.3]   # F#1 G1 C#2 G2 C#4 D4 G#4
+	var ph := []
+	for f in freqs:
+		ph.append(rng.randf())
+	var lp := _Svf.new(1800.0, 0.6)
+	var hp := _Svf.new(3500.0, 0.4)
+	for i in n:
+		var t := float(i) / RATE
+		var v := 0.0
+		for k in freqs.size():
+			var f: float = freqs[k] * (1.0 + 0.003 * sin(TAU * (0.7 + k * 0.3) * t))
+			ph[k] = fposmod(ph[k] + f / RATE, 1.0)
+			var saw: float = ph[k] * 2.0 - 1.0
+			v += saw * (1.0 if k < 4 else 0.45)
+		lp.f = 2.0 * sin(PI * lerpf(3000.0, 500.0, minf(t * 1.5, 1.0)) / RATE)
+		lp.step(v)
+		hp.step(rng.randf_range(-1.0, 1.0))
+		var env := smoothstep(0.0, 0.01, t) * exp(-t * 1.4)
+		var glass := hp.high * exp(-t * 7.0)
+		s[i] = tanh(lp.low * 0.5 * env + glass * 0.8)
+	return to_wav(_normalize(s, 0.95))
+
+
+## One heartbeat (lub-dub), for the hunt; played faster as it gets closer.
+static func heartbeat() -> AudioStreamWAV:
+	var n := int(RATE * 0.6)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var e1 := exp(-maxf(t, 0.0) * 28.0) * smoothstep(0.0, 0.008, t)
+		var t2 := t - 0.2
+		var e2 := exp(-maxf(t2, 0.0) * 32.0) * smoothstep(0.0, 0.008, t2) * 0.7 if t2 > 0.0 else 0.0
+		var f := 52.0 - 14.0 * minf(t * 4.0, 1.0)
+		ph = fposmod(ph + f / RATE, 1.0)
+		s[i] = sin(TAU * ph) * (e1 + e2)
 	return to_wav(_normalize(s, 0.95))

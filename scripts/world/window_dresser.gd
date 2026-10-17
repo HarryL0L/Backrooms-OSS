@@ -92,16 +92,20 @@ static func warm_materials() -> Array[Material]:
 
 func set_pose(name: String) -> void:
 	if anim and anim.has_animation(name):
+		anim.speed_scale = 1.0
 		anim.play(name)
 		anim.seek(0.0, true)
 		if name != "run":
 			anim.pause()
 
 
-## Running: the stop-motion cycle at a speed matching how fast it moves.
-func play_run(speed_scale: float) -> void:
-	if anim.current_animation != "run":
-		anim.play("run")
+## Running (or the slow searching prowl, `cycle` "walk"), the cycle at a
+## speed matching how fast it moves.
+func play_run(speed_scale: float, cycle := "run") -> void:
+	if not anim.has_animation(cycle):
+		cycle = "run"
+	if anim.current_animation != cycle:
+		anim.play(cycle, 0.15)
 	anim.speed_scale = speed_scale
 
 

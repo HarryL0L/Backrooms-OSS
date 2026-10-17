@@ -2,9 +2,11 @@ class_name MallLevel
 extends Node3D
 ## The Dead Mall: a closed-down shopping mall, built in Blender
 ## (tools/blender/mall_kit.py) as tileable sections with baked lighting.
-## Entrance, two concourse sections, the Fountain Court, two more, the food
-## court; "Fountain Court" drifts from the ceiling speakers. Mannequins stand
-## in the shop windows. One of them is the Window Dresser.
+## Entrance, three concourse sections (an arcade, a leaking roof), the
+## Fountain Court, a cafe row, the food court, the first three again, and the
+## department store at the far end: about 240 m. "Fountain Court" drifts from
+## the ceiling speakers. Mannequins stand in the shop windows and on the
+## department store's stages. One of them is the Window Dresser.
 ##
 ## It lives far below the Backrooms (MALL_Y), like the Field. Sections run
 ## along +X from the entrance; the concourse is 12 m wide (z -6..6).
@@ -16,8 +18,9 @@ signal caught
 const MALL_Y := -4000.0
 const NAME := "The Dead Mall"
 const MUSIC := "res://music/fountain_court.ogg"
-const LAYOUT := [["entrance", 20.0], ["concourse_a", 20.0], ["concourse_b", 20.0], ["fountain_court", 24.0],
-		["concourse_a", 20.0], ["concourse_b", 20.0], ["food_court", 20.0]]
+const LAYOUT := [["entrance", 20.0], ["concourse_a", 20.0], ["concourse_c", 20.0], ["concourse_b", 20.0],
+		["fountain_court", 24.0], ["concourse_d", 20.0], ["food_court", 20.0],
+		["concourse_a", 20.0], ["concourse_c", 20.0], ["concourse_b", 20.0], ["department_store", 32.0]]
 ## [pattern, colour, roughness, emission] per Blender material name.
 const SURFACES := {
 	"terrazzo": [1, Color(0.56, 0.52, 0.46), 0.3, 0.0], "tile_white": [2, Color(0.8, 0.79, 0.75), 0.3, 0.0],
@@ -43,18 +46,18 @@ var spots := {}
 var mannequin_spots: Array[Transform3D] = []
 var decoys: Array[WindowDresser] = []
 var ai: DresserAI
-## During a hunt the two identical concourse stretches wrap into each other:
-## walk too far either way and you're quietly moved 64 m back (and so is it).
+## True while the Window Dresser hunts (lights stutter, music slurs). There
+## used to be a teleporting loop here too; you saw the jump, so it's gone:
+## the mall is long enough to run in.
 var loop_on := false
-const LOOP_MIN := 30.0
-const LOOP_MAX := 114.0
-const LOOP_SHIFT := 64.0
 var _base_exposure := 1.45
 var _flicker_t := 0.0
 var _shuffle_t := 20.0
 var _door: OddDoor
 var _music: AudioStreamPlayer
 var _hum: AudioStreamPlayer
+var _heart: AudioStreamPlayer
+var _heart_t := 0.0
 var _rng := RandomNumberGenerator.new()
 static var _mats := {}
 
@@ -97,6 +100,10 @@ func build(seed_value: int) -> void:
 	_hum.bus = "World"
 	add_child(_hum)
 	_hum.play()
+	_heart = AudioStreamPlayer.new()
+	_heart.stream = AudioSynth.cached("heartbeat")
+	_heart.bus = "World"
+	add_child(_heart)
 
 
 ## Swaps each Blender material for the mall shader with this section's
@@ -178,7 +185,7 @@ func spots_named(prefix: String) -> Array[Transform3D]:
 func _place_mannequins() -> void:
 	var pool := mannequin_spots.duplicate()
 	pool.shuffle()
-	var count := mini(pool.size(), 4 if low else 8)     # including the real one
+	var count := mini(pool.size(), 3 if low else 5)     # including the real one
 	# One of them is real.
 	if count > 0 and player and Settings.get_value("gameplay/entities"):
 		ai = DresserAI.new()
@@ -267,23 +274,6 @@ func _build_navigation() -> void:
 	add_child(region)
 
 
-func _physics_process(_delta: float) -> void:
-	if player == null:
-		return
-	if loop_on:
-		var x := player.global_position.x
-		var off := 0.0
-		if x > LOOP_MAX:
-			off = -LOOP_SHIFT
-		elif x < LOOP_MIN:
-			off = LOOP_SHIFT
-		if off != 0.0:
-			player.global_position.x += off
-			# Keep the hunter where it was relative to you (it may be ahead).
-			if ai and absf(ai.pos.x - x) < 40.0:
-				ai.shift(Vector3(off, 0, 0))
-
-
 func _process(delta: float) -> void:
 	if environment == null:
 		return
@@ -295,6 +285,16 @@ func _process(delta: float) -> void:
 			environment.tonemap_exposure = _base_exposure * (0.35 if _rng.randf() < 0.25 else _rng.randf_range(0.7, 1.0))
 		_music.pitch_scale = move_toward(_music.pitch_scale, 0.78, delta * 0.2)
 		environment.fog_density = move_toward(environment.fog_density, 0.05, delta * 0.02)
+		# Your heartbeat, faster and louder the closer it is.
+		_heart_t -= delta
+		if _heart_t <= 0.0:
+			var d := 40.0
+			if ai and player:
+				d = ai.pos.distance_to(player.global_position)
+			var k := clampf(1.0 - d / 30.0, 0.0, 1.0)
+			_heart_t = lerpf(0.85, 0.36, k)
+			_heart.volume_db = lerpf(-14.0, -2.0, k)
+			_heart.play()
 	else:
 		environment.tonemap_exposure = move_toward(environment.tonemap_exposure, _base_exposure, delta)
 		_music.pitch_scale = move_toward(_music.pitch_scale, 1.0, delta * 0.1)

@@ -69,6 +69,7 @@ var _reachable := true
 var _reveal := 0.0             # frozen while its face cracks open
 var _feet: AudioStreamPlayer3D
 var _voice: AudioStreamPlayer3D
+var _sting: AudioStreamPlayer          # not positional: it's for you
 
 
 func setup(p_mall: MallLevel, p_player: Player, home: Transform3D) -> void:
@@ -91,6 +92,9 @@ func setup(p_mall: MallLevel, p_player: Player, home: Transform3D) -> void:
 	_voice.unit_size = 5.0
 	_voice.max_distance = 60.0
 	add_child(_voice)
+	_sting = AudioStreamPlayer.new()
+	_sting.bus = "World"
+	add_child(_sting)
 
 
 # ----------------------------------------------------------------- senses ---
@@ -263,6 +267,9 @@ func _pick_stalk_spot(dist: float) -> Vector3:
 func _wake() -> void:
 	body.set_awake(true)
 	_play(_voice, "crack", 2.0)
+	_sting.stream = AudioSynth.cached("sting")
+	_sting.volume_db = -3.0
+	_sting.play()
 	hunt_left = HUNT_TIME
 	_set_state(State.HUNT)
 	_reveal = 1.2
@@ -299,7 +306,7 @@ func _hunt(delta: float, dist: float) -> void:
 	else:
 		_lost_t += delta
 		_cutoff_t -= delta
-		# Lost sight while you run: come round the loop and meet you head on.
+		# Lost sight while you run: go round another way and meet you head on.
 		if mall.loop_on and _lost_t > 1.8 and _cutoff_t <= 0.0 and not seen and _noise_radius() > 15.0:
 			_cutoff_t = 12.0
 			if _cut_off():
@@ -478,18 +485,6 @@ func _teleport(p: Vector3) -> void:
 	_pose_dirty = true
 
 
-## The mall loop moved the world under everyone: keep relative positions.
-func shift(offset: Vector3) -> void:
-	pos += offset
-	body.global_position += offset
-	for i in _path.size():
-		_path[i] += offset
-	if last_known != Vector3.INF:
-		last_known += offset
-	if _goal != Vector3.INF:
-		_goal += offset
-
-
 func _set_state(s: State) -> void:
 	state = s
 	_path = PackedVector3Array()
@@ -500,15 +495,38 @@ func _set_state(s: State) -> void:
 
 
 # ----------------------------------------------------------- presentation ---
-## Stop-motion: the body jumps to the real position a few times a second,
-## never while the player is looking (unless it's hunting).
+## Stalking it moves in stop-motion: the body jumps to the real position a
+## few times a second, never while the player is looking. Hunting and
+## searching it moves for real, smoothly, in a loping sprint (or a prowl).
 func _present(delta: float) -> void:
+	var chasing := state == State.HUNT or state == State.SEARCH
+	if chasing and _reveal <= 0.0:
+		var before := body.global_position
+		body.global_position = pos
+		body.rotation.y = lerp_angle(body.rotation.y, _yaw, minf(1.0, delta * 9.0))
+		var spd := Vector2(pos.x - before.x, pos.z - before.z).length() / maxf(delta, 0.001)
+		_speed = lerpf(_speed, minf(spd, 8.0), minf(1.0, delta * 8.0))
+		if _speed > 0.4:
+			var hunting := state == State.HUNT
+			# One cycle is two strides; scale so the feet keep pace with the floor.
+			body.play_run(_speed / (2.9 if hunting else 1.1), "run" if hunting else "walk")
+			_step_t -= delta
+			if _step_t <= 0.0:
+				_step_t = (0.75 if hunting else 1.0) / maxf(_speed / (2.9 if hunting else 1.1), 0.3) * 0.5
+				_play(_feet, "clack", -1.0 if hunting else -6.0, _rng.randf_range(0.85, 1.15))
+		elif _pose_dirty or body.anim.current_animation in ["run", "walk"]:
+			body.set_pose("hunt")
+		_pose_dirty = false
+		_feet.global_position = pos
+		_voice.global_position = _head()
+		_breath(delta)
+		return
 	_frame_t -= delta
 	if _frame_t > 0.0:
 		return
 	_frame_t = FRAME
 	var moving := body.global_position.distance_to(pos) > 0.02
-	if seen and state != State.HUNT and state != State.SEARCH:
+	if seen and not chasing:
 		return                       # it never moves while you watch
 	body.global_position = pos
 	body.rotation.y = _yaw
@@ -520,19 +538,24 @@ func _present(delta: float) -> void:
 			if moving or _pose_dirty:
 				body.set_pose(["stalk_a", "stalk_b", "stalk_c", "hunt"][_rng.randi() % 4])
 		State.HUNT, State.SEARCH:
-			if _reveal > 0.0:
-				body.set_pose("hunt")
-			elif moving:
-				body.play_run(1.6 if state == State.HUNT else 1.1)
-				_step_t -= FRAME
-				if _step_t <= 0.0:
-					_step_t = 0.28
-					_play(_feet, "clack", -2.0, _rng.randf_range(0.85, 1.15))
-			else:
-				body.set_pose("hunt")
+			body.set_pose("hunt")      # the face cracking open: frozen
 	_pose_dirty = false
 	_feet.global_position = pos
 	_voice.global_position = _head()
+
+
+var _speed := 0.0
+var _breath_t := 2.0
+
+
+## While it hunts, a ragged, wet rasp now and then, closer than you'd like.
+func _breath(delta: float) -> void:
+	if state != State.HUNT:
+		return
+	_breath_t -= delta
+	if _breath_t <= 0.0:
+		_breath_t = _rng.randf_range(1.6, 3.2)
+		_play(_voice, "rasp", -4.0, _rng.randf_range(0.85, 1.1))
 
 
 func _play(p: AudioStreamPlayer3D, sound: String, db: float, pitch := 1.0) -> void:

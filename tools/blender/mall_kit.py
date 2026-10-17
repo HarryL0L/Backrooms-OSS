@@ -56,6 +56,18 @@ class Section:
 
 
 # --------------------------------------------------------------- pieces ---
+def oquad(b, corners, m, toward):
+    """A one-sided quad facing the point `toward` (the inside of the room).
+    Fixed vertex orders flipped half the shop interiors inside out (the
+    south side of the concourse), so they vanished into the void."""
+    a, c1, c2 = (Vector(v) for v in corners[:3])
+    n = (c1 - a).cross(c2 - a)
+    if n.dot(Vector(toward) - a) < 0:
+        corners = list(reversed(corners))
+    b.quad(corners, m)
+
+
+
 def ceiling(s, x0, x1, y0, y1, z, rng, lights=True, dead=0.25, skylight=None):
     """Drop ceiling with a T-bar grid and recessed light panels; an optional
     (y0, y1) strip is left open for a skylight."""
@@ -125,12 +137,14 @@ def shopfront(s, x0, x1, side, kind, rng, contents="clothes"):
         lx = xc - sw * 0.35 + k * (sw * 0.7 / max(letters - 1, 1))
         b.box((0.32, 0.06, 0.42), (lx, yf - side * 0.23, 4.1 + rng.uniform(-0.02, 0.02)),
               "sign_cream" if sign != "sign_cream" else "sign_red", (0, 0, 0), bevel=0.01)
-    # Interior shell (dark).
-    b.quad([(xa, yf, 0.003), (xb, yf, 0.003), (xb, yb, 0.003), (xa, yb, 0.003)], "carpet" if contents == "clothes" else "tile_white")
-    b.quad([(xa, yb, 0), (xb, yb, 0), (xb, yb, 3.6), (xa, yb, 3.6)], "wall_paint")
+    # Interior shell, every face turned to the inside.
+    inside = (xc, (yf + yb) / 2, 1.5)
+    oquad(b, [(xa, yf, 0.003), (xb, yf, 0.003), (xb, yb, 0.003), (xa, yb, 0.003)], "carpet" if contents == "clothes" else "tile_white", (xc, (yf + yb) / 2, 2.0))
+    oquad(b, [(xa, yb, 0), (xb, yb, 0), (xb, yb, 3.6), (xa, yb, 3.6)], "wall_paint", inside)
     for x in (xa, xb):
-        b.quad([(x, yf, 0), (x, yb, 0), (x, yb, 3.6), (x, yf, 3.6)], "wall_paint")
-    ceiling(s, xa, xb, min(yf, yb), max(yf, yb), 3.6, rng, lights=True, dead=0.75)
+        oquad(b, [(x, yf, 0), (x, yb, 0), (x, yb, 3.6), (x, yf, 3.6)], "wall_paint", inside)
+    # Some of the shop lights still work, so the interiors aren't black holes.
+    ceiling(s, xa, xb, min(yf, yb), max(yf, yb), 3.6, rng, lights=True, dead=0.35)
     s.col((0.3, SHOP_D, 3.6), (xa - 0.15, (yf + yb) / 2, 1.8))
     s.col((0.3, SHOP_D, 3.6), (xb + 0.15, (yf + yb) / 2, 1.8))
     s.col((xb - xa, 0.3, 3.6), (xc, yb + side * 0.15, 1.8))
@@ -173,7 +187,7 @@ def shopfront(s, x0, x1, side, kind, rng, contents="clothes"):
         for x in (xa + 0.05, xb - 0.05):
             b.box((0.08, 0.1, 3.2), (x, ys, 1.6), "metal_frame")
     # Contents and mannequin spots.
-    if kind != "shutter":
+    if kind != "shutter" and contents in ("clothes", "shelves", "arcade", "cafe"):
         if contents == "clothes":
             for k in range(3):
                 s.prop("clothes_rack", (xa + 1.8 + k * 2.4, yf + side * (3.6 + (k % 2) * 1.4), 0), rng.uniform(-0.3, 0.3))
@@ -185,6 +199,17 @@ def shopfront(s, x0, x1, side, kind, rng, contents="clothes"):
                 if abs(dx) < 1.3 and door:
                     continue
                 s.spot(f"spot_mannequin_{s.name}_{side}_{x0:.0f}_{k}", (xc + dx, yf + side * 0.9, 0.3), 0.0 if side > 0 else math.pi)
+        elif contents == "arcade":
+            # An arcade: cabinets round the walls, their screens still on.
+            rz = 0.0 if side > 0 else math.pi
+            for k in range(5):
+                s.prop("arcade_cabinet", (xa + 1.0 + k * 1.9, yb - side * 0.6, 0), rz, col=(0.7, 0.75, 1.9))
+            for k in range(3):
+                s.prop("arcade_cabinet", (xa + 2.2 + k * 2.6, yf + side * 3.4, 0), rz + rng.uniform(-0.15, 0.15), col=(0.7, 0.75, 1.9))
+        elif contents == "cafe":
+            s.prop("counter", (xc, yb - side * 1.2, 0), 0 if side > 0 else math.pi, col=(2.4, 0.7, 1.05))
+            for k in range(3):
+                s.prop("table_set", (xa + 1.8 + k * 3.0, yf + side * (2.4 + (k % 2) * 1.6), 0), rng.uniform(0, 6.28), col=(1.6, 1.6, 0.8))
         else:
             for k in range(3):
                 s.prop("shelving", (xa + 1.5 + k * 2.8, yb - side * 0.35, 0), 0 if side > 0 else math.pi, col=(1.2, 0.4, 2.0))
@@ -340,21 +365,20 @@ def food_court():
     rng = random.Random(51)
     b = s.b
     concourse_shell(s, -10, 10, rng, skylight=False)
-    # Widened: counters along the far end wall.
-    b.box((0.3, 2 * HALF_W, H), (10.15, 0, H / 2), "wall_paint")
-    s.col((0.3, 2 * HALF_W, H), (10.15, 0, H / 2))
-    for k, y in enumerate((-4.0, 0.0, 4.0)):
-        s.prop("counter", (8.6, y, 0), math.pi / 2, col=(2.4, 0.7, 1.05))
-        b.box((0.1, 3.6, 1.0), (9.9, y, 3.0), rng.choice(["sign_red", "sign_teal", "sign_cream"]), bevel=0.03)
-        for r in range(3):
-            b.box((0.02, 2.6, 0.08), (9.84, y - 0.2, 3.3 - r * 0.25), "sign_cream")
-        z = 1.1
-        while z < 2.4:
-            b.box((0.04, 3.4, 0.085), (9.6, y, z + 0.045), "shutter")
-            z += 0.1
+    # Counters along both side walls (the court is a through route now).
+    for side in (1, -1):
+        for x in (2.5, 7.5):
+            s.prop("counter", (x, side * (HALF_W - 0.9), 0), 0 if side > 0 else math.pi, col=(2.4, 0.7, 1.05))
+            b.box((3.6, 0.1, 1.0), (x, side * (HALF_W + 0.0), 3.0), rng.choice(["sign_red", "sign_teal", "sign_cream"]), bevel=0.03)
+            for r in range(3):
+                b.box((2.6, 0.02, 0.08), (x - 0.2, side * (HALF_W - 0.06), 3.3 - r * 0.25), "sign_cream")
+            z = 1.1
+            while z < 2.4:
+                b.box((3.4, 0.04, 0.085), (x, side * (HALF_W - 0.2), z + 0.045), "shutter")
+                z += 0.1
     for k in range(6):
-        x = -7 + (k % 3) * 5.0
-        y = -2.6 if k < 3 else 2.6
+        x = -7 + (k % 3) * 6.5
+        y = -2.4 if k < 3 else 2.4
         s.prop("table_set", (x, y, 0), rng.uniform(0, 6.28), col=(1.6, 1.6, 0.8))
     s.prop("trash_bin", (4.5, -5.3, 0), 0, col=(0.6, 0.6, 1.0))
     s.prop("trash_bin", (4.5, 5.3, 0), 0, col=(0.6, 0.6, 1.0))
@@ -396,8 +420,131 @@ def entrance():
     return s
 
 
-SECTIONS = {"concourse_a": concourse_a, "concourse_b": concourse_b, "fountain_court": fountain_court,
-            "food_court": food_court, "entrance": entrance}
+def concourse_c():
+    """An arcade, a stuck shutter, a leak from the roof."""
+    s = Section("concourse_c", 20.0)
+    rng = random.Random(83)
+    b = s.b
+    concourse_shell(s, -10, 10, rng)
+    shopfront(s, -10, 0, 1, "open", rng, "arcade")
+    shopfront(s, 0, 10, 1, "half", rng, "clothes")
+    shopfront(s, -10, 0, -1, "shutter", rng)
+    shopfront(s, 0, 10, -1, "open", rng, "shelves")
+    s.prop("planter_shrub", (-4.5, 0, 0), 0.4, col=(1.3, 1.3, 0.6))
+    s.prop("bench", (-4.5, -2.0, 0), 0, col=(1.8, 0.5, 0.7))
+    s.prop("trash_bin", (1.5, -2.6, 0), 0, col=(0.6, 0.6, 1.0))
+    # A leak: a stagnant puddle under a missing ceiling tile, the tile on the floor.
+    b.quad([(3.0, 2.0, 0.006), (6.2, 2.4, 0.006), (6.0, 4.6, 0.006), (3.4, 4.3, 0.006)], "water")
+    b.box((1.2, 0.6, 0.03), (5.1, 4.9, 0.05), "ceiling_tile", (0.0, 0.06, 0.4))
+    b.box((1.15, 0.55, 0.02), (4.4, 3.4, H + 0.02), "dark")
+    s.prop("wet_floor_sign", (2.6, 2.9, 0), 0.9)
+    s.prop("bench", (6.5, -2.0, 0), 0, col=(1.8, 0.5, 0.7))
+    s.spot("spot_patrol_a", (-8, 0, 0))
+    s.spot("spot_patrol_b", (8, 0, 0))
+    return s
+
+
+def concourse_d():
+    """A cafe, a shoe shop, payphones, a cart tipped on its side."""
+    s = Section("concourse_d", 20.0)
+    rng = random.Random(97)
+    concourse_shell(s, -10, 10, rng)
+    shopfront(s, -10, 0, 1, "open", rng, "cafe")
+    shopfront(s, 0, 10, 1, "shutter", rng)
+    shopfront(s, -10, 0, -1, "open", rng, "clothes")
+    shopfront(s, 0, 10, -1, "half", rng, "shelves")
+    s.prop("planter_palm", (-3.0, 0, 0), 2.1, col=(1.3, 1.3, 0.6))
+    s.prop("bench", (-3.0, 2.0, 0), math.pi, col=(1.8, 0.5, 0.7))
+    s.prop("payphone", (9.2, 5.7, 0), 0, col=(0.4, 0.3, 1.8))
+    s.prop("payphone", (8.4, 5.7, 0), 0, col=(0.4, 0.3, 1.8))
+    s.prop("directory", (4.0, 0.0, 0), math.pi / 2, col=(0.9, 0.3, 2.1))
+    s.b.place(P.PROPS["shopping_cart"](), Matrix.LocRotScale(Vector((1.5, -3.2, 0.42)), _eul((math.pi / 2, 0, 0.7)), None))
+    s.prop("trash_bin", (-7.0, -2.4, 0), 0, col=(0.6, 0.6, 1.0))
+    s.spot("spot_patrol_a", (-8, 0, 0))
+    s.spot("spot_patrol_b", (8, 0, 0))
+    return s
+
+
+def department_store():
+    """The anchor store at the far end: a big low sales floor, cosmetics
+    counters by the entrance, racks, fitting rooms, display platforms of
+    mannequins, staff doors at the back."""
+    L = 32.0
+    s = Section("department_store", L)
+    rng = random.Random(131)
+    b = s.b
+    x0, x1 = -L / 2, L / 2
+    W = HALF_W + SHOP_D            # 13
+    HC = 4.5
+    # Floor: terrazzo main aisle, carpet either side.
+    b.quad([(x0, -2.5, 0), (x1, -2.5, 0), (x1, 2.5, 0), (x0, 2.5, 0)], "terrazzo")
+    for a, c in ((-W, -2.5), (2.5, W)):
+        b.quad([(x0, a, 0.002), (x1, a, 0.002), (x1, c, 0.002), (x0, c, 0.002)], "carpet")
+    s.col((L, 2 * W + 1, 0.4), (0, 0, -0.2))
+    # Front: walls either side of the 12 m opening, a big header with the name.
+    for sy in (1, -1):
+        b.box((0.3, W - HALF_W, H), (x0, sy * (HALF_W + (W - HALF_W) / 2), H / 2), "wall_paint")
+        s.col((0.3, W - HALF_W, H), (x0, sy * (HALF_W + (W - HALF_W) / 2), H / 2))
+    b.box((0.4, 2 * HALF_W, H - HC + 0.3), (x0, 0, HC - 0.15 + (H - HC + 0.3) / 2), "wall_paint")
+    b.box((0.2, 9.0, 1.1), (x0 - 0.3, 0, 5.2), "sign_red", bevel=0.04)
+    for k in range(8):
+        if k == 5:
+            continue          # a letter fell off
+        b.box((0.08, 0.7, 0.8), (x0 - 0.42, -3.6 + k * 1.03, 5.2), "sign_cream", bevel=0.02)
+    # Side and back walls.
+    for sy in (1, -1):
+        oquad(b, [(x0, sy * W, 0), (x1, sy * W, 0), (x1, sy * W, HC), (x0, sy * W, HC)], "wall_paint", (0, 0, 2))
+        s.col((L, 0.3, HC), (0, sy * (W + 0.15), HC / 2))
+    oquad(b, [(x1, -W, 0), (x1, W, 0), (x1, W, HC), (x1, -W, HC)], "wall_paint", (0, 0, 2))
+    s.col((0.3, 2 * W, HC), (x1 + 0.15, 0, HC / 2))
+    for y in (-6.0, 6.0):          # staff doors
+        b.box((0.1, 1.2, 2.2), (x1 - 0.05, y, 1.1), "dark")
+        b.box((0.12, 1.36, 0.08), (x1 - 0.05, y, 2.24), "metal_frame")
+        b.box((0.03, 0.5, 0.15), (x1 - 0.12, y, 2.45), "sign_cream")
+        b.box((0.06, 0.04, 0.4), (x1 - 0.12, y - 0.45, 1.05), "metal_bright")
+    ceiling(s, x0, x1, -W, W, HC, rng, dead=0.45)
+    # Columns.
+    for x in (-8.0, 0.0, 8.0):
+        for y in (-6.5, 6.5):
+            b.box((0.6, 0.6, HC), (x, y, HC / 2), "wall_paint", bevel=0.02)
+            s.col((0.6, 0.6, HC), (x, y, HC / 2))
+    # Hanging department signs.
+    for x, y in ((-11.0, -7.5), (-11.0, 7.5), (4.0, -9.0), (4.0, 9.0)):
+        b.box((1.6, 0.06, 0.45), (x, y, 3.3), rng.choice(["sign_cream", "sign_teal"]), bevel=0.01)
+        for dx in (-0.6, 0.6):
+            b.tube([(x + dx, y, 3.52), (x + dx, y, HC)], 0.006, "dark", 4)
+    # Cosmetics: glass counters in islands near the entrance.
+    for cx, cy in ((-12.0, -5.0), (-12.0, 5.0)):
+        for dx, dy, rz in ((-1.0, -1.2, 0.0), (1.0, -1.2, 0.0), (-1.0, 1.2, math.pi), (1.0, 1.2, math.pi)):
+            s.prop("glass_case", (cx + dx, cy + dy, 0), rz, col=(1.8, 0.6, 1.05))
+    # Clothes: round racks and display tables in rows, a few rail racks.
+    for x in (-5.0, -1.5, 2.0, 5.5):
+        for y in (-10.5, -8.0, 8.0, 10.5):
+            if rng.random() < 0.8:
+                s.prop("round_rack", (x + rng.uniform(-0.3, 0.3), y + rng.uniform(-0.3, 0.3), 0), rng.uniform(0, 6.28), col=(1.1, 1.1, 1.4))
+    for x in (-4.0, 3.5):
+        for y in (-4.4, 4.4):
+            s.prop("display_table", (x, y, 0), rng.uniform(-0.2, 0.2), col=(1.6, 0.9, 0.85))
+    for k in range(3):
+        s.prop("clothes_rack", (10.0 + k * 1.8, -10.6, 0), math.pi / 2, col=(1.3, 0.5, 1.5))
+    s.prop("fitting_rooms", (12.0, 12.3, 0), 0.0, col=(3.1, 1.35, 2.2))
+    s.prop("shopping_cart", (-6.5, 1.6, 0), 0.9)
+    s.prop("empty_stand", (6.0, -3.2, 0), 1.0)
+    s.prop("wet_floor_sign", (-2.0, -1.2, 0), 2.6)
+    # Display platforms: mannequins posed on low round stages.
+    for k, (px, py) in enumerate(((-8.0, 0.0), (8.0, 0.0), (13.5, 0.0))):
+        b.cyl(1.3, 1.3, 0.25, (px, py, 0.125), "wood", 24)
+        s.col((2.0, 2.0, 0.25), (px, py, 0.125))
+        for j, a in enumerate((0.6, 2.7, 4.6)):
+            s.spot(f"spot_mannequin_dept_{k}_{j}", (px + math.cos(a) * 0.75, py + math.sin(a) * 0.75, 0.25), rng.uniform(-math.pi, math.pi))
+    for k, (px, py) in enumerate(((-12.0, 0.0), (-4.0, -9.5), (4.0, 9.5), (12.0, -6.0), (12.0, 6.0))):
+        s.spot(f"spot_patrol_dept_{k}", (px, py, 0))
+    return s
+
+
+SECTIONS = {"concourse_a": concourse_a, "concourse_b": concourse_b, "concourse_c": concourse_c,
+            "concourse_d": concourse_d, "fountain_court": fountain_court, "food_court": food_court,
+            "entrance": entrance, "department_store": department_store}
 
 
 # ------------------------------------------------------------ bake/export ---

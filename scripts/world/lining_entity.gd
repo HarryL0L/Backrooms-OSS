@@ -1,6 +1,7 @@
 class_name LiningEntity
 extends Node
-## "The Lining": something behind the Lobby wallpaper. You only ever see a
+## "The Lining": something behind the wallpaper of the Unlit Halls (Level
+## 0.1; the Lobby itself is devoid of entities, as the wiki has it). You only ever see a
 ## face pressing out through the paper (sometimes hands too), slowly
 ## breathing. It never attacks and never chases; it appears in dim spots at
 ## the edge of your view or behind you, moves closer whenever you look away,
@@ -90,10 +91,10 @@ func _process(delta: float) -> void:
 
 
 func _think(delta: float) -> void:
-	var in_lobby := _biome_at(player.global_position) == WorldGen.LOBBY
+	var in_halls := _biome_at(player.global_position) == WorldGen.DARK
 	match _state:
 		IDLE:
-			if in_lobby:
+			if in_halls:
 				_timer -= delta
 			if _timer <= 0.0 and _strength <= 0.01:
 				_moves_done = 0
@@ -104,7 +105,7 @@ func _think(delta: float) -> void:
 				else:
 					_timer = 5.0
 		PRESENT:
-			if not in_lobby or player.global_position.distance_to(_episode_origin) > 35.0:
+			if not in_halls or player.global_position.distance_to(_episode_origin) > 35.0:
 				_end_episode()
 				return
 			if _is_seen():
@@ -172,7 +173,7 @@ func _candidates(dmin: float, dmax: float) -> Array:
 	for gz in range(c.y - r, c.y + r + 1):
 		for gx in range(c.x - r, c.x + r + 1):
 			var b := gen.biome_at(gx, gz)
-			if b != WorldGen.LOBBY or gen.is_solid(gx, gz, b):
+			if b != WorldGen.DARK or gen.is_solid(gx, gz, b):
 				continue
 			# The four walls of this cell, seen from inside it.
 			var faces := [

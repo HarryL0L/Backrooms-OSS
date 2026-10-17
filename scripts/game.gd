@@ -36,6 +36,7 @@ var _net_t := 0.0
 var _built_lightmaps := true
 var _built_rays := true
 var odd_doors: OddDoors
+var details: LobbyDetails
 var field: FieldLevel          # Level 10, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
 var _in_mall := false
@@ -135,6 +136,11 @@ func _ready() -> void:
 	odd_doors.target = player
 	odd_doors.door_entered.connect(_on_odd_door)
 	add_child(odd_doors)
+	details = LobbyDetails.new()
+	details.process_mode = Node.PROCESS_MODE_PAUSABLE
+	details.target = player
+	details.floor_gave_way.connect(_on_floor_gave_way)
+	add_child(details)
 	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
 		fixtures.target = player
@@ -292,6 +298,8 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		ripples.gen = gen
 		odd_doors.clear()
 		odd_doors.gen = gen
+		details.clear()
+		details.gen = gen
 		lining.gen = gen
 		hall_figure.gen = gen
 		lining.odd_doors = odd_doors
@@ -982,10 +990,17 @@ func _on_dresser_caught() -> void:
 	if mall.ai:
 		mall.ai.set_physics_process(false)
 		mall.ai.lunge_at(player.camera)
-	for i in 14:
-		player.camera.h_offset = randf_range(-0.035, 0.035)
-		player.camera.v_offset = randf_range(-0.025, 0.025)
-		await get_tree().create_timer(0.045).timeout
+	# The lens punches in on its face and the view shakes hard, then less.
+	var fov := player.camera.fov
+	var tw := create_tween()
+	tw.tween_property(player.camera, "fov", fov - 16.0, 0.07)
+	tw.tween_property(player.camera, "fov", fov - 6.0, 0.6)
+	for i in 22:
+		var a := 1.0 - float(i) / 22.0
+		player.camera.h_offset = randf_range(-0.06, 0.06) * a
+		player.camera.v_offset = randf_range(-0.045, 0.045) * a
+		await get_tree().create_timer(0.04).timeout
+	player.camera.fov = fov
 	player.camera.h_offset = 0.0
 	player.camera.v_offset = 0.0
 	await hud.fade_to(1.0, 0.15)
@@ -995,17 +1010,54 @@ func _on_dresser_caught() -> void:
 	_return_somewhere_else()
 
 
-## Back into the Backrooms, but somewhere else entirely.
-func _return_somewhere_else() -> void:
+## Stepped on a sodden patch of carpet: the floor gives way, and you fall
+## through The Void (the wiki's other way out of Level 0 through the floor),
+## landing somewhere far off in the Lobby.
+func _on_floor_gave_way() -> void:
+	if state != State.PLAYING or _transition or _away():
+		return
+	_transition = true
+	player.controls_enabled = false
+	player.set_physics_process(false)
+	var crack := AudioStreamPlayer.new()
+	crack.stream = AudioSynth.cached("crack")
+	crack.bus = "World"
+	add_child(crack)
+	crack.play()
+	var tw := create_tween()
+	tw.tween_property(player, "global_position:y", player.global_position.y - 2.6, 0.55) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	hud.fade_to(1.0, 0.5)
+	await tw.finished
+	var rush := AudioStreamPlayer.new()
+	rush.stream = AudioSynth.cached("wind")
+	rush.volume_db = -3.0
+	rush.bus = "World"
+	add_child(rush)
+	rush.play()
+	ambience.enabled = false
+	await hud.story(["The floor gave way.", "You fall through The Void for what feels like hours.", "Then: damp carpet, and the hum."], 2.0)
+	rush.queue_free()
+	crack.queue_free()
+	player.set_physics_process(true)
+	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "Somewhere else. Somewhere far.")
+	_return_somewhere_else(WorldGen.LOBBY)
+
+
+## Back into the Backrooms, but somewhere else entirely (in the given level,
+## if one is asked for).
+func _return_somewhere_else(level := -1) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var g := gen
 	var c := g.cell_of(Vector3.ZERO)
-	for _try in 200:
+	for _try in 600:
 		var a := rng.randf() * TAU
 		var d := rng.randf_range(300.0, 900.0) / WorldGen.CELL
 		c = Vector2i(int(cos(a) * d), int(sin(a) * d)) + g.spawn_cell
 		var b := g.biome_at(c.x, c.y)
+		if level >= 0 and (b != level or g.biome_at(c.x + 2, c.y) != level or g.biome_at(c.x - 2, c.y) != level):
+			continue
 		if b != WorldGen.POOL and not g.is_solid(c.x, c.y, b) and not g.pool_noise(c.x, c.y):
 			break
 	var pos := Vector3((c.x + 0.5) * WorldGen.CELL, 0.05, (c.y + 0.5) * WorldGen.CELL)

@@ -7,10 +7,15 @@ var t := 0.0
 var views := [
 	["arrival", Vector3(4, 0, -2), -PI * 0.5, 0.0],
 	["concourse", Vector3(24, 0, 3.5), -PI * 0.5, 0.05],
-	["window", Vector3(31, 0, 2.5), 0.4, 0.0],
-	["court", Vector3(62, 0, -9), -PI * 0.62, 0.12],
-	["fountain", Vector3(72, 0, 5), PI * 0.65, 0.05],
-	["food", Vector3(128, 0, 0), -PI * 0.5, 0.0],
+	["shop_inside", Vector3(22.5, 0, -11.0), PI * 0.8, -0.05],
+	["shop_south", Vector3(36, 0, 11.0), -PI * 0.15, -0.05],
+	["arcade", Vector3(45, 0, -6.5), 0.0, -0.05],
+	["court", Vector3(82, 0, -9), -PI * 0.62, 0.12],
+	["fountain", Vector3(102, 0, 5), PI * 0.65, 0.05],
+	["cafe_row", Vector3(110, 0, 2), -PI * 0.5, 0.0],
+	["food", Vector3(126, 0, 0), -PI * 0.5, 0.0],
+	["dept_entry", Vector3(200, 0, 1.5), -PI * 0.5, 0.0],
+	["dept", Vector3(212, 0, -9), -PI * 0.35, 0.0],
 	["exit_door", Vector3(3.5, 0, 0), PI * 0.8, 0.0],
 ]
 var vi := 0

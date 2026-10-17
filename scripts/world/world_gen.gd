@@ -317,6 +317,16 @@ func light_state(gx: int, gz: int, b: int) -> int:
 	return L_NONE
 
 
+## Kinds of the four edges round a cell (W, E, N, S).
+func _cell_edges(gx: int, gz: int) -> Array:
+	return [
+		edge_kind(gx, gz, true, biome_at(gx - 1, gz), biome_at(gx, gz)),
+		edge_kind(gx + 1, gz, true, biome_at(gx, gz), biome_at(gx + 1, gz)),
+		edge_kind(gz, gx, false, biome_at(gx, gz - 1), biome_at(gx, gz)),
+		edge_kind(gz + 1, gx, false, biome_at(gx, gz), biome_at(gx, gz + 1)),
+	]
+
+
 ## Seed used by the shaders / audio to flicker a light, always > 0.
 func light_seed(gx: int, gz: int) -> float:
 	return 1.0 + float(hashi(gx, gz, 32) & 0x7FFF)     # fits the 16-bit lightmap seed
