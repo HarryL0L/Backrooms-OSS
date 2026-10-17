@@ -35,6 +35,26 @@ static func apply_ultra(e: Environment, ssr: bool, ssao: bool, ssil: bool, vol: 
 	e.volumetric_fog_ambient_inject = 0.0
 
 
+## Photoreal mode's grade: AgX tone mapping (a film-like response that keeps
+## highlight colour instead of clipping it), neutral contrast and saturation,
+## a gentler bloom. Off: the default stylised look.
+static func photoreal_grade(e: Environment, on: bool) -> void:
+	if on:
+		e.tonemap_mode = Environment.TONE_MAPPER_AGX
+		e.tonemap_white = 12.0
+		e.adjustment_contrast = 1.04
+		e.adjustment_saturation = 1.0
+		e.glow_intensity = 0.32
+		e.glow_hdr_threshold = 1.35
+	else:
+		e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+		e.tonemap_white = 6.0
+		e.adjustment_contrast = 1.06
+		e.adjustment_saturation = 0.92
+		e.glow_intensity = 0.55
+		e.glow_hdr_threshold = 1.1
+
+
 static func make() -> Environment:
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR

@@ -80,6 +80,7 @@ func defaults() -> Dictionary:
 		"graphics/auto_quality": true,
 		"gameplay/entities": true,
 		"graphics/ps1": false,
+		"graphics/photoreal": false,
 		"net/name": "Player",
 		"net/number": 7,
 		"graphics/ps1_lines": 240,
@@ -253,22 +254,29 @@ func save_settings() -> void:
 	cf.save(PATH)
 
 
-const PRESET_NAMES := ["Potato", "Low", "Medium", "High", "Max"]
+const PRESET_NAMES := ["Potato", "Low", "Medium", "High", "Max", "Photoreal"]
 const PRESETS := [
 	# Potato: for very weak phones. Everything optional is off, half-res render,
 	# per-vertex lighting (cheaper world generation), 30 FPS cap.
 	{"graphics/render_scale": 0.5, "graphics/fsr": false, "graphics/aa": 0, "graphics/view_distance": 2,
 		"graphics/water_reflections": 0, "graphics/water_ripples": false, "graphics/lens_fx": false,
 		"graphics/film_grain": false, "graphics/flashlight_shadows": false, "graphics/halos": false,
-		"graphics/bloom": false, "graphics/light_highlights": false, "graphics/lightmaps": false, "graphics/fps_cap": 0},
+		"graphics/bloom": false, "graphics/light_highlights": false, "graphics/lightmaps": false, "graphics/fps_cap": 0, "graphics/photoreal": false},
 	{"graphics/render_scale": 0.6, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 0, "graphics/view_distance": 2, "graphics/water_reflections": 0,
-		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": false},
+		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": false, "graphics/photoreal": false},
 	{"graphics/render_scale": 0.75, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 1, "graphics/view_distance": 3, "graphics/water_reflections": 1,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/photoreal": false},
 	{"graphics/render_scale": 0.9, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 1, "graphics/view_distance": 4, "graphics/water_reflections": 2,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/photoreal": false},
 	{"graphics/render_scale": 1.0, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/photoreal": false},
+	# Photoreal: our own rendering on top of Max, for strong phones and PCs
+	# (any renderer, no Forward+ needed): lightmaps baked twice as sharp, our
+	# screen-space ambient occlusion, eye adaptation, a neutral filmic grade
+	# and a clean image (no grain, lens fringing, PS1 or dither).
+	{"graphics/render_scale": 1.0, "graphics/fsr": false, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": false, "graphics/aa": 2, "graphics/view_distance": 6, "graphics/water_reflections": 2,
+		"graphics/lens_fx": false, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true,
+		"graphics/ps1": false, "graphics/photoreal": true},
 ]
 
 
@@ -313,7 +321,11 @@ func apply() -> void:
 	# god rays as flat banded polygons (cheap at its low resolution, so even
 	# on Potato).
 	var ps1: bool = get_value("graphics/ps1")
+	var photoreal: bool = get_value("graphics/photoreal") and not ps1
 	ChunkBuilder.lightmaps = get_value("graphics/lightmaps") and not ps1
+	ChunkBuilder.lm_scale = 0.5 if photoreal and ChunkBuilder.lightmaps else 1.0
+	ChunkBuilder.photoreal_ao = photoreal
+	RenderingServer.global_shader_parameter_set("photoreal", 1.0 if photoreal else 0.0)
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
 	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 or ps1
 	RenderingServer.global_shader_parameter_set("dark_lift", 0.18 if int(get_value("graphics/preset")) == 0 else 0.0)

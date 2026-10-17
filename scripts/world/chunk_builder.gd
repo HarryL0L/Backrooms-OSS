@@ -21,6 +21,10 @@ static var lightmaps := true
 static var water_sub := 16
 ## Volumetric-looking sun shafts in the sun galleries (off in Potato).
 static var god_rays := true
+## Lightmap texel spacing multiplier (Photoreal: 0.5, twice as sharp).
+static var lm_scale := 1.0
+## Photoreal: bake corner occlusion on walls too.
+static var photoreal_ao := false
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
@@ -470,6 +474,30 @@ func _occl(d: float) -> float:
 	return 0.55 + 0.45 * smoothstep(0.0, 0.85, d - T)
 
 
+## Photoreal: inside corners of walls darken softly too (distance to the
+## walls at right angles to this one; its own wall is left out).
+func _ao_corner(p: Vector3, nrm: Vector3) -> float:
+	var u := p.x / CELL - rx0
+	var v := p.z / CELL - rz0
+	var i := floori(u)
+	var j := floori(v)
+	var dm := 9.0
+	if absf(nrm.z) > 0.5:
+		# Wall facing +-Z (a horizontal edge): look at the vertical edges.
+		for dj in range(-1, 2):
+			for di in range(-1, 3):
+				var e := edge_v(i + di, j + dj)
+				if e != 0:
+					dm = minf(dm, _seg_dist(u - (i + di), v - (j + dj), e))
+	else:
+		for dj in range(-1, 3):
+			for di in range(-1, 2):
+				var e := edge_h(i + di, j + dj)
+				if e != 0:
+					dm = minf(dm, _seg_dist(v - (j + dj), u - (i + di), e))
+	return 0.62 + 0.38 * smoothstep(0.0, 0.7, dm - T)
+
+
 ## Contact shadow on floors / ceilings next to walls. Uses the true distance
 ## to nearby wall pieces (door openings excluded), so the shadow wraps around
 ## wall ends instead of stopping in a hard wedge at the cell border.
@@ -540,6 +568,7 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 	var face_seed := 0.0
 	if not LIGHTMAPPED.has(mat) or not lightmaps:
 		lm_texel = 0.0
+	lm_texel *= lm_scale
 	if lm_texel > 0.0:
 		lm_n = Vector2i(maxi(2, ceili(du.length() / lm_texel - 0.01) + 1), maxi(2, ceili(dv.length() / lm_texel - 0.01) + 1))
 		lm_at = _lm_alloc(lm_n.x, lm_n.y)
@@ -689,6 +718,8 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					sp += _nudge(p)
 				var light := shade(sp, nrm)
 				var ao := _ao_xz(sp) if ao_mode == 1 else _ao_y(p.y, f, c)
+				if photoreal_ao and ao_mode != 1 and absf(nrm.y) < 0.5:
+					ao *= _ao_corner(sp, nrm)
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
 				vals[k] = Color(light.r * ao, light.g * ao, light.b * ao, light.a)

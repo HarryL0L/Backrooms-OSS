@@ -37,6 +37,9 @@ var _built_lightmaps := true
 var _built_rays := true
 var odd_doors: OddDoors
 var details: LobbyDetails
+var _photoreal := false
+var _built_lm_scale := 1.0
+var _adapt := 1.0          # Photoreal eye adaptation (exposure multiplier)
 var field: FieldLevel          # the Meadow, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
 var _in_mall := false
@@ -260,13 +263,17 @@ func _apply_settings() -> void:
 	reflection.scale = [0.0, 0.34, 0.5][clampi(Settings.get_value("graphics/water_reflections"), 0, 2)]
 	_update_reflection()
 	env.tonemap_exposure = Settings.get_value("graphics/brightness")
+	var photoreal: bool = Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1")
+	EnvironmentFactory.photoreal_grade(env, photoreal)
+	_photoreal = photoreal
 	retro.lines = int(Settings.get_value("graphics/ps1_lines"))
 	retro.set_active(Settings.get_value("graphics/ps1"))
 	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
 	# the loaded chunks in place.
-	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays:
+	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays or ChunkBuilder.lm_scale != _built_lm_scale:
 		_built_lightmaps = ChunkBuilder.lightmaps
 		_built_rays = ChunkBuilder.god_rays
+		_built_lm_scale = ChunkBuilder.lm_scale
 		chunks.rebuild()
 	_update_touch_visibility()
 
@@ -727,6 +734,7 @@ func _process(delta: float) -> void:
 	if _scan_t <= 0.0:
 		_scan_t = 0.25
 		_track_biome()
+	_eye_adaptation(delta)
 	var k := 1.0 - exp(-1.2 * delta)
 	env.fog_light_color = env.fog_light_color.lerp(_fog_color, k)
 	env.fog_density = lerpf(env.fog_density, _fog_density, k)
@@ -737,6 +745,23 @@ func _process(delta: float) -> void:
 	if env.volumetric_fog_enabled:
 		env.volumetric_fog_albedo = env.volumetric_fog_albedo.lerp(_fog_color, k)
 		env.volumetric_fog_density = lerpf(env.volumetric_fog_density, EnvironmentFactory.VOL_DENSITY[maxi(_biome, 0)], k)
+
+
+## Photoreal: like eyes (or a camera's auto exposure), the image slowly
+## brightens in the dark and quickly settles when you step into bright light.
+func _eye_adaptation(delta: float) -> void:
+	var base: float = Settings.get_value("graphics/brightness")
+	if not _photoreal:
+		_adapt = 1.0
+		env.tonemap_exposure = base
+		return
+	var lum := gen.light_level_near(player.camera.global_position, 3) * 0.35
+	if player.flashlight_on:
+		lum = maxf(lum, 0.35)
+	var target := clampf(pow(1.3 / maxf(lum, 0.05), 0.35), 0.85, 2.0)
+	var rate := 0.35 if target > _adapt else 1.6
+	_adapt = move_toward(_adapt, target, delta * rate * absf(target - _adapt) + delta * 0.02)
+	env.tonemap_exposure = base * _adapt
 
 
 func _track_biome() -> void:
