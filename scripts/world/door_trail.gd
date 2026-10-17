@@ -12,8 +12,8 @@ extends Node3D
 ##    from the mall.
 ## Everything is two MultiMeshes (arrows, litter): two draw calls per door.
 
-const REACH := 30              # rooms (cells) the arrows reach out to
-const LITTER_REACH := 14
+const REACH := 26              # rooms (cells) the arrows reach out to
+const LITTER_REACH := 10
 const PASSABLE := [WorldGen.E_OPEN, WorldGen.E_DOOR, WorldGen.E_ARCH, WorldGen.E_GATE]
 const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
@@ -54,19 +54,19 @@ func _exit_tree() -> void:
 			_claims.erase(k)
 
 
+static func _edge(g: WorldGen, a: Vector2i, b: Vector2i) -> int:
+	if a.x != b.x:
+		var line := maxi(a.x, b.x)
+		return g.edge_kind(line, a.y, true, g.biome_at(line - 1, a.y), g.biome_at(line, a.y))
+	var line2 := maxi(a.y, b.y)
+	return g.edge_kind(line2, a.x, false, g.biome_at(a.x, line2 - 1), g.biome_at(a.x, line2))
+
+
 static func _open(g: WorldGen, a: Vector2i, b: Vector2i) -> bool:
 	var bb := g.biome_at(b.x, b.y)
 	if g.is_solid(b.x, b.y, bb) or bb == WorldGen.POOL:
 		return false
-	var ba := g.biome_at(a.x, a.y)
-	var kind: int
-	if a.x != b.x:
-		var line := maxi(a.x, b.x)
-		kind = g.edge_kind(line, a.y, true, g.biome_at(line - 1, a.y), g.biome_at(line, a.y))
-	else:
-		var line := maxi(a.y, b.y)
-		kind = g.edge_kind(line, a.x, false, g.biome_at(a.x, line - 1), g.biome_at(a.x, line))
-	return ba != WorldGen.POOL and kind in PASSABLE
+	return g.biome_at(a.x, a.y) != WorldGen.POOL and _edge(g, a, b) in PASSABLE
 
 
 func _compute(g: WorldGen, start_cell: Vector2i, seed_value: int) -> void:
@@ -92,10 +92,11 @@ func _compute(g: WorldGen, start_cell: Vector2i, seed_value: int) -> void:
 			dist[n] = d + 1
 			toward[n] = c
 			queue.append(n)
-	var arrows := []           # [Transform3D, light]
+	var arrows := []           # [Transform3D, cell, distance, light]
+	var marked: Array[Vector2i] = []
 	var litter := []           # [Transform3D, tile, light]
 	var C := WorldGen.CELL
-	for c in dist:
+	for c: Vector2i in queue:
 		var d: int = dist[c]
 		if d == 0 or not toward.has(c):
 			continue
@@ -106,12 +107,23 @@ func _compute(g: WorldGen, start_cell: Vector2i, seed_value: int) -> void:
 			if _open(g, c, c + e):
 				exits += 1
 		var light := clampf(g.light_level_near(Vector3((c.x + 0.5) * C, 1.4, (c.y + 0.5) * C)) * 0.35, 0.08, 1.0)
-		# Arrows: every fourth room, and at most junctions.
-		if d >= 2 and (d % 4 == 0 or (exits >= 3 and rng.randf() < 0.6)):
+		# Arrows: where the way branches, and now and then along a corridor,
+		# never two within a few rooms of each other.
+		var want := d >= 2 and ((exits >= 3 and rng.randf() < 0.45) or (d % 7 == 0 and rng.randf() < 0.6))
+		for m in marked:
+			if absi(m.x - c.x) + absi(m.y - c.y) < 4:
+				want = false
+				break
+		if want:
 			var sides := [Vector2i(-dv.y, dv.x), Vector2i(dv.y, -dv.x)]
 			for s: Vector2i in sides:
-				if _open(g, c, c + s):
-					continue                # no wall on that side
+				# Only on a real, solid wall (not a doorway, window or the
+				# open side of a hall), so no arrow ever hangs in the air.
+				if _edge(g, c, c + s) != WorldGen.E_WALL:
+					continue
+				var nb: Vector2i = c + s
+				if g.biome_at(nb.x, nb.y) != home and not g.is_solid(nb.x, nb.y, g.biome_at(nb.x, nb.y)):
+					continue
 				var centre := Vector3((c.x + 0.5) * C, 0.0, (c.y + 0.5) * C)
 				var nrm := -Vector3(s.x, 0, s.y)              # wall faces into the room
 				# Mall marks sit low, Field marks high (and a hair further out),
@@ -124,10 +136,11 @@ func _compute(g: WorldGen, start_cell: Vector2i, seed_value: int) -> void:
 				var up := Vector3.UP.rotated(nrm, tilt)
 				var x := along.rotated(nrm, tilt)
 				arrows.append([Transform3D(Basis(x * 0.8, up * 0.4, nrm), p), c, d, light])
+				marked.append(c)
 				break
 		# Litter: thicker near the door.
 		if d <= LITTER_REACH:
-			var n := int(roundf(3.2 * (1.0 - float(d) / LITTER_REACH) + rng.randf_range(-0.4, 0.8)))
+			var n := int(roundf(2.2 * (1.0 - float(d) / LITTER_REACH) + rng.randf_range(-0.6, 0.6)))
 			for k in maxi(n, 0):
 				var p := Vector3((c.x + rng.randf_range(0.12, 0.88)) * C, 0.006 + k * 0.0015, (c.y + rng.randf_range(0.12, 0.88)) * C)
 				var size := rng.randf_range(0.12, 0.26)
