@@ -9,6 +9,9 @@ extends Node3D
 
 const COUNT := 6
 const FADE_TIME := 0.3
+## Bounce strength under VoxelGI: the lights' direct diffuse is kept low
+## (the lightmaps already have it), their bounce has to stand for the panel.
+const GI_BOUNCE := 4.0
 
 var gen: WorldGen
 var target: Node3D
@@ -45,6 +48,12 @@ func _ready() -> void:
 	_seeds.resize(COUNT)
 	_base.resize(COUNT)
 	_fade.resize(COUNT)
+
+
+## With VoxelGI on (experimental), these lights also feed its bounce light.
+func set_gi(on: bool) -> void:
+	for l in _lights:
+		l.light_indirect_energy = GI_BOUNCE if on else 1.0
 
 
 func _process(delta: float) -> void:

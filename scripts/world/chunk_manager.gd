@@ -14,6 +14,8 @@ var mats: WorldMaterials
 var target: Node3D
 var view_radius := 3
 var cast_shadows := false
+## Chunks take part in VoxelGI (experimental, Forward+).
+var gi_static := false
 
 var _chunks := {}        # Vector2i -> Node3D
 var _stale := {}         # loaded chunks waiting to be rebuilt (settings changed)
@@ -211,7 +213,7 @@ func _make_chunk(data: Dictionary) -> Node3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	mi.gi_mode = GeometryInstance3D.GI_MODE_STATIC if gi_static else GeometryInstance3D.GI_MODE_DISABLED
 	root.add_child(mi)
 	var faces: PackedVector3Array = data.collision
 	if faces.size() > 0:
@@ -233,6 +235,14 @@ func set_shadows(on: bool) -> void:
 		for ch in c.get_children():
 			if ch is MeshInstance3D:
 				ch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if on else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+func set_gi(on: bool) -> void:
+	gi_static = on
+	for c in _chunks.values():
+		for ch in c.get_children():
+			if ch is MeshInstance3D:
+				ch.gi_mode = GeometryInstance3D.GI_MODE_STATIC if on else GeometryInstance3D.GI_MODE_DISABLED
 
 
 func _exit_tree() -> void:

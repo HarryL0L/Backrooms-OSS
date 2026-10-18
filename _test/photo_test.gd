@@ -27,6 +27,7 @@ func _process(delta):
 				Settings.apply_preset(pr)
 				Settings.set_value("graphics/found_footage", int(OS.get_environment("FF")) if OS.get_environment("FF") != "" else 0)
 				Settings.set_value("graphics/auto_quality", false)
+				Settings.set_value("graphics/voxel_gi", OS.get_environment("VGI") != "")
 				(game.main_menu.find_child("SeedEdit", true, false) as LineEdit).text = "1234"
 				game.new_game(); step = 1
 		1:
@@ -69,7 +70,7 @@ func _process(delta):
 				game.hud.set_fade(0.0)
 				game.hud._title_t = 0.0
 				get_viewport().get_texture().get_image().save_png("%s/%s_%s.png" % [out, views[vi][0], tag])
-				print("shot ", views[vi][0], " exposure ", game.env.tonemap_exposure)
+				print("shot ", views[vi][0], " exposure ", game.env.tonemap_exposure, " vgi bake ms ", game.vgi.last_bake_ms if game.vgi else -1.0)
 				vi += 1
 				if vi >= views.size():
 					get_tree().quit(); return
@@ -81,5 +82,5 @@ func _go():
 		game._enter_mall()
 		await get_tree().create_timer(3.0).timeout
 	game.player.teleport(v[1], v[2], v[3])
-	if v[0] == "unlit":
+	if v[0] == "unlit" or OS.get_environment("FLASH") != "":
 		game.player.set_flashlight(true)

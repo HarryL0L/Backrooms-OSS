@@ -1,9 +1,16 @@
-# Engine patches (not used by the current builds)
+# Engine patches (the Experimental Android build)
 
-Android builds use Godot's **Mobile** renderer, as the Godot docs recommend
-("Forward+ … Supported, but poorly optimized. Use Mobile or Compatibility
-instead."). Desktop builds use Forward+ on the stock engine. These patches are
-kept for a possible future Android Forward+ ("Ultra") build.
+The main Android APK uses Godot's **Mobile** renderer, as the Godot docs
+recommend ("Forward+ … Supported, but poorly optimized. Use Mobile or
+Compatibility instead."). Desktop builds use Forward+ on the stock engine.
+
+The **Experimental** APK (`Backrooms-OSS-Experimental.apk`, package
+`io.github.backroomsoss.experimental`, installs next to the normal one) runs
+Forward+ on phones using an Android template built in CI with these patches
+(the `engine-template` job in `.github/workflows/build.yml`). It's for trying
+Forward+-only features such as VoxelGI (Settings → Graphics → Experimental).
+Expect a low frame rate: on the Mali-G77 test phone Forward+ ran at ~18 FPS
+before any GI.
 
 ## 0001-cluster-builder-optional-msaa.patch (Godot 4.7-stable)
 
@@ -35,5 +42,5 @@ To use it again:
    resulting `bin/android_debug.apk`.
 3. Set `rendering/limits/cluster_builder/use_msaa=false` for that build.
 
-The old CI job for this is in the git history (commit `51a53e8`).
+CI does all of this (feature tag `patched` sets the project setting).
 `scripts/debug/diagnostics.gd` (feature tag `diag`) has the A/B test.

@@ -29,6 +29,7 @@ func _ready() -> void:
 		for s in m.mesh.get_surface_count():
 			m.set_surface_override_material(s, _material_for(m.mesh.surface_get_material(s)))
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		m.gi_mode = GeometryInstance3D.GI_MODE_DYNAMIC    # lit by VoxelGI, never baked into it
 		if m.name.begins_with("head_calm"):
 			_calm = m
 		elif m.name.begins_with("head_broken"):

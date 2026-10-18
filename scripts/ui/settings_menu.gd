@@ -152,6 +152,14 @@ func _option(parent: Control, label: String, key: String, items: Array) -> void:
 		_first_focus = o
 
 
+func _heading(parent: Control, text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_color_override("font_color", UITheme.ACCENT)
+	l.add_theme_font_size_override("font_size", 22)
+	parent.add_child(l)
+
+
 func _note(parent: Control, text: String) -> void:
 	var l := Label.new()
 	l.text = text
@@ -202,6 +210,12 @@ func _build_graphics() -> void:
 	else:
 		_note(p, "SSR, SSAO, SSIL and volumetric fog are available in the Ultra build (Forward+ renderer, for high-end devices).")
 	_note(p, "Lighting is pre-baked into the world as it generates, so the biggest performance levers are render scale, view distance and flashlight shadows.")
+	_heading(p, "Experimental")
+	if Settings.is_ultra:
+		_toggle(p, "VoxelGI bounce light (real-time colour bleeding and indirect shadows)", "graphics/voxel_gi")
+		_note(p, "Light from the flashlight and nearby fixtures bounces off walls and floors. Re-bakes around you as you walk (a short hitch). Heavy: for strong GPUs.")
+	else:
+		_note(p, "VoxelGI bounce light needs the Forward+ renderer: the desktop builds, or the Experimental Android APK (built on our patched engine).")
 
 
 func _build_audio() -> void:

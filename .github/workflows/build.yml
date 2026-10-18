@@ -11,8 +11,53 @@ env:
   GODOT_VERSION: "4.7"
 
 jobs:
+  engine-template:
+    # Builds Godot's Android debug export template from source with the
+    # patches in engine/patches/ (cached by patch content). Used for the
+    # "Experimental" APK: Forward+ on phones, with VoxelGI.
+    name: Patched Godot Android template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache patched template
+        id: cache-template
+        uses: actions/cache@v4
+        with:
+          path: engine-build
+          key: godot-android-template-${{ env.GODOT_VERSION }}-${{ hashFiles('engine/patches/**') }}
+
+      - uses: actions/setup-java@v4
+        if: steps.cache-template.outputs.cache-hit != 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build template from source
+        if: steps.cache-template.outputs.cache-hit != 'true'
+        run: |
+          pip install scons
+          git clone -q --depth 1 --branch "${GODOT_VERSION}-stable" https://github.com/godotengine/godot.git godot-src
+          cd godot-src
+          for p in ../engine/patches/*.patch; do echo "Applying $p"; git apply "$p"; done
+          python3 misc/scripts/install_swappy_android.py || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          scons platform=android target=template_debug arch=arm64 production=yes -j"$(nproc)"
+          cd platform/android/java
+          ./gradlew generateGodotTemplates
+          cd ../../..
+          ls -la bin
+          mkdir -p ../engine-build
+          cp bin/android_debug.apk ../engine-build/android_debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: godot-android-template-patched
+          path: engine-build/android_debug.apk
+
   build:
     name: Android APK + desktop builds
+    needs: engine-template
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,6 +118,11 @@ jobs:
             echo "RELEASE_SIGNING=1" >> "$GITHUB_ENV"
           fi
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: godot-android-template-patched
+          path: build/patched
+
       - name: Import project
         run: ~/godot/godot --headless --path . --import
 
@@ -82,6 +132,10 @@ jobs:
           mode=--export-debug
           if [ "$RELEASE_SIGNING" = "1" ]; then mode=--export-release; fi
           ~/godot/godot --headless --path . $mode "Android" build/Backrooms-OSS.apk
+          # Experimental: Forward+ on the patched engine (engine/patches/), VoxelGI.
+          sed -i "s#@PATCHED_TEMPLATE@#$GITHUB_WORKSPACE/build/patched/android_debug.apk#" export_presets.cfg
+          ~/godot/godot --headless --path . --export-debug "Android Experimental" build/Backrooms-OSS-Experimental.apk
+          test -s build/Backrooms-OSS-Experimental.apk
           ~/godot/godot --headless --path . --export-release "Linux" build/linux/Backrooms-OSS.x86_64
           ~/godot/godot --headless --path . --export-release "Windows" build/windows/Backrooms-OSS.exe
           test -s build/Backrooms-OSS.apk
@@ -107,6 +161,11 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          name: Backrooms-OSS-android-experimental
+          path: build/Backrooms-OSS-Experimental.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
           name: Backrooms-OSS-desktop
           path: |
             build/Backrooms-OSS-linux.zip
@@ -118,5 +177,6 @@ jobs:
         with:
           files: |
             build/Backrooms-OSS.apk
+            build/Backrooms-OSS-Experimental.apk
             build/Backrooms-OSS-linux.zip
             build/Backrooms-OSS-windows.zip

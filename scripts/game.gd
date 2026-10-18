@@ -39,6 +39,7 @@ var odd_doors: OddDoors
 var details: LobbyDetails
 var _photoreal := false
 var footage: FoundFootage
+var vgi: VoxelGIRig             # experimental VoxelGI (Forward+ only)
 var _built_lm_scale := 1.0
 var _built_detail := false
 var _adapt := 1.0          # Photoreal eye adaptation (exposure multiplier)
@@ -150,6 +151,13 @@ func _ready() -> void:
 		fixtures = FixtureLights.new()
 		fixtures.target = player
 		add_child(fixtures)
+	if Settings.is_ultra:
+		vgi = VoxelGIRig.new()
+		vgi.process_mode = Node.PROCESS_MODE_PAUSABLE
+		vgi.target = player
+		vgi.source = chunks
+		add_child(vgi)
+		chunks.initial_area_ready.connect(vgi.invalidate)
 	_build_ui()
 	if Diagnostics.enabled():
 		var diag := Diagnostics.new()
@@ -274,6 +282,7 @@ func _apply_settings() -> void:
 	footage.set_mode(0 if Settings.get_value("graphics/ps1") else int(Settings.get_value("graphics/found_footage")))
 	retro.lines = int(Settings.get_value("graphics/ps1_lines"))
 	retro.set_active(Settings.get_value("graphics/ps1"))
+	_update_gi()
 	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
 	# the loaded chunks in place.
 	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays or ChunkBuilder.lm_scale != _built_lm_scale \
@@ -284,6 +293,19 @@ func _apply_settings() -> void:
 		_built_detail = ChunkBuilder.detail
 		chunks.rebuild()
 	_update_touch_visibility()
+
+
+## Experimental VoxelGI: on in the Backrooms and the mall (not the open
+## Field, which has a sun and no walls to bounce from).
+func _update_gi() -> void:
+	if vgi == null:
+		return
+	var on: bool = Settings.get_value("graphics/voxel_gi") and not Settings.get_value("graphics/ps1") and not _in_field
+	chunks.set_gi(on)
+	if fixtures:
+		fixtures.set_gi(on)
+	vgi.source = mall if _in_mall else chunks
+	vgi.set_active(on)
 
 
 func _update_touch_visibility() -> void:
@@ -882,6 +904,7 @@ func _enter_field(exit_pos := Vector3.INF, pos := Vector3.INF, yaw := 0.0) -> vo
 	player.field_mode = true
 	player.set_flashlight(false)
 	player.camera.far = 9000.0
+	_update_gi()
 	if pos.is_finite():
 		player.teleport(pos, yaw)
 	else:
@@ -979,6 +1002,7 @@ func _enter_mall(pos := Vector3.INF, yaw := 0.0) -> void:
 	reflection.set_active(false)
 	player.mall_mode = true
 	player.camera.far = 140.0
+	_update_gi()
 	if pos.is_finite():
 		player.teleport(pos, yaw)
 	else:
