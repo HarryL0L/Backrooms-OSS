@@ -66,6 +66,8 @@ var _editor_slider: HSlider
 var _editor_label: Label
 
 var _using_touch := false
+## A real mouse has been used (e.g. one plugged into a phone).
+var _mouse_seen := false
 var _biome := -1
 var _biome_candidate := -1
 var _biome_timer := 0.0
@@ -661,7 +663,14 @@ func _input(event: InputEvent) -> void:
 		if not _using_touch:
 			_using_touch = true
 			_update_touch_visibility()
-	elif event is InputEventKey or event is InputEventJoypadButton \
+		return
+	if (event is InputEventMouseButton or event is InputEventMouseMotion) and event.device != InputEvent.DEVICE_ID_EMULATION:
+		_mouse_seen = true
+		# A mouse on a phone: hide Android's pointer as soon as it's used
+		# in game (on desktop the mouse is already captured while playing).
+		if state == State.PLAYING and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
+			_capture_mouse()
+	if event is InputEventKey or event is InputEventJoypadButton \
 			or (event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION) \
 			or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.5):
 		if _using_touch:
@@ -679,8 +688,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				radar.shown = not radar.shown
 			elif event is InputEventMouseButton and event.pressed and event.device != InputEvent.DEVICE_ID_EMULATION \
-					and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+					and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
+				_capture_mouse()
 		State.PAUSED:
 			if event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel"):
 				if not settings_menu.visible:
@@ -710,8 +719,17 @@ func _notification(what: int) -> void:
 
 
 func _capture_mouse_if_desktop() -> void:
-	if not Settings.is_mobile and not _using_touch:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if (not Settings.is_mobile or _mouse_seen) and not _using_touch:
+		_capture_mouse()
+
+
+## Captures the mouse (hides the pointer, mouse look). On Android this is
+## pointer capture (Android 8+); where it isn't available the pointer is at
+## least hidden.
+func _capture_mouse() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 
 
 func _release_mouse() -> void:

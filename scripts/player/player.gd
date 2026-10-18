@@ -190,7 +190,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not controls_enabled:
 		return
 	if event is InputEventMouseMotion and event.device != InputEvent.DEVICE_ID_EMULATION \
-			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			and Input.mouse_mode in [Input.MOUSE_MODE_CAPTURED, Input.MOUSE_MODE_HIDDEN]:
 		var s: float = 0.0022 * Settings.get_value("controls/mouse_sens")
 		add_look(event.relative.x * s, event.relative.y * s)
 	elif event.is_action_pressed("flashlight") and not _is_emulated_mouse(event):
