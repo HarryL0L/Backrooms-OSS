@@ -215,7 +215,7 @@ func _build_graphics() -> void:
 		_toggle(p, "VoxelGI bounce light (real-time colour bleeding and indirect shadows)", "graphics/voxel_gi")
 		_note(p, "Light from the flashlight and nearby fixtures bounces off walls and floors. Re-bakes around you as you walk (a short hitch). Heavy: for strong GPUs.")
 	else:
-		_note(p, "VoxelGI bounce light needs the Forward+ renderer: the desktop builds, or the Experimental Android APK (built on our patched engine).")
+		_note(p, "VoxelGI bounce light needs the Forward+ renderer (desktop builds). On phones, Photoreal bakes bounce light into the world instead.")
 
 
 func _build_audio() -> void:
