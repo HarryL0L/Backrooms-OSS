@@ -27,6 +27,7 @@ var fixtures: FixtureLights
 var ripples: WaterRipples
 var lining: LiningEntity
 var hall_figure: HallFigure
+var presence: LobbyPresence      # heard, never seen
 var retro: RetroView
 var net: Net
 var mp_menu: MultiplayerMenu
@@ -139,6 +140,11 @@ func _ready() -> void:
 	hall_figure.player = player
 	hall_figure.ambience = ambience
 	add_child(hall_figure)
+	presence = LobbyPresence.new()
+	presence.process_mode = Node.PROCESS_MODE_PAUSABLE
+	presence.player = player
+	presence.ambience = ambience
+	add_child(presence)
 	odd_doors = OddDoors.new()
 	odd_doors.process_mode = Node.PROCESS_MODE_PAUSABLE
 	odd_doors.target = player
@@ -148,6 +154,7 @@ func _ready() -> void:
 	details.process_mode = Node.PROCESS_MODE_PAUSABLE
 	details.target = player
 	details.floor_gave_way.connect(_on_floor_gave_way)
+	details.noclipped.connect(_on_noclipped)
 	add_child(details)
 	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
@@ -327,7 +334,7 @@ func _update_touch_visibility() -> void:
 func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: Callable) -> void:
 	state = State.LOADING
 	hud.set_fade(1.0)
-	hud.set_loading(true, "Slipping through...")
+	hud.set_loading(true, "Noclipping...")
 	player.controls_enabled = false
 	player.set_physics_process(false)
 	if seed_value != _world_seed:
@@ -346,6 +353,7 @@ func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: 
 		footage.gen = gen
 		lining.gen = gen
 		hall_figure.gen = gen
+		presence.gen = gen
 		lining.odd_doors = odd_doors
 		_biome = -1
 	chunks.target = player
@@ -417,7 +425,7 @@ func _check_loading() -> void:
 		parts.append("building rooms")
 	if not ambience.is_ready():
 		parts.append("making sounds")
-	hud.set_loading(true, "Slipping through...\n" + ", ".join(parts))
+	hud.set_loading(true, "Noclipping...\n" + ", ".join(parts))
 
 
 func _enter_menu() -> void:
@@ -781,6 +789,7 @@ func _process(delta: float) -> void:
 	_update_radar(delta)
 	lining.allowed = state == State.PLAYING and not _away() and not _transition
 	hall_figure.allowed = lining.allowed
+	presence.allowed = lining.allowed
 	if _away():
 		return
 	_scan_t -= delta
@@ -1125,6 +1134,33 @@ func _on_floor_gave_way() -> void:
 
 ## Back into the Backrooms, but somewhere else entirely (in the given level,
 ## if one is asked for).
+## Leaned into a thin place in a wall long enough to slip through it: a
+## moment of nothing on either side, then the halls again, somewhere else.
+func _on_noclipped() -> void:
+	if state != State.PLAYING or _transition or _away():
+		return
+	_transition = true
+	player.controls_enabled = false
+	player.set_physics_process(false)
+	var tear := AudioStreamPlayer.new()
+	tear.stream = AudioSynth.cached("exhale")
+	tear.pitch_scale = 0.5
+	tear.bus = "World"
+	add_child(tear)
+	tear.play()
+	var tw := create_tween()
+	tw.tween_property(player.camera, "fov", player.camera.fov + 25.0, 0.35).set_ease(Tween.EASE_IN)
+	hud.fade_to(1.0, 0.35)
+	await tw.finished
+	ambience.enabled = false
+	await hud.story(["You leaned into the wall, and it gave.", "For a moment there was nothing on either side of you.", "Then the hum came back."], 2.0)
+	tear.queue_free()
+	player.camera.fov = Settings.get_value("graphics/fov")
+	player.set_physics_process(true)
+	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "You noclipped. This isn't where you were.")
+	_return_somewhere_else(WorldGen.LOBBY)
+
+
 func _return_somewhere_else(level := -1) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()

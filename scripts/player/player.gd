@@ -138,6 +138,8 @@ func teleport(p: Vector3, p_yaw: float, p_pitch := 0.0) -> void:
 
 
 var shader_flashlight := false
+## Where the player is trying to walk this frame (world space, length <= 1).
+var wish_dir := Vector3.ZERO
 
 
 func set_flashlight(on: bool) -> void:
@@ -249,6 +251,7 @@ func _physics_process(delta: float) -> void:
 		input = input.limit_length(1.0)
 		_gamepad_look(delta)
 	var wish := Basis(Vector3.UP, yaw) * Vector3(input.x, 0.0, input.y)
+	wish_dir = wish
 	var water := in_water()
 	var want_sprint: bool = Input.is_action_pressed("sprint") or sprint_latched or (touch != null and touch.sprint_held)
 	var sprinting: bool = want_sprint and input.y < -0.3 and not crouching and not exhausted and input.length() > 0.5

@@ -6,21 +6,33 @@ extends Node3D
 ##    something once hung);
 ##  - indents in the carpet where furniture stood once;
 ##  - now and then a dark, sodden patch of carpet: the floor under it is
-##    rotten through. Step on it and it gives way (`floor_gave_way`).
+##    rotten through. Step on it and it gives way (`floor_gave_way`);
+##  - rare thin places in the walls, where the wallpaper's seam doesn't quite
+##    line up: lean into one long enough and you clip through it, out of this
+##    part of the halls entirely (`noclipped`);
+##  - plastic trash bins and buckets left against the walls, as in the photo
+##    the place is known from.
 ## Built per REGION x REGION cells on worker threads, one MultiMesh each.
 
 signal floor_gave_way
+signal noclipped
 
 const REGION := 16
-const TILES := 6       # outlet, switch, mount, vent, indents, sodden
-enum { OUTLET, SWITCH, MOUNT, VENT, INDENT, SODDEN }
+const TILES := 7       # outlet, switch, mount, vent, indents, sodden, seam
+enum { OUTLET, SWITCH, MOUNT, VENT, INDENT, SODDEN, SEAM }
+enum { BIN, BUCKET }
+## Seconds of pushing into a thin place before you're through.
+const NOCLIP_TIME := 0.9
 
 var gen: WorldGen
 var target: Node3D
 var _regions := {}         # Vector2i -> Node3D (or null while building)
 var _tasks := {}           # Vector2i -> [task id, result dict]
 var _scan := 0.0
+var _thin := []           # [Area3D, wall normal] of the thin places nearby
+var _push := 0.0
 static var _mat: ShaderMaterial
+static var _prop_mat: ShaderMaterial
 
 
 func clear() -> void:
@@ -42,6 +54,7 @@ func _exit_tree() -> void:
 func _process(delta: float) -> void:
 	if gen == null or target == null:
 		return
+	_check_thin(delta)
 	for r in _tasks.keys():
 		var t: Array = _tasks[r]
 		if WorkerThreadPool.is_task_completed(t[0]):
@@ -78,6 +91,8 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 	var C := WorldGen.CELL
 	var items := []            # [Transform3D, tile, light]
 	var sodden := Vector3.INF
+	var thin := []
+	var props := []            # [position, kind, light, yaw]
 	var dirs := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
 	for j in REGION:
 		for i in REGION:
@@ -115,6 +130,17 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 					tile = VENT
 					size = Vector2(0.3, 0.16)
 					h = 0.2
+				if thin.is_empty() and not g.near_spawn(gx, gz, 10) and rng.randf() < 0.0012:
+					thin = [face, n]
+					var sp := face + Vector3.UP * 1.15 + n * 0.002
+					items.append([Transform3D(Basis(along * 0.5, Vector3.UP * 2.2, n), sp), SEAM, light])
+					continue
+				# Bins and buckets stand against the wall.
+				var pr := rng.randf()
+				if pr < 0.012 or (pr > 0.99 and pr < 0.996):
+					var kind := BIN if pr < 0.012 else BUCKET
+					var off := 0.26 if kind == BIN else 0.2
+					props.append([face + n * off + along * rng.randf_range(-0.7, 0.7), kind, light, rng.randf() * TAU])
 				if tile < 0:
 					continue
 				var p := face + along * rng.randf_range(-0.8, 0.8) + Vector3.UP * h
@@ -132,6 +158,8 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 				items.append([Transform3D(b2.scaled(Vector3(1.5, 1.3, 1.0)), sodden), SODDEN, light])
 	res["items"] = items
 	res["sodden"] = sodden
+	res["thin"] = thin
+	res["props"] = props
 
 
 func _build(res: Dictionary) -> Node3D:
@@ -172,7 +200,94 @@ func _build(res: Dictionary) -> Node3D:
 			if body is Player:
 				floor_gave_way.emit())
 		root.add_child(area)
+	var th: Array = res.get("thin", [])
+	if not th.is_empty():
+		var a2 := Area3D.new()
+		var cs2 := CollisionShape3D.new()
+		var bx := BoxShape3D.new()
+		bx.size = Vector3(0.9, 1.6, 0.9)
+		cs2.shape = bx
+		a2.add_child(cs2)
+		a2.position = th[0] + th[1] * 0.4 + Vector3.UP * 0.9
+		root.add_child(a2)
+		_thin.append([a2, th[1]])
+	var props: Array = res.get("props", [])
+	if props.size() > 0:
+		_build_props(root, props)
 	return root
+
+
+## Pushing into a thin place for a moment takes you through it.
+func _check_thin(delta: float) -> void:
+	var p := target as Player
+	if p == null:
+		return
+	var pushing := false
+	for i in range(_thin.size() - 1, -1, -1):
+		if not is_instance_valid(_thin[i][0]):
+			_thin.remove_at(i)
+			continue
+		var a: Area3D = _thin[i][0]
+		var n: Vector3 = _thin[i][1]
+		if a.overlaps_body(p) and p.wish_dir.dot(-n) > 0.6 and p.controls_enabled:
+			pushing = true
+	_push = _push + delta if pushing else 0.0
+	if _push > NOCLIP_TIME:
+		_push = 0.0
+		noclipped.emit()
+
+
+func _build_props(root: Node3D, props: Array) -> void:
+	var meshes := [_cyl(0.21, 0.18, 0.62), _cyl(0.15, 0.12, 0.3)]
+	var tints := [Color(0.42, 0.44, 0.43), Color(0.86, 0.85, 0.8)]
+	var body := StaticBody3D.new()
+	root.add_child(body)
+	for kind in 2:
+		var list := props.filter(func(e: Array) -> bool: return e[1] == kind)
+		if list.is_empty():
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.use_custom_data = true
+		mm.mesh = meshes[kind]
+		mm.instance_count = list.size()
+		for i in list.size():
+			var e: Array = list[i]
+			var h: float = (meshes[kind] as CylinderMesh).height
+			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, e[3]), e[0] + Vector3.UP * h * 0.5))
+			var lv: float = minf(float(e[2]) * 1.6, 1.0)
+			mm.set_instance_color(i, tints[kind] * lv)
+			mm.set_instance_custom_data(i, Color(h * 0.5, 0, 0, 0))
+			var cs := CollisionShape3D.new()
+			var sh := CylinderShape3D.new()
+			sh.radius = (meshes[kind] as CylinderMesh).top_radius
+			sh.height = h
+			cs.shape = sh
+			cs.position = e[0] + Vector3.UP * h * 0.5
+			body.add_child(cs)
+		var mi := MultiMeshInstance3D.new()
+		mi.multimesh = mm
+		mi.material_override = _props_material()
+		root.add_child(mi)
+
+
+static func _cyl(top: float, bottom: float, h: float) -> CylinderMesh:
+	var c := CylinderMesh.new()
+	c.top_radius = top
+	c.bottom_radius = bottom
+	c.height = h
+	c.radial_segments = 16
+	c.rings = 1
+	return c
+
+
+static func _props_material() -> ShaderMaterial:
+	if _prop_mat:
+		return _prop_mat
+	_prop_mat = ShaderMaterial.new()
+	_prop_mat.shader = load("res://shaders/lobby_prop.gdshader")
+	return _prop_mat
 
 
 static func _material() -> ShaderMaterial:
@@ -228,6 +343,12 @@ static func _atlas() -> Image:
 			if d < 1.0:
 				var c := Color(0.2, 0.16, 0.07, 0.9) if d < 0.82 else Color(0.38, 0.32, 0.15, 0.8)
 				img.set_pixel(SODDEN * T + x, y, c)
+	# Seam: two strips of wallpaper that don't quite meet; a hairline gap
+	# and one edge a shade lighter where it's lifted away from the wall.
+	for y in T:
+		var wob := int(round(sin(y * 0.4) * 0.6))
+		_rect(img, SEAM * T + 31 + wob, y, 1, 1, Color(0.4, 0.37, 0.2, 0.55))
+		_rect(img, SEAM * T + 32 + wob, y, 1, 1, Color(0.8, 0.77, 0.5, 0.4))
 	img.generate_mipmaps()
 	return img
 
