@@ -271,7 +271,11 @@ func _apply_settings() -> void:
 		fixtures.max_lights = FixtureLights.COUNT if on else 0
 		if fixtures.gen:
 			fixtures._place()
-	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if Settings.get_value("graphics/halos") else 0.0)
+	# The halos hide behind walls by reading the depth buffer, which comes out
+	# wrong with MSAA 2x on the Mobile renderer (glows show through walls in a
+	# band at eye level); 4x and the other modes are fine.
+	var halos: bool = Settings.get_value("graphics/halos") and not (int(Settings.get_value("graphics/aa")) == 1 and not Settings.is_ultra)
+	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if halos else 0.0)
 	if Settings.is_ultra:
 		EnvironmentFactory.apply_ultra(env, Settings.get_value("graphics/ssr"), Settings.get_value("graphics/ssao"),
 				Settings.get_value("graphics/ssil"), Settings.get_value("graphics/volumetric_fog"))
