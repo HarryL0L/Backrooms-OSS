@@ -28,6 +28,9 @@ func _process(delta):
 				Settings.set_value("graphics/found_footage", int(OS.get_environment("FF")) if OS.get_environment("FF") != "" else 0)
 				Settings.set_value("graphics/auto_quality", false)
 				Settings.set_value("graphics/voxel_gi", OS.get_environment("VGI") != "")
+				for kv in OS.get_environment("SET").split(";", false):     # e.g. SET="graphics/render_scale=1.0"
+					var p2: PackedStringArray = kv.split("=")
+					Settings.set_value(p2[0], str_to_var(p2[1]))
 				(game.main_menu.find_child("SeedEdit", true, false) as LineEdit).text = "1234"
 				game.new_game(); step = 1
 		1:
