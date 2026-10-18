@@ -7,16 +7,20 @@ render_mode unshaded;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
 
+instance uniform vec4 tint_light = vec4(0.0);   // single props: colour x light (a > 0: use it)
+
 varying vec3 v_col;
 varying vec3 v_wpos;
 varying vec3 v_wn;
 varying float v_half;
 varying vec3 v_local;
+varying vec3 v_ln;
 
 void vertex() {
-	v_col = COLOR.rgb;
+	v_col = tint_light.a > 0.0 ? tint_light.rgb : COLOR.rgb;
 	v_half = INSTANCE_CUSTOM.r;
 	v_local = VERTEX;
+	v_ln = NORMAL;
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
@@ -25,10 +29,10 @@ void vertex() {
 void fragment() {
 	float shade = 0.62 + 0.38 * clamp(v_wn.y * 0.5 + 0.5, 0.0, 1.0);
 	vec3 base = v_col * shade;
-	if (v_wn.y > 0.9) {
+	if (v_half > 0.0 && v_ln.y > 0.9) {
 		// Looking in: a thin rim, dark inside.
 		base *= 0.28;
-	} else {
+	} else if (v_half > 0.0) {
 		// Moulded ribs around the side, a lip at the top.
 		float ang = atan(v_local.z, v_local.x);
 		base *= 0.93 + 0.07 * smoothstep(0.3, 0.9, abs(sin(ang * 8.0)));

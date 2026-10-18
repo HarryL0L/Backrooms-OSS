@@ -11,15 +11,29 @@ extends Node3D
 ##    line up: lean into one long enough and you clip through it, out of this
 ##    part of the halls entirely (`noclipped`);
 ##  - plastic trash bins and buckets left against the walls, as in the photo
-##    the place is known from.
+##    the place is known from;
+##  - things that copy an ordinary building and get it slightly wrong: exit
+##    signs with the letters out of order, door plaques that make no sense,
+##    doors with no doorway behind them (handle on the hinge side, or at knee
+##    height), stairs that climb into the ceiling, a clock with thirteen hours
+##    and no hands, outlets with three slots, switches upside down or out of
+##    reach. None of it near where you start: the Lobby there is an ordinary
+##    copy of an office. The further out (and the further up or down) you
+##    go, the worse the copy gets, until things stick out of the walls, sink
+##    into the floor and hang from the ceiling.
 ## Built per REGION x REGION cells on worker threads, one MultiMesh each.
 
 signal floor_gave_way
 signal noclipped
 
 const REGION := 16
-const TILES := 7       # outlet, switch, mount, vent, indents, sodden, seam
-enum { OUTLET, SWITCH, MOUNT, VENT, INDENT, SODDEN, SEAM }
+const TILES := 9       # outlet, switch, mount, vent, indents, sodden, seam, odd outlet, clock
+enum { OUTLET, SWITCH, MOUNT, VENT, INDENT, SODDEN, SEAM, OUTLET_ODD, CLOCK }
+enum { FAKE_DOOR, STAIRS_UP, DOOR_SUNK, DOOR_THROUGH }
+const EXIT_TEXT := ["EXIT", "EXTI", "EIXT", "EXIT", "XIT", "TIXE", "EXIT EXIT", "EXI"]
+const PLAQUE_TEXT := ["ROOM 0", "ROOM 00", "ROOM -1", "214", "214", "STAFF ONLY", "STAFF OLNY", "OFFICE",
+		"OFIFCE", "STORAGE", "STORGAE", "MEETING ROOM", "MEETNG ROOM", "RESTROOM", "ROOM", "WAITING",
+		"WAITNG", "1/2", "PRIVATE", "PIRVATE", "NO EXIT", "THIS WAY", "ROOM ROOM", ""]
 enum { BIN, BUCKET }
 ## Seconds of pushing into a thin place before you're through.
 const NOCLIP_TIME := 0.9
@@ -93,6 +107,9 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 	var sodden := Vector3.INF
 	var thin := []
 	var props := []            # [position, kind, light, yaw]
+	var fakes := []            # [kind, face, normal, along, light, variant]
+	var signs := []            # [position, normal, text, exit?, light]
+	var stairs_done := false
 	var dirs := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
 	for j in REGION:
 		for i in REGION:
@@ -102,8 +119,29 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 				continue
 			var centre := Vector3((gx + 0.5) * C, 0.0, (gz + 0.5) * C)
 			var light := clampf(g.light_level_near(centre + Vector3.UP * 1.2) * 0.22, 0.04, 0.8)
+			var cx := chaos(g, gx, gz)
+			# Far out, things have come loose: a bucket stuck upside down in
+			# the ceiling, a bin sunk into the carpet.
+			if rng.randf() < 0.004 * cx * cx:
+				props.append([centre + Vector3(rng.randf_range(-0.6, 0.6), WorldGen.CEIL_H[WorldGen.LOBBY] + 0.14, rng.randf_range(-0.6, 0.6)),
+						BUCKET, light, rng.randf() * TAU, Vector3(PI, 0, rng.randf_range(-0.2, 0.2))])
+			elif rng.randf() < 0.004 * cx * cx:
+				props.append([centre + Vector3(rng.randf_range(-0.6, 0.6), -rng.randf_range(0.2, 0.4), rng.randf_range(-0.6, 0.6)),
+						BIN, light, rng.randf() * TAU, Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3))])
 			var edges := g._cell_edges(gx, gz)       # W, E, N, S
 			for k in 4:
+				if edges[k] == WorldGen.E_DOOR or edges[k] == WorldGen.E_PASS:
+					# Over and beside doorways: signs that don't quite work.
+					var nd: Vector3 = dirs[k]
+					var fd := centre - nd * (C * 0.5 - ChunkBuilder.T - 0.005)
+					var top: float = WorldGen.DOOR_H[edges[k]]
+					var sr := rng.randf() / maxf(cx, 0.001)
+					if sr < 0.07:
+						signs.append([fd + Vector3.UP * (top + 0.22) + nd * 0.03, nd, EXIT_TEXT[rng.randi() % EXIT_TEXT.size()], true, light])
+					elif sr < 0.14 and edges[k] == WorldGen.E_DOOR:
+						var side := Vector3(-nd.z, 0, nd.x) * (0.85 if rng.randf() < 0.5 else -0.85)
+						signs.append([fd + side + Vector3.UP * 1.5 + nd * 0.012, nd, PLAQUE_TEXT[rng.randi() % PLAQUE_TEXT.size()], false, light])
+					continue
 				if edges[k] != WorldGen.E_WALL:
 					continue
 				# The wall's inner face, looking into the cell.
@@ -114,14 +152,29 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 				var tile := -1
 				var size := Vector2.ZERO
 				var h := 0.0
+				var flip := false
 				if roll < 0.11:
 					tile = OUTLET
 					size = Vector2(0.075, 0.115)
 					h = 0.32
+					var odd := rng.randf()
+					if odd < 0.12 * cx:
+						tile = OUTLET_ODD          # three slots, like a face
+					elif odd < 0.2 * cx:
+						h = rng.randf_range(2.3, 2.6)     # out of reach
 				elif roll < 0.135:
 					tile = SWITCH
 					size = Vector2(0.075, 0.115)
 					h = 1.22
+					var odd := rng.randf()
+					if odd < 0.15 * cx:
+						flip = true                 # upside down
+					elif odd < 0.3 * cx:
+						h = 0.1 if rng.randf() < 0.5 else 2.5
+				elif roll < 0.135 + 0.008 * cx:
+					tile = CLOCK
+					size = Vector2(0.34, 0.34)
+					h = 2.2
 				elif roll < 0.16:
 					tile = MOUNT
 					size = Vector2(rng.randf_range(0.35, 0.7), rng.randf_range(0.25, 0.5))
@@ -130,7 +183,7 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 					tile = VENT
 					size = Vector2(0.3, 0.16)
 					h = 0.2
-				if thin.is_empty() and not g.near_spawn(gx, gz, 10) and rng.randf() < 0.0012:
+				if thin.is_empty() and not g.near_spawn(gx, gz, 10) and rng.randf() < 0.0004 + 0.0016 * cx:
 					thin = [face, n]
 					var sp := face + Vector3.UP * 1.15 + n * 0.002
 					items.append([Transform3D(Basis(along * 0.5, Vector3.UP * 2.2, n), sp), SEAM, light])
@@ -140,11 +193,33 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 				if pr < 0.012 or (pr > 0.99 and pr < 0.996):
 					var kind := BIN if pr < 0.012 else BUCKET
 					var off := 0.26 if kind == BIN else 0.2
-					props.append([face + n * off + along * rng.randf_range(-0.7, 0.7), kind, light, rng.randf() * TAU])
+					var tilt := Vector3.ZERO
+					var sink := 0.0
+					if rng.randf() < 0.5 * cx * cx:
+						# Half in the wall, or half in the floor, a little askew.
+						off = -0.02 if rng.randf() < 0.5 else off
+						sink = rng.randf_range(0.0, 0.25)
+						tilt = Vector3(rng.randf_range(-0.25, 0.25), 0, rng.randf_range(-0.25, 0.25))
+					props.append([face + n * off + along * rng.randf_range(-0.7, 0.7) - Vector3.UP * sink, kind, light, rng.randf() * TAU, tilt])
+				# Doors to nowhere, and stairs into the ceiling.
+				var fr := rng.randf()
+				if fr < 0.006 * cx:
+					var kind := FAKE_DOOR
+					var cr := rng.randf()
+					if cr < 0.4 * cx * cx:
+						kind = DOOR_SUNK if cr < 0.2 * cx * cx else DOOR_THROUGH
+					fakes.append([kind, face, n, along, light, rng.randi() % 3])
+					continue
+				if fr > 1.0 - 0.003 * cx and not stairs_done:
+					stairs_done = true
+					fakes.append([STAIRS_UP, face, n, along, light, 0])
+					continue
 				if tile < 0:
 					continue
 				var p := face + along * rng.randf_range(-0.8, 0.8) + Vector3.UP * h
-				items.append([Transform3D(Basis(along * size.x, Vector3.UP * size.y, n), p), tile, light])
+				var up := Vector3.DOWN if flip else Vector3.UP
+				var ax := -along if flip else along
+				items.append([Transform3D(Basis(ax * size.x, up * size.y, n), p), tile, light])
 			# Furniture indents in the carpet.
 			if rng.randf() < 0.03:
 				var a := rng.randf() * TAU
@@ -160,6 +235,8 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 	res["sodden"] = sodden
 	res["thin"] = thin
 	res["props"] = props
+	res["fakes"] = fakes
+	res["signs"] = signs
 
 
 func _build(res: Dictionary) -> Node3D:
@@ -214,7 +291,106 @@ func _build(res: Dictionary) -> Node3D:
 	var props: Array = res.get("props", [])
 	if props.size() > 0:
 		_build_props(root, props)
+	for f in res.get("fakes", []):
+		_build_fake(root, f)
+	for s in res.get("signs", []):
+		_build_sign(root, s)
 	return root
+
+
+## A door that isn't one (no doorway behind it), or stairs into the ceiling.
+func _build_fake(root: Node3D, f: Array) -> void:
+	var face: Vector3 = f[1]
+	var n: Vector3 = f[2]
+	var light: float = minf(float(f[4]) * 1.6, 1.0)
+	var basis := Basis(Vector3.UP.cross(n), Vector3.UP, n)     # x along the wall, z out of it
+	var body := StaticBody3D.new()
+	root.add_child(body)
+	match int(f[0]):
+		FAKE_DOOR, DOOR_SUNK, DOOR_THROUGH:
+			if int(f[0]) == DOOR_SUNK:
+				face -= Vector3.UP * 0.9                    # half under the floor
+			elif int(f[0]) == DOOR_THROUGH:
+				# Sideways, sticking straight out through the wall.
+				basis = Basis(Vector3.UP, PI * 0.5) * basis
+				var cs := CollisionShape3D.new()
+				var bs := BoxShape3D.new()
+				bs.size = Vector3(0.06, 2.0, 0.9)
+				cs.shape = bs
+				cs.position = face + Vector3.UP * 1.0
+				body.add_child(cs)
+			var wood := Color(0.55, 0.45, 0.32)
+			var trim := Color(0.82, 0.8, 0.72)
+			_piece(root, face, basis, Vector3(0.0, 1.0, 0.025), Vector3(0.88, 2.0, 0.04), wood * light)
+			# Casing round it.
+			_piece(root, face, basis, Vector3(-0.48, 1.04, 0.015), Vector3(0.08, 2.08, 0.03), trim * light)
+			_piece(root, face, basis, Vector3(0.48, 1.04, 0.015), Vector3(0.08, 2.08, 0.03), trim * light)
+			_piece(root, face, basis, Vector3(0.0, 2.04, 0.015), Vector3(1.04, 0.08, 0.03), trim * light)
+			# The handle: on the hinge side, at knee height, or both.
+			var hx := 0.36
+			var hy := 1.0
+			match int(f[5]):
+				0: hx = -0.36                  # where the hinges are
+				1: hy = 0.38
+				_:
+					hx = -0.36
+					hy = 1.75
+			_piece(root, face, basis, Vector3(hx, hy, 0.07), Vector3(0.12, 0.03, 0.05), Color(0.7, 0.66, 0.5) * light)
+		STAIRS_UP:
+			# Eight steps up along the wall, the last one into the ceiling.
+			var c := Color(0.5, 0.42, 0.26)
+			for i in 8:
+				var x0 := -1.0 + i * 0.25
+				var hgt := (i + 1) * 0.375
+				_piece(root, face, basis, Vector3(x0 + 0.125, hgt * 0.5, 0.48), Vector3(0.25, hgt, 0.95), c * light * (0.85 + 0.05 * (i % 2)))
+				var cs := CollisionShape3D.new()
+				var bs := BoxShape3D.new()
+				bs.size = Vector3(0.25, hgt, 0.95)
+				cs.shape = bs
+				cs.transform = Transform3D(basis, face + basis * Vector3(x0 + 0.125, hgt * 0.5, 0.48))
+				body.add_child(cs)
+
+
+func _piece(root: Node3D, face: Vector3, basis: Basis, local: Vector3, size: Vector3, col: Color) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = _props_material()
+	mi.transform = Transform3D(basis, face + basis * local)
+	root.add_child(mi)
+	mi.set_instance_shader_parameter("tint_light", Color(col.r, col.g, col.b, 1.0))
+
+
+## An exit sign over a doorway (a lit box, the word not quite right), or a
+## plaque beside a door.
+func _build_sign(root: Node3D, s: Array) -> void:
+	var p: Vector3 = s[0]
+	var n: Vector3 = s[1]
+	var exit: bool = s[3]
+	var light: float = minf(float(s[4]) * 1.6, 1.0)
+	var basis := Basis(Vector3.UP.cross(n), Vector3.UP, n)
+	if exit:
+		_piece(root, p - n * 0.03, basis, Vector3(0, 0, 0.03), Vector3(0.46, 0.17, 0.06), Color(0.86, 0.85, 0.8) * light)
+	else:
+		_piece(root, p - n * 0.008, basis, Vector3(0, 0, 0.004), Vector3(0.34, 0.11, 0.008), Color(0.2, 0.19, 0.17) * light)
+	var l := Label3D.new()
+	l.text = s[2]
+	l.font_size = 64 if exit else 36
+	l.pixel_size = 0.0022 if exit else 0.0017
+	l.outline_size = 0
+	l.shaded = false
+	l.double_sided = false
+	l.modulate = Color(1.0, 0.18, 0.12) * 1.3 if exit else Color(0.9, 0.88, 0.8) * light
+	l.transform = Transform3D(basis, p + n * (0.062 if exit else 0.006))
+	root.add_child(l)
+
+
+## How badly the copy has gone wrong here (0 near where you start, 1 far
+## out). Other floors start worse.
+static func chaos(g: WorldGen, gx: int, gz: int) -> float:
+	var d := Vector2(gx - g.spawn_cell.x, gz - g.spawn_cell.y).length()
+	return clampf((d - 14.0) / 110.0 + absf(g.floor_index) * 0.3, 0.0, 1.0)
 
 
 ## Pushing into a thin place for a moment takes you through it.
@@ -257,6 +433,10 @@ func _build_props(root: Node3D, props: Array) -> void:
 			var h: float = (meshes[kind] as CylinderMesh).height
 			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, e[3]), e[0] + Vector3.UP * h * 0.5))
 			var lv: float = minf(float(e[2]) * 1.6, 1.0)
+			var tilt: Vector3 = e[4] if e.size() > 4 else Vector3.ZERO
+			if tilt != Vector3.ZERO:
+				var b := Basis.from_euler(tilt) * Basis(Vector3.UP, e[3])
+				mm.set_instance_transform(i, Transform3D(b, e[0] + b * (Vector3.UP * h * 0.5)))
 			mm.set_instance_color(i, tints[kind] * lv)
 			mm.set_instance_custom_data(i, Color(h * 0.5, 0, 0, 0))
 			var cs := CollisionShape3D.new()
@@ -349,6 +529,22 @@ static func _atlas() -> Image:
 		var wob := int(round(sin(y * 0.4) * 0.6))
 		_rect(img, SEAM * T + 31 + wob, y, 1, 1, Color(0.4, 0.37, 0.2, 0.55))
 		_rect(img, SEAM * T + 32 + wob, y, 1, 1, Color(0.8, 0.77, 0.5, 0.4))
+	# Odd outlet: three slots, the way a face has two eyes and a mouth.
+	_rect(img, OUTLET_ODD * T + 4, 2, 56, 60, plate)
+	_rect(img, OUTLET_ODD * T + 20, 16, 3, 10, dark)
+	_rect(img, OUTLET_ODD * T + 41, 16, 3, 10, dark)
+	_rect(img, OUTLET_ODD * T + 24, 40, 16, 3, dark)
+	# Clock: thirteen marks round the dial, no hands.
+	for y in T:
+		for x in T:
+			var d := Vector2(x - 31.5, y - 31.5).length()
+			if d < 30.0:
+				img.set_pixel(CLOCK * T + x, y, Color(0.88, 0.87, 0.82, 1) if d < 27.5 else Color(0.2, 0.19, 0.18, 1))
+	for m in 13:
+		var a := m * TAU / 13.0
+		for r in range(19, 25):
+			img.set_pixel(CLOCK * T + int(31.5 + cos(a) * r), int(31.5 + sin(a) * r), dark)
+	_rect(img, CLOCK * T + 30, 30, 4, 4, dark)
 	img.generate_mipmaps()
 	return img
 

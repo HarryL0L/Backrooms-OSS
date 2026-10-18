@@ -130,7 +130,12 @@ static func lamp_positions() -> PackedVector3Array:
 ## Writes the floor numbers for the floor you're on.
 func set_floor(f: int) -> void:
 	for i in _labels.size():
-		_labels[i].text = WorldGen.floor_name(f + i - STOREYS)
+		var fl := f + i - STOREYS
+		# Now and then a landing has the wrong number (always the same one).
+		var h := hash(Vector3i(block.x, block.y, fl))
+		if h % 100 < 12:
+			fl += 1 if (h >> 8) % 2 == 0 else -1
+		_labels[i].text = WorldGen.floor_name(fl)
 
 
 ## Opens the door on your landing (when the floor beyond is ready).
