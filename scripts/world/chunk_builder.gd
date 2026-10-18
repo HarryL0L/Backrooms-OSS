@@ -31,8 +31,8 @@ static var detail := false
 ## Photoreal: also bake which way the light comes from (directional
 ## lightmap), so normal-mapped detail responds to the baked light.
 static var dir_lm := false
-## Photoreal: bounce light from a coarse per-chunk field of lit cells (with
-## visibility and the colour of what it bounced off) instead of the fake term.
+## Photoreal: two-bounce radiosity on the cell grid (see _compute_gi) instead
+## of the fake bounce term.
 static var gi := false
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
@@ -134,7 +134,6 @@ var lm_seed_bytes := PackedByteArray()
 var lm_dir_bytes := PackedByteArray()
 var _ldir := Vector3.ZERO          # set by shade(): light-weighted direction
 # Bounce field (gi): indirect light at the cell corners, (W+1)^2.
-var _gi_field := PackedColorArray()
 var _gi_ready := false
 # Per-face light visibility while baking a face: 0 hidden, 1 visible, 2 test
 # per texel. Empty when not baking.
@@ -414,7 +413,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 	var fl_amt := 0.0
 	var fl_best := 0.0
 	var dacc := Vector3.ZERO
-	var bounce_k := 0.3 if (gi and _gi_ready) else 1.0
+	var bounce_k := 0.0 if _direct_only else (0.12 if (gi and _gi_ready) else 1.0)
 	for k in (_face_lights if _face_on else _candidates(li, lj)):
 		var lp := lpos[k]
 		var dx := lp.x - p.x
@@ -461,8 +460,8 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		bl += sc.b * (sky + sun)
 		tot += (sky + sun) * 3.0
 		dacc += sd * sun * 3.0 + Vector3.UP * sky
-	if gi and _gi_ready:
-		var ind := _gi_sample(u, v)
+	if gi and _gi_ready and not _direct_only:
+		var ind := _gi_sample(u, v, nrm)
 		if b == WorldGen.DARK:
 			ind *= 0.3          # the Unlit Halls stay dark
 		r += ind.r
@@ -474,52 +473,195 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 	return Color(r, g, bl, share)
 
 
-# -------------------------------------------------------- bounce field (gi) ---
-const GI_RADIUS := 2
-const GI_STRENGTH := 0.16
+# ---------------------------------------------------- bounce light (gi) ---
+# Radiosity on the cell grid, for colour bleeding and indirect shadows on any
+# renderer: every floor, ceiling and wall of every cell is a patch that takes
+# the direct light falling on it and reflects it in its own colour. A probe in
+# each cell gathers the patches it can see (walls block, so corners and the far
+# side of a pillar get less) into an "ambient cube": six colours, one per axis
+# direction, so a wall facing a red wall picks up red and the floor picks up
+# the ceiling. Two bounces. The result is baked into the lightmaps like the
+# direct light, so it costs nothing at runtime.
+
+const GI_RADIUS := 2              # cells a probe gathers from
+const GI_STRENGTH := 1.5
+## Surface colours for the bounce (what the shaders' textures average to),
+## per biome: Yellow Halls, Tiled Baths, Grey Floors, Unlit Halls, Pipeworks.
+const ALB_WALL := [Color(0.72, 0.65, 0.34), Color(0.80, 0.85, 0.88), Color(0.50, 0.50, 0.49), Color(0.72, 0.65, 0.34), Color(0.40, 0.35, 0.30)]
+const ALB_FLOOR := [Color(0.52, 0.41, 0.22), Color(0.78, 0.84, 0.88), Color(0.42, 0.42, 0.41), Color(0.52, 0.41, 0.22), Color(0.46, 0.28, 0.20)]
+const ALB_CEIL := [Color(0.78, 0.76, 0.66), Color(0.80, 0.85, 0.88), Color(0.45, 0.45, 0.44), Color(0.78, 0.76, 0.66), Color(0.34, 0.31, 0.29)]
+
+var _direct_only := false
+var _probe := PackedColorArray()      # W*W*6: +x -x +y -y +z -z per cell
+var _probe_y := PackedFloat32Array()  # W*W probe heights
 
 
-## Light that bounced once off the floors around: each cell's floor is lit
-## (direct light only), takes the colour of its level, and lights the cell
-## corners it can see within two cells, falling off with distance.
 func _compute_gi() -> void:
-	var rad := PackedColorArray()
-	rad.resize(W * W)
-	for j in W:
-		for i in W:
+	var ppos := PackedVector3Array()
+	var pnrm := PackedVector3Array()
+	var parea := PackedFloat32Array()
+	var palb := PackedColorArray()
+	var pcell := PackedInt32Array()
+	var by_cell := []
+	by_cell.resize(W * W)
+	# Patches, for cells that probes can reach.
+	var lo := M - GI_RADIUS - 1
+	var hi := M + N + GI_RADIUS + 1
+	for j in range(maxi(lo, 0), mini(hi, W)):
+		for i in range(maxi(lo, 0), mini(hi, W)):
 			if solid[i + j * W] == 1:
 				continue
-			var p := Vector3((rx0 + i + 0.5) * CELL, fl(i, j) + 0.05, (rz0 + j + 0.5) * CELL)
-			var e := shade(p, Vector3.UP)
-			var bt: Color = WorldGen.BOUNCE_TINT[bio(i, j)]
-			rad[i + j * W] = Color(e.r * bt.r, e.g * bt.g, e.b * bt.b)
-	_gi_field.resize((W + 1) * (W + 1))
-	for cj in W + 1:
-		for ci in W + 1:
-			var acc := Color(0, 0, 0)
-			for j in range(cj - GI_RADIUS - 1, cj + GI_RADIUS + 1):
-				for i in range(ci - GI_RADIUS - 1, ci + GI_RADIUS + 1):
-					if i < 0 or j < 0 or i >= W or j >= W or solid[i + j * W] == 1:
+			var list := PackedInt32Array()
+			var b := bio(i, j)
+			var f := fl(i, j)
+			var c := ce(i, j)
+			var cx := (rx0 + i + 0.5) * CELL
+			var cz := (rz0 + j + 0.5) * CELL
+			var A := CELL * CELL
+			list.push_back(ppos.size())
+			ppos.push_back(Vector3(cx, f + 0.02, cz)); pnrm.push_back(Vector3.UP); parea.push_back(A)
+			palb.push_back(ALB_FLOOR[b]); pcell.push_back(i + j * W)
+			list.push_back(ppos.size())
+			ppos.push_back(Vector3(cx, c - 0.02, cz)); pnrm.push_back(Vector3.DOWN); parea.push_back(A)
+			palb.push_back(ALB_CEIL[b]); pcell.push_back(i + j * W)
+			var h := c - f
+			var my := f + h * 0.5
+			for side in 4:
+				var e: int
+				var n: Vector3
+				match side:
+					0: e = edge_v(i, j); n = Vector3.RIGHT
+					1: e = edge_v(i + 1, j); n = Vector3.LEFT
+					2: e = edge_h(i, j); n = Vector3.BACK
+					_: e = edge_h(i, j + 1); n = Vector3.FORWARD
+				if e == WorldGen.E_OPEN:
+					continue
+				var area := CELL * h
+				if e != WorldGen.E_WALL:
+					area -= WorldGen.DOOR_W[e] * minf(WorldGen.DOOR_H[e], h)
+				if area <= 0.1:
+					continue
+				list.push_back(ppos.size())
+				ppos.push_back(Vector3(cx, my, cz) - n * (CELL * 0.5 - 0.1)); pnrm.push_back(n); parea.push_back(area)
+				palb.push_back(ALB_WALL[b]); pcell.push_back(i + j * W)
+			by_cell[i + j * W] = list
+	# Direct light on each patch.
+	var pe := PackedColorArray()
+	pe.resize(ppos.size())
+	_direct_only = true
+	for k in ppos.size():
+		pe[k] = shade(ppos[k] + pnrm[k] * 0.05, pnrm[k])
+	_direct_only = false
+	# Probes: which patches each sees, and how much towards each cube face.
+	var plo := M - 1
+	var phi := M + N + 1
+	_probe.resize(W * W * 6)
+	_probe_y.resize(W * W)
+	var links := []
+	links.resize(W * W)
+	for j in range(plo, phi):
+		for i in range(plo, phi):
+			if solid[i + j * W] == 1:
+				continue
+			var py := (fl(i, j) + ce(i, j)) * 0.5
+			_probe_y[i + j * W] = py
+			var pp := Vector3((rx0 + i + 0.5) * CELL, py, (rz0 + j + 0.5) * CELL)
+			var lk := PackedFloat32Array()
+			for qj in range(j - GI_RADIUS, j + GI_RADIUS + 1):
+				for qi in range(i - GI_RADIUS, i + GI_RADIUS + 1):
+					if qi < 0 or qj < 0 or qi >= W or qj >= W or by_cell[qi + qj * W] == null:
 						continue
-					var du := (i + 0.5) - ci
-					var dv := (j + 0.5) - cj
-					var d2 := (du * du + dv * dv) * CELL * CELL + 1.4
-					if d2 > 1.0 + 2.0 * CELL * CELL and not _visible(i + 0.5, j + 0.5, 1.0, ci, cj, 1.2):
+					if (qi != i or qj != j) and not _visible(i + 0.5, j + 0.5, 1.2, qi + 0.5, qj + 0.5, 1.2):
 						continue
-					acc += rad[i + j * W] * (1.0 / (1.0 + d2 * 0.55))
-			_gi_field[ci + cj * (W + 1)] = acc * GI_STRENGTH
+					for k in by_cell[qi + qj * W]:
+						var d := ppos[k] - pp
+						var d2 := d.length_squared()
+						var dn := d / sqrt(d2)
+						var cq := -pnrm[k].dot(dn)
+						if cq <= 0.0:
+							continue
+						var w := parea[k] * cq / (PI * d2 + parea[k])
+						# Per axis: sign = which face, size = cosine weight.
+						lk.push_back(k)
+						lk.push_back(dn.x * w)
+						lk.push_back(dn.y * w)
+						lk.push_back(dn.z * w)
+			links[i + j * W] = lk
+	# Two bounces: gather direct-lit patches, then light the patches with
+	# that and gather again.
+	var pb := PackedColorArray()
+	pb.resize(ppos.size())
+	for k in ppos.size():
+		pb[k] = pe[k] * palb[k]
+	_gather(links, pb, plo, phi)
+	for k in ppos.size():
+		var ind := _cube(pcell[k], pnrm[k])
+		pb[k] = (pe[k] + ind) * palb[k]
+	_gather(links, pb, plo, phi)
 	_gi_ready = true
 
 
-func _gi_sample(u: float, v: float) -> Color:
+func _gather(links: Array, pb: PackedColorArray, plo: int, phi: int) -> void:
+	for j in range(plo, phi):
+		for i in range(plo, phi):
+			var lk = links[i + j * W]
+			if lk == null:
+				continue
+			var acc := [Color(0, 0, 0), Color(0, 0, 0), Color(0, 0, 0), Color(0, 0, 0), Color(0, 0, 0), Color(0, 0, 0)]
+			var t := 0
+			var n: int = lk.size()
+			while t < n:
+				var c := pb[int(lk[t])]
+				var x: float = lk[t + 1]
+				var y: float = lk[t + 2]
+				var z: float = lk[t + 3]
+				if x > 0.0: acc[0] += c * x
+				else: acc[1] -= c * x
+				if y > 0.0: acc[2] += c * y
+				else: acc[3] -= c * y
+				if z > 0.0: acc[4] += c * z
+				else: acc[5] -= c * z
+				t += 4
+			var o := (i + j * W) * 6
+			for f in 6:
+				_probe[o + f] = acc[f] * GI_STRENGTH
+
+
+## Bounce light arriving from direction `n` at cell k (ambient cube).
+func _cube(k: int, n: Vector3) -> Color:
+	var o := k * 6
+	if o + 5 >= _probe.size():
+		return Color(0, 0, 0)
+	var c := _probe[o + (0 if n.x > 0.0 else 1)] * (n.x * n.x)
+	c += _probe[o + (2 if n.y > 0.0 else 3)] * (n.y * n.y)
+	c += _probe[o + (4 if n.z > 0.0 else 5)] * (n.z * n.z)
+	return c
+
+
+## Bounce light at local point (u, v in cells) with normal n: blends the
+## probes of this cell and its neighbours, but never across a wall.
+func _gi_sample(u: float, v: float, n: Vector3) -> Color:
 	var i := clampi(floori(u), 0, W - 1)
 	var j := clampi(floori(v), 0, W - 1)
-	var fu := clampf(u - i, 0.0, 1.0)
-	var fv := clampf(v - j, 0.0, 1.0)
-	var s := W + 1
-	var a := _gi_field[i + j * s].lerp(_gi_field[i + 1 + j * s], fu)
-	var b := _gi_field[i + (j + 1) * s].lerp(_gi_field[i + 1 + (j + 1) * s], fu)
-	return a.lerp(b, fv)
+	var fu := u - i - 0.5
+	var fv := v - j - 0.5
+	var i2 := clampi(i + (1 if fu > 0.0 else -1), 0, W - 1)
+	var j2 := clampi(j + (1 if fv > 0.0 else -1), 0, W - 1)
+	var wu := absf(fu)
+	var wv := absf(fv)
+	var open_u := i2 != i and solid[i2 + j * W] == 0 and edge_v(maxi(i, i2), j) != WorldGen.E_WALL
+	var open_v := j2 != j and solid[i + j2 * W] == 0 and edge_h(i, maxi(j, j2)) != WorldGen.E_WALL
+	var open_d := open_u and open_v and solid[i2 + j2 * W] == 0 \
+			and edge_h(i2, maxi(j, j2)) != WorldGen.E_WALL and edge_v(maxi(i, i2), j2) != WorldGen.E_WALL
+	var w0 := (1.0 - wu) * (1.0 - wv)
+	var w1 := wu * (1.0 - wv) if open_u else 0.0
+	var w2 := (1.0 - wu) * wv if open_v else 0.0
+	var w3 := wu * wv if open_d else 0.0
+	var c := _cube(i + j * W, n) * w0
+	if w1 > 0.0: c += _cube(i2 + j * W, n) * w1
+	if w2 > 0.0: c += _cube(i + j2 * W, n) * w2
+	if w3 > 0.0: c += _cube(i2 + j2 * W, n) * w3
+	return c / (w0 + w1 + w2 + w3)
 
 
 ## True if the sun reaches local point (u, v in cells, y in metres): walks the

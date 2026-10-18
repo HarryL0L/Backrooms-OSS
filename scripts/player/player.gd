@@ -39,6 +39,10 @@ var camera: Camera3D
 var flash_rig: Node3D
 var flashlight: SpotLight3D
 var flash_fill: OmniLight3D
+## Photoreal: the flashlight's bounce light (see _update_bounce).
+var flash_bounce: OmniLight3D
+var bounce_on := false
+var _bounce_e := 0.0
 var _shape: CapsuleShape3D
 var _col: CollisionShape3D
 var _eye := EYE
@@ -102,6 +106,13 @@ func _ready() -> void:
 	flash_fill.light_specular = 0.0
 	flash_fill.visible = false
 	flash_rig.add_child(flash_fill)
+	flash_bounce = OmniLight3D.new()
+	flash_bounce.top_level = true
+	flash_bounce.omni_range = 5.5
+	flash_bounce.omni_attenuation = 1.2
+	flash_bounce.light_specular = 0.0
+	flash_bounce.visible = false
+	add_child(flash_bounce)
 	_apply_settings()
 	Settings.changed.connect(_apply_settings)
 
@@ -111,6 +122,7 @@ func _apply_settings() -> void:
 	flashlight.shadow_enabled = Settings.get_value("graphics/flashlight_shadows")
 	# Without real-time lights the flashlight is computed in the world shaders.
 	shader_flashlight = not Settings.light_nodes()
+	bounce_on = Settings.light_nodes() and Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1")
 	set_flashlight(flashlight_on)
 
 
@@ -408,3 +420,50 @@ func _update_flash_rig(delta: float) -> void:
 	flash_rig.global_transform = Transform3D(Basis(q), target.origin)
 	if shader_flashlight and flashlight_on:
 		_push_flash_globals()
+	_update_bounce(delta)
+
+
+## Bounce light from the flashlight on any renderer: one small light where the
+## beam lands, in the colour of what it lands on, so a lit yellow wall throws
+## a soft yellow glow back into the room (a single "virtual point light").
+func _update_bounce(delta: float) -> void:
+	var target_e := 0.0
+	if bounce_on and flashlight_on and not field_mode:
+		var from := flash_rig.global_position
+		var dir := -flash_rig.global_basis.z
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * flashlight.spot_range)
+		q.exclude = [get_rid()]
+		var hit := get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty():
+			var n: Vector3 = hit.normal
+			var d := from.distance_to(hit.position)
+			var alb := _albedo_at(hit.position, n)
+			var lum := (alb.r + alb.g + alb.b) / 3.0
+			target_e = BOUNCE_ENERGY * lum * clampf(1.0 - d / flashlight.spot_range, 0.0, 1.0)
+			var p: Vector3 = hit.position + n * 0.45
+			if _bounce_e <= 0.001:
+				flash_bounce.global_position = p
+			else:
+				flash_bounce.global_position = flash_bounce.global_position.lerp(p, 1.0 - exp(-12.0 * delta))
+			var m := maxf(alb.r, maxf(alb.g, alb.b))
+			flash_bounce.light_color = flashlight.light_color * Color(alb.r / m, alb.g / m, alb.b / m)
+	_bounce_e = lerpf(_bounce_e, target_e, 1.0 - exp(-10.0 * delta))
+	flash_bounce.light_energy = _bounce_e
+	flash_bounce.visible = _bounce_e > 0.005
+
+
+const BOUNCE_ENERGY := 0.9
+
+
+## What colour the surface at p is (for the bounce): the level's wall, floor
+## or ceiling colour in the Backrooms, a neutral grey elsewhere.
+func _albedo_at(p: Vector3, n: Vector3) -> Color:
+	if gen == null or mall_mode:
+		return Color(0.55, 0.53, 0.5)
+	var c := gen.cell_of(p - n * 0.1)
+	var b := gen.biome_at(c.x, c.y)
+	if n.y > 0.6:
+		return ChunkBuilder.ALB_FLOOR[b]
+	if n.y < -0.6:
+		return ChunkBuilder.ALB_CEIL[b]
+	return ChunkBuilder.ALB_WALL[b]
