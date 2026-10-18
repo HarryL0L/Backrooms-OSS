@@ -32,7 +32,7 @@ func door_in_region(r: Vector2i) -> Dictionary:
 			continue
 		if gen.is_solid(gx, gz, bb) or gen.edge_kind(gx, gz, true, ba, bb) != WorldGen.E_WALL:
 			continue
-		var pos := Vector3(gx * WorldGen.CELL + 0.07 + 0.035, 0.0, (gz + 0.5) * WorldGen.CELL)
+		var pos := Vector3(gx * WorldGen.CELL + ChunkBuilder.T + 0.035, 0.0, (gz + 0.5) * WorldGen.CELL)
 		# About half the doors open onto the Dead Mall instead of the Field.
 		return {"pos": pos, "mall": gen.rnd(r.x, r.y, 709) < 0.5}
 	return {}

@@ -128,7 +128,7 @@ func _compute(g: WorldGen, start_cell: Vector2i, seed_value: int) -> void:
 				var nrm := -Vector3(s.x, 0, s.y)              # wall faces into the room
 				# Mall marks sit low, Field marks high (and a hair further out),
 				# so two trails crossing on one wall never overlap.
-				var p := centre - nrm * (C * 0.5 - (0.1 if mall else 0.11))
+				var p := centre - nrm * (C * 0.5 - (0.1 if mall else ChunkBuilder.T + 0.04))
 				var along := Vector3(dv.x, 0, dv.y)
 				p += along * rng.randf_range(-0.3, 0.3)
 				p.y = rng.randf_range(0.85, 1.1) if mall else rng.randf_range(1.5, 1.75)

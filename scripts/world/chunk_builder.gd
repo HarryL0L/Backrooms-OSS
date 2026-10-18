@@ -13,7 +13,7 @@ const N := WorldGen.CHUNK
 const M := 4                     # margin cells (>= max light radius / CELL)
 const W := N + 2 * M
 const SUB := 3                   # floor / ceiling subdivisions per cell
-const T := 0.07                  # half wall thickness
+const T := 0.15                  # half wall thickness (30 cm walls, as in the 2002 photo)
 const SPACING := 1.2             # target vertex spacing on walls
 ## Per-pixel lightmaps (off in the Potato preset: cheaper generation).
 static var lightmaps := true

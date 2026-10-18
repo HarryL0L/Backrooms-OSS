@@ -18,7 +18,8 @@ const REGION := 34.0
 
 enum { LOBBY, POOL, CONCRETE, DARK, PIPES }
 const BIOME_COUNT := 5
-const BIOME_NAMES := ["The Yellow Halls", "The Tiled Baths", "The Grey Floors", "The Unlit Halls", "The Pipeworks"]
+const BIOME_NAMES := ["Level 0 - The Lobby", "Level 37 - The Poolrooms", "Level 1 - Habitable Zone",
+	"Level 0.1 - The Unlit Halls", "Level 2 - Pipe Dreams"]
 
 # Edge kinds.
 const E_OPEN := 0
@@ -33,7 +34,7 @@ const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95]
 const WIN_Y0 := 0.45
 
 # Per-biome constants.
-const CEIL_H := [2.7, 4.8, 3.6, 2.7, 2.7]
+const CEIL_H := [3.0, 4.8, 3.6, 2.7, 2.7]
 const POOL_FLOOR := -0.8
 const WATER_Y := -0.16
 const LIGHT_COLOR := [Color(1.0, 0.97, 0.86), Color(1.0, 0.98, 0.94), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58), Color(1.0, 0.88, 0.7)]

@@ -94,7 +94,7 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 				# The wall's inner face, looking into the cell.
 				var n: Vector3 = dirs[k]           # W wall faces +X, E faces -X, ...
 				var along := Vector3(-n.z, 0, n.x)
-				var face := centre - n * (C * 0.5 - 0.075)
+				var face := centre - n * (C * 0.5 - ChunkBuilder.T - 0.005)
 				var roll := rng.randf()
 				var tile := -1
 				var size := Vector2.ZERO
