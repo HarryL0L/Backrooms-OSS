@@ -11,7 +11,7 @@ const COUNT := 6
 const FADE_TIME := 0.3
 ## Bounce strength under VoxelGI: the lights' direct diffuse is kept low
 ## (the lightmaps already have it), their bounce has to stand for the panel.
-const GI_BOUNCE := 4.0
+const GI_BOUNCE := 2.0
 
 var gen: WorldGen
 var target: Node3D

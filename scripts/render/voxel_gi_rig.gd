@@ -15,6 +15,9 @@ extends Node3D
 const SIZE := Vector3(32.0, 8.0, 32.0)
 ## Re-bake once the player is this far (metres, horizontal) from the centre.
 const REBAKE_DIST := 7.0
+## Bounce strength. A torch on a yellow wall should fill a dark room softly,
+## not light it up.
+const ENERGY := 0.35
 
 ## Static geometry to bake (the chunk manager, or the mall).
 var source: Node3D
@@ -70,8 +73,8 @@ func _bake(p: Vector3) -> void:
 	_vgi.bake(source)
 	last_bake_ms = (Time.get_ticks_usec() - t) / 1000.0
 	if _vgi.data:
-		_vgi.data.energy = 1.0
-		_vgi.data.propagation = 0.7
+		_vgi.data.energy = ENERGY
+		_vgi.data.propagation = 0.5
 		_vgi.data.bias = 1.5
 		_vgi.data.normal_bias = 0.0
 		_vgi.data.interior = true    # no sky: the environment isn't sampled

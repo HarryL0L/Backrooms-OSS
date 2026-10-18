@@ -84,3 +84,6 @@ func _go():
 	game.player.teleport(v[1], v[2], v[3])
 	if v[0] == "unlit" or OS.get_environment("FLASH") != "":
 		game.player.set_flashlight(true)
+	if OS.get_environment("NOLIGHTGI") != "":     # VoxelGI with no light bouncing
+		for l in game.find_children("*", "Light3D", true, false):
+			l.light_indirect_energy = 0.0
