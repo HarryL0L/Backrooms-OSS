@@ -28,6 +28,10 @@ var _rng := RandomNumberGenerator.new()
 var _last_pos := Vector3.INF
 var in_field := false
 var in_mall := false
+## The floor they're on, and the floor of the player looking (set by the game):
+## someone a floor up or down stands at the same x, z but isn't here.
+var floor_index := 0
+var viewer_floor := 0
 
 
 func _ready() -> void:
@@ -115,7 +119,8 @@ func _process(delta: float) -> void:
 	var pitch := lerpf(float(sa.x), float(sb.x), k)
 	in_field = bool(sb.get("fl", false))
 	in_mall = bool(sb.get("ml", false))
-	visible = true
+	floor_index = int(sb.get("fr", 0))
+	visible = floor_index == viewer_floor or in_field or in_mall
 	# Gait from their actual movement.
 	var vel: Vector3 = sb.get("v", Vector3.ZERO)
 	var hs := Vector2(vel.x, vel.z).length()

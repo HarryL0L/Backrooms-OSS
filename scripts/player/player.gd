@@ -138,6 +138,17 @@ func teleport(p: Vector3, p_yaw: float, p_pitch := 0.0) -> void:
 
 
 var shader_flashlight := false
+## Inside a stairwell shaft (set by Stairwells).
+var in_stairwell := false
+
+
+## Moves you straight up or down without touching anything else (a floor
+## change on the stairs: the shaft around you looks the same).
+func shift_y(dy: float) -> void:
+	global_position.y += dy
+	_safe_pos.y += dy
+	flash_rig.global_position.y += dy
+	flash_bounce.global_position.y += dy
 ## Where the player is trying to walk this frame (world space, length <= 1).
 var wish_dir := Vector3.ZERO
 
@@ -219,6 +230,8 @@ func surface_at() -> int:
 		return SURF_GRASS
 	if mall_mode:
 		return SURF_TILE
+	if in_stairwell:
+		return SURF_CONCRETE
 	return surface_for(gen, global_position)
 
 
@@ -236,7 +249,7 @@ static func surface_for(g: WorldGen, pos: Vector3) -> int:
 
 
 func in_water() -> bool:
-	return not field_mode and not mall_mode and global_position.y < WorldGen.WATER_Y - 0.1
+	return not in_stairwell and not field_mode and not mall_mode and global_position.y < WorldGen.WATER_Y - 0.1
 
 
 func _physics_process(delta: float) -> void:

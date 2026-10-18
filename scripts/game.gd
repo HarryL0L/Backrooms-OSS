@@ -28,6 +28,9 @@ var ripples: WaterRipples
 var lining: LiningEntity
 var hall_figure: HallFigure
 var presence: LobbyPresence      # heard, never seen
+var stairs: Stairwells
+## Which floor you're on (0 = where you started; below is negative).
+var _floor := 0
 var retro: RetroView
 var net: Net
 var mp_menu: MultiplayerMenu
@@ -155,6 +158,12 @@ func _ready() -> void:
 	details.target = player
 	details.floor_gave_way.connect(_on_floor_gave_way)
 	details.noclipped.connect(_on_noclipped)
+	stairs = Stairwells.new()
+	stairs.process_mode = Node.PROCESS_MODE_PAUSABLE
+	stairs.player = player
+	stairs.chunks = chunks
+	stairs.floor_step.connect(_on_floor_step)
+	add_child(stairs)
 	add_child(details)
 	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
@@ -331,35 +340,66 @@ func _update_touch_visibility() -> void:
 
 # ---------------------------------------------------------------- world ---
 
-func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: Callable) -> void:
+const SAME_FLOOR := -9999
+
+
+## Loads a world (`floor_index`: which floor; by default the one you're on).
+func _load_world(seed_value: int, pos: Vector3, yaw: float, pitch: float, done: Callable, floor_index := SAME_FLOOR) -> void:
 	state = State.LOADING
 	hud.set_fade(1.0)
 	hud.set_loading(true, "Noclipping...")
 	player.controls_enabled = false
 	player.set_physics_process(false)
-	if seed_value != _world_seed:
+	var f := _floor if floor_index == SAME_FLOOR else floor_index
+	if seed_value != _world_seed or gen == null or f != gen.floor_index:
 		_world_seed = seed_value
-		gen = WorldGen.new(seed_value)
-		chunks.setup(gen, mats)
-		player.gen = gen
-		ambience.attach(gen, player)
-		if fixtures:
-			fixtures.gen = gen
-		ripples.gen = gen
-		odd_doors.clear()
-		odd_doors.gen = gen
-		details.clear()
-		details.gen = gen
-		footage.gen = gen
-		lining.gen = gen
-		hall_figure.gen = gen
-		presence.gen = gen
-		lining.odd_doors = odd_doors
-		_biome = -1
+		_floor = f
+		stairs.clear()
+		_use_gen(WorldGen.new(seed_value, f), false)
 	chunks.target = player
 	player.teleport(pos, yaw, pitch)
 	_loading_done = done
 	_warm_shaders()
+
+
+## Points everything at a world. `swap`: a floor change on the stairs (the
+## old floor's chunks just go; nothing waits).
+func _use_gen(g: WorldGen, swap: bool) -> void:
+	gen = g
+	if swap:
+		chunks.swap_world(g)
+	else:
+		chunks.setup(g, mats)
+	player.gen = g
+	ambience.attach(g, player)
+	if fixtures:
+		fixtures.gen = g
+	ripples.gen = g
+	odd_doors.clear()
+	odd_doors.gen = g
+	details.clear()
+	details.gen = g
+	footage.gen = g
+	lining.gen = g
+	hall_figure.gen = g
+	presence.gen = g
+	lining.odd_doors = odd_doors
+	stairs.gen = g
+	stairs.set_floor(g.floor_index)
+	if not swap:
+		_biome = -1             # (around a stairwell it's the Lobby on every floor)
+
+
+## Half a floor up or down a stairwell: you're moved by one floor height (the
+## shaft is identical, so you can't tell) and the next floor is swapped in.
+func _on_floor_step(dir: int) -> void:
+	if state != State.PLAYING or _transition or _away():
+		return
+	_floor += dir
+	player.shift_y(-dir * WorldGen.FLOOR_H)
+	_use_gen(WorldGen.new(gen.seed_value, _floor), true)
+	hud.show_level("Floor %s" % WorldGen.floor_name(_floor),
+			"The air is heavier down here." if dir < 0 else "It's quieter up here.")
 
 
 ## Draws every world material once, tiny and right in front of the camera,
@@ -455,7 +495,7 @@ func _enter_menu() -> void:
 			if msg != "":
 				hud.show_level("Safe mode", msg)
 		hud.fade_to(0.0, 1.2)
-		_focus_first(main_menu))
+		_focus_first(main_menu), int(save.get("floor", 0)))
 
 
 ## Detects the Forward+ driver corruption (see RenderCheck) once per launch
@@ -511,7 +551,7 @@ func new_game() -> void:
 	var g := WorldGen.new(seed_value)
 	_load_world(seed_value, g.spawn_position(), PI * 0.25, 0.0, func() -> void:
 		player.set_flashlight(false)
-		_intro())
+		_intro(), 0)
 
 
 func _intro() -> void:
@@ -543,7 +583,7 @@ func continue_game() -> void:
 			player.set_flashlight(save.get("flashlight", false))
 			_start_playing()
 			await _enter_mall(save.pos, save.yaw)
-			hud.fade_to(0.0, 1.0))
+			hud.fade_to(0.0, 1.0), int(save.get("floor", 0)))
 		return
 	if save.has("field_exit"):
 		# Saved in the Field: load the Backrooms world (for the way back) at its
@@ -553,12 +593,12 @@ func continue_game() -> void:
 			player.set_flashlight(false)
 			_start_playing()
 			_enter_field(save.field_exit, save.pos, save.yaw)
-			hud.fade_to(0.0, 1.0))
+			hud.fade_to(0.0, 1.0), int(save.get("floor", 0)))
 		return
 	_load_world(save.seed, save.pos, save.yaw, save.get("pitch", 0.0), func() -> void:
 		player.set_flashlight(save.get("flashlight", false))
 		_start_playing()
-		hud.fade_to(0.0, 1.0))
+		hud.fade_to(0.0, 1.0), int(save.get("floor", 0)))
 
 
 func _start_playing() -> void:
@@ -785,7 +825,7 @@ func _process(delta: float) -> void:
 			_net_t = 0.05
 			net.send_state({"p": player.global_position, "y": player.yaw, "x": player.pitch,
 				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching,
-				"g": player.is_on_floor(), "fl": _in_field, "ml": _in_mall})
+				"g": player.is_on_floor(), "fl": _in_field, "ml": _in_mall, "fr": _floor})
 	_update_radar(delta)
 	lining.allowed = state == State.PLAYING and not _away() and not _transition
 	hall_figure.allowed = lining.allowed
@@ -818,6 +858,8 @@ func _eye_adaptation(delta: float) -> void:
 		env.tonemap_exposure = base
 		return
 	var lum := gen.light_level_near(player.camera.global_position, 3) * 0.35
+	if player.in_stairwell:
+		lum = 0.45                 # the shaft has its own bulbs
 	if player.flashlight_on:
 		lum = maxf(lum, 0.35)
 	var target := clampf(pow(1.3 / maxf(lum, 0.05), 0.35), 0.85, 2.0)
@@ -1208,7 +1250,10 @@ func _write_save() -> void:
 	if net.active and not net.is_host:
 		return                     # the host's game is the one that's saved
 	var cf := ConfigFile.new()
+	if player.in_stairwell:
+		return                     # mid-flight; the last save off the stairs stands
 	cf.set_value("save", "seed", gen.seed_value)
+	cf.set_value("save", "floor", _floor)
 	cf.set_value("save", "pos", player.global_position)
 	cf.set_value("save", "yaw", player.yaw)
 	cf.set_value("save", "pitch", player.pitch)
@@ -1288,7 +1333,7 @@ func _net_world_info() -> Dictionary:
 			if space.intersect_ray(q).is_empty():
 				pos = player.global_position + d * 0.9
 				break
-	return {"seed": gen.seed_value if gen else 0, "pos": pos, "yaw": yaw}
+	return {"seed": gen.seed_value if gen else 0, "pos": pos, "yaw": yaw, "floor": _floor}
 
 
 func _on_net_joined(info: Dictionary) -> void:
@@ -1303,7 +1348,7 @@ func _on_net_joined(info: Dictionary) -> void:
 		player.set_flashlight(false)
 		_start_playing()
 		hud.show_level("Joined", "You're in. Player %02d." % int(info.number))
-		hud.fade_to(0.0, 1.0))
+		hud.fade_to(0.0, 1.0), int(info.get("floor", 0)))
 
 
 func _on_net_disconnected(reason: String) -> void:
@@ -1356,6 +1401,7 @@ func _update_radar(delta: float) -> void:
 	var others := []
 	for id in _remotes:
 		var r := _remotes[id] as RemotePlayer
+		r.viewer_floor = _floor
 		if r.visible and r.in_field == _in_field and r.in_mall == _in_mall:
 			others.append([r.global_position, r.number])
 	var light := 1.0

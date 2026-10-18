@@ -42,6 +42,23 @@ func setup(p_gen: WorldGen, p_mats: WorldMaterials) -> void:
 	_last_center = Vector2i(1 << 30, 0)
 
 
+## Switches to another floor's world without waiting for builds in flight
+## (their results are dropped): no hitch while you're on the stairs.
+func swap_world(p_gen: WorldGen) -> void:
+	_generation += 1
+	gen = p_gen
+	_mutex.lock()
+	_results.clear()
+	_mutex.unlock()
+	for c in _chunks.values():
+		c.queue_free()
+	_chunks.clear()
+	_stale.clear()
+	_wanted.clear()
+	_initial_done = false
+	_last_center = Vector2i(1 << 30, 0)
+
+
 func clear() -> void:
 	_generation += 1
 	for id in _tasks.values():

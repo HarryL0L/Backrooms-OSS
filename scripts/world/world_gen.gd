@@ -66,13 +66,20 @@ const L_DEAD := 3
 const L_SKY := 4
 
 var seed_value: int
+## Which floor of the Backrooms this is (0 = where you start, below is
+## negative). Every floor has its own layout; stairwells stand at the same
+## place on all of them.
+var floor_index := 0
+var _floor_salt := 0
 var spawn_cell: Vector2i
 var _biome_cache := {}
 var _main_thread := OS.get_main_thread_id()
 
 
-func _init(p_seed: int) -> void:
+func _init(p_seed: int, p_floor := 0) -> void:
 	seed_value = p_seed & 0x7FFFFFFF
+	floor_index = p_floor
+	_floor_salt = (p_floor * 0x5bd1e995) & 0x7FFFFFFF
 	var sp := region_point(0, 0)
 	spawn_cell = Vector2i(floori(sp.x), floori(sp.y))
 
@@ -80,6 +87,15 @@ func _init(p_seed: int) -> void:
 # ---------------------------------------------------------------- hashing ---
 
 func hashi(x: int, z: int, salt: int) -> int:
+	var h: int = (x * 0x27d4eb2d) ^ (z * 0x165667b1) ^ (salt * 0x3c6ef372) ^ seed_value ^ _floor_salt
+	h &= 0xFFFFFFFF
+	h = ((h ^ (h >> 15)) * 0x2c1b3c6d) & 0xFFFFFFFF
+	h = ((h ^ (h >> 12)) * 0x297a2d39) & 0xFFFFFFFF
+	return h ^ (h >> 15)
+
+
+## Like hashi, but the same on every floor (for what floors share: stairs).
+func hashb(x: int, z: int, salt: int) -> int:
 	var h: int = (x * 0x27d4eb2d) ^ (z * 0x165667b1) ^ (salt * 0x3c6ef372) ^ seed_value
 	h &= 0xFFFFFFFF
 	h = ((h ^ (h >> 15)) * 0x2c1b3c6d) & 0xFFFFFFFF
@@ -115,13 +131,21 @@ func region_biome(rx: int, rz: int) -> int:
 	if rx == 0 and rz == 0:
 		return LOBBY
 	var r := rnd(rx, rz, 13)
-	if r < 0.40:
+	# Down, the floors get older and darker: fewer pools, more pipes and
+	# unlit halls. Up, emptier and more like offices: more concrete floors.
+	var down := clampf(-floor_index * 0.07, 0.0, 0.28)
+	var up := clampf(floor_index * 0.07, 0.0, 0.28)
+	var t_lobby := 0.40 - down * 0.4
+	var t_pool := t_lobby + 0.22 - down * 0.5 - up * 0.5
+	var t_conc := t_pool + 0.15 + up
+	var t_pipes := t_conc + 0.11 + down * 0.4
+	if r < t_lobby:
 		return LOBBY
-	if r < 0.62:
+	if r < t_pool:
 		return POOL
-	if r < 0.77:
+	if r < t_conc:
 		return CONCRETE
-	if r < 0.88:
+	if r < t_pipes:
 		return PIPES
 	return DARK
 
@@ -143,6 +167,9 @@ func biome_at(gx: int, gz: int) -> int:
 
 
 func _biome_compute(gx: int, gz: int) -> int:
+	# Around a stairwell it's always the Lobby, on every floor.
+	if stair_zone(gx, gz, 3):
+		return LOBBY
 	# Domain warp so region borders meander instead of being straight lines.
 	var px := gx + 0.5 + (vnoise(gx * 0.11, gz * 0.11, 14) - 0.5) * 9.0
 	var pz := gz + 0.5 + (vnoise(gx * 0.11, gz * 0.11, 15) - 0.5) * 9.0
@@ -179,6 +206,8 @@ func pool_noise(gx: int, gz: int) -> bool:
 ## Pipeworks is a maze of narrow service corridors cut through solid rock:
 ## corridors run along every 4th row/column, with random segments missing.
 func is_solid(gx: int, gz: int, b: int) -> bool:
+	if stair_zone(gx, gz, 0):
+		return true            # the stairwell shaft
 	if b != PIPES or near_spawn(gx, gz, 1):
 		return false
 	var cx := posmod(gx, 4) == 0 and rnd(gx, floori(gz / 6.0), 81) < 0.82
@@ -212,6 +241,11 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 	var salt := 0 if vertical else 500
 	var ax := line - 1 if vertical else along
 	var az := along if vertical else line - 1
+	# The stairwell's door: the west wall of its block, first row.
+	if vertical:
+		var sb0 := stair_block_at(ex, ez)
+		if sb0.x != NO_STAIRS and sb0 == Vector2i(ex, ez):
+			return E_DOOR
 	var sa := is_solid(ax, az, ba)
 	var sb := is_solid(ex, ez, bb)
 	if sa or sb:
@@ -287,6 +321,8 @@ func pillar_at(vx: int, vz: int, b: int) -> float:
 # ----------------------------------------------------------------- lights ---
 
 func light_state(gx: int, gz: int, b: int) -> int:
+	if stair_zone(gx, gz, 0):
+		return L_NONE
 	var r := rnd(gx, gz, 31)
 	match b:
 		LOBBY:
@@ -401,3 +437,47 @@ func nearest_flicker(p: Vector3, radius_cells: int) -> Array:
 					best = d
 					res = [lp, light_seed(gx, gz)]
 	return res
+
+
+# -------------------------------------------------------------- stairwells ---
+# One stairwell per STAIR_REGION x STAIR_REGION cells, at the same place on
+# every floor: a block of STAIR_W x STAIR_D cells (a closed concrete shaft)
+# with its door in the west wall of its first cell. See Stairwell.
+
+const STAIR_REGION := 30
+const STAIR_W := 3
+const STAIR_D := 2
+const NO_STAIRS := 1 << 30
+## Height of one floor (the stairs climb this much per floor).
+const FLOOR_H := 4.0
+
+
+## The stairwell block of a stair region (its first cell), or NO_STAIRS.
+func stair_block(sx: int, sz: int) -> Vector2i:
+	if sx == 0 and sz == 0:
+		return Vector2i(NO_STAIRS, NO_STAIRS)      # the start area
+	var h := hashb(sx, sz, 901)
+	var bx := sx * STAIR_REGION + 6 + h % (STAIR_REGION - 12)
+	var bz := sz * STAIR_REGION + 6 + (h >> 8) % (STAIR_REGION - 12)
+	return Vector2i(bx, bz)
+
+
+## The block whose cells include (gx, gz), or NO_STAIRS.
+func stair_block_at(gx: int, gz: int) -> Vector2i:
+	var b := stair_block(floori(float(gx) / STAIR_REGION), floori(float(gz) / STAIR_REGION))
+	if b.x != NO_STAIRS and gx >= b.x and gx < b.x + STAIR_W and gz >= b.y and gz < b.y + STAIR_D:
+		return b
+	return Vector2i(NO_STAIRS, NO_STAIRS)
+
+
+## Within `margin` cells of a stairwell block.
+func stair_zone(gx: int, gz: int, margin: int) -> bool:
+	var b := stair_block(floori(float(gx) / STAIR_REGION), floori(float(gz) / STAIR_REGION))
+	if b.x == NO_STAIRS:
+		return false
+	return gx >= b.x - margin and gx < b.x + STAIR_W + margin and gz >= b.y - margin and gz < b.y + STAIR_D + margin
+
+
+## How a floor is written on the stairwell walls: 0, 1, 2 ... up, B1, B2 down.
+static func floor_name(f: int) -> String:
+	return str(f) if f >= 0 else "B%d" % -f
