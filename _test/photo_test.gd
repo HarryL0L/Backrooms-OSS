@@ -54,6 +54,19 @@ func _process(delta):
 				lamp_cell.y -= posmod(lamp_cell.y, 2)
 				views.append(["ceiling", Vector3((lamp_cell.x + 0.5) * 2.4 + 1.6, 0.05, (lamp_cell.y + 0.5) * 2.4), PI * 0.5, 0.75])
 				views.append(["tiles", pool, 0.4, -0.75])
+				# A row of archways: a vertical E_PASS edge, seen from three cells off.
+				var arc := Vector2i.MAX
+				for r2 in range(2, 120):
+					for k2 in 24:
+						var a2 := k2 * TAU / 24.0
+						var cc: Vector2i = g.spawn_cell + Vector2i(int(cos(a2) * r2), int(sin(a2) * r2))
+						if arc == Vector2i.MAX and g.edge_kind(cc.x, cc.y, true, g.biome_at(cc.x - 1, cc.y), g.biome_at(cc.x, cc.y)) == WorldGen.E_PASS \
+								and not g.is_solid(cc.x - 3, cc.y, WorldGen.LOBBY):
+							arc = cc
+				if arc != Vector2i.MAX:
+					var eye := Vector3((arc.x - 2.3) * 2.4, 0.05, (arc.y + 2.6) * 2.4)
+					var look := Vector3(arc.x * 2.4, 0.0, (arc.y - 1.0) * 2.4) - eye
+					views.append(["arcade", eye, atan2(-look.x, -look.z), 0.0])
 				var mall_v = views.filter(func(v): return v[0] == "mall")
 				views = views.filter(func(v): return v[0] != "mall") + mall_v
 				if OS.get_environment("ONLY") != "":

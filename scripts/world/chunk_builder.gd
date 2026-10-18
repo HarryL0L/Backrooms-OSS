@@ -103,6 +103,14 @@ class Buf:
 
 
 var gen: WorldGen
+var _lightmaps: bool
+var _water_sub: int
+var _god_rays: bool
+var _lm_scale: float
+var _photoreal_ao: bool
+var _detail: bool
+var _dir_lm: bool
+var _gi: bool
 var coord: Vector2i
 var rx0: int
 var rz0: int
@@ -148,6 +156,16 @@ var _lm_shelf := 0
 func _init(p_gen: WorldGen, p_coord: Vector2i) -> void:
 	gen = p_gen
 	coord = p_coord
+	# The settings this chunk is built with. Chunks build on worker threads,
+	# and the statics can change (graphics preset) while one is half done.
+	_lightmaps = lightmaps
+	_water_sub = water_sub
+	_god_rays = god_rays
+	_lm_scale = lm_scale
+	_photoreal_ao = photoreal_ao
+	_detail = detail
+	_dir_lm = dir_lm
+	_gi = gi
 	rx0 = coord.x * N - M
 	rz0 = coord.y * N - M
 
@@ -190,7 +208,7 @@ func build() -> Dictionary:
 	bufs.resize(MAT_COUNT)
 	_compute_layout()
 	_compute_lights()
-	if gi and lightmaps:
+	if _gi and _lightmaps:
 		_compute_gi()
 	for j in N:
 		for i in N:
@@ -206,7 +224,7 @@ func build() -> Dictionary:
 		if b != null and b.v.size() > 0:
 			surfaces[m] = b.to_arrays()
 	var out := {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image()}
-	if dir_lm:
+	if _dir_lm:
 		out["lightmap_dir"] = _lm_dir_image()
 	return out
 
@@ -223,7 +241,7 @@ func _lm_alloc(w: int, h: int) -> Vector2i:
 	if lm_bytes.size() < need:
 		lm_bytes.resize(maxi(need, lm_bytes.size() * 2))
 		lm_seed_bytes.resize(lm_bytes.size() / 4)
-		if dir_lm:
+		if _dir_lm:
 			lm_dir_bytes.resize(lm_bytes.size() / 2)
 	return at
 
@@ -413,7 +431,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 	var fl_amt := 0.0
 	var fl_best := 0.0
 	var dacc := Vector3.ZERO
-	var bounce_k := 0.0 if _direct_only else (0.12 if (gi and _gi_ready) else 1.0)
+	var bounce_k := 0.0 if _direct_only else (0.12 if (_gi and _gi_ready) else 1.0)
 	for k in (_face_lights if _face_on else _candidates(li, lj)):
 		var lp := lpos[k]
 		var dx := lp.x - p.x
@@ -460,7 +478,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		bl += sc.b * (sky + sun)
 		tot += (sky + sun) * 3.0
 		dacc += sd * sun * 3.0 + Vector3.UP * sky
-	if gi and _gi_ready and not _direct_only:
+	if _gi and _gi_ready and not _direct_only:
 		var ind := _gi_sample(u, v, nrm)
 		if b == WorldGen.DARK:
 			ind *= 0.3          # the Unlit Halls stay dark
@@ -802,9 +820,9 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 	var lm_at := Vector2i(-1, -1)
 	var lm_n := Vector2i.ZERO
 	var face_seed := 0.0
-	if not LIGHTMAPPED.has(mat) or not lightmaps:
+	if not LIGHTMAPPED.has(mat) or not _lightmaps:
 		lm_texel = 0.0
-	lm_texel *= lm_scale
+	lm_texel *= _lm_scale
 	if lm_texel > 0.0:
 		lm_n = Vector2i(maxi(2, ceili(du.length() / lm_texel - 0.01) + 1), maxi(2, ceili(dv.length() / lm_texel - 0.01) + 1))
 		lm_at = _lm_alloc(lm_n.x, lm_n.y)
@@ -910,7 +928,7 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 	var done := PackedByteArray()
 	done.resize(n.x * n.y)
 	var dirs := PackedVector3Array()
-	if dir_lm:
+	if _dir_lm:
 		dirs.resize(n.x * n.y)
 	# Pass 1: every other texel (plus the last row/column). Pass 2: texels in
 	# between are interpolated where their neighbours agree, shaded otherwise.
@@ -944,7 +962,7 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					var lmin := minf(minf(l00, l10), minf(l01, l11))
 					if lmax - lmin <= 0.05 + lmax * 0.22 and absf(c00.a - c11.a) < 0.1 and absf(c10.a - c01.a) < 0.1:
 						vals[k] = (c00 + c10 + c01 + c11) * 0.25
-						if dir_lm:
+						if _dir_lm:
 							dirs[k] = dirs[u0 + v0 * n.x] + dirs[u1 + v0 * n.x] + dirs[u0 + v1 * n.x] + dirs[u1 + v1 * n.x]
 						tseed[k] = maxf(maxf(tseed[u0 + v0 * n.x], tseed[u1 + v0 * n.x]), maxf(tseed[u0 + v1 * n.x], tseed[u1 + v1 * n.x]))
 						if c00.a >= c11.a and c00.a >= c10.a and c00.a >= c01.a:
@@ -959,12 +977,12 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					sp += _nudge(p)
 				var light := shade(sp, nrm)
 				var ao := _ao_xz(sp) if ao_mode == 1 else _ao_y(p.y, f, c)
-				if photoreal_ao and ao_mode != 1 and absf(nrm.y) < 0.5:
+				if _photoreal_ao and ao_mode != 1 and absf(nrm.y) < 0.5:
 					ao *= _ao_corner(sp, nrm)
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
 				vals[k] = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
-				if dir_lm:
+				if _dir_lm:
 					dirs[k] = _ldir
 				tseed[k] = _seed
 				done[k] = 1
@@ -988,7 +1006,7 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 			# darkening of neighbouring texels, so there are no hard edges.
 			var sd := tseed[tu + tv * n.x]
 			lm_seed_bytes.encode_u16(o / 4, clampi(int(sd), 0, 65535))
-			if dir_lm:
+			if _dir_lm:
 				# Direction (0..255 per axis); alpha = how directional the
 				# light is (1: one lamp, 0: none, so the shader leaves it).
 				var dl := dirs[tu + tv * n.x]
@@ -1126,7 +1144,7 @@ func _emit_cell(li: int, lj: int) -> void:
 	_grid(CEIL_MAT[b], Vector3(xa, c, za), Vector3(CELL, 0, 0), Vector3(0, 0, CELL), cr, cr,
 			Vector3.DOWN, Vector3.RIGHT, 0, 1, f, c, LM_TEXEL_CEIL)
 	_col_quad(Vector3(xa, f, za), Vector3(xa + CELL, f, za), Vector3(xa + CELL, f, za + CELL), Vector3(xa, f, za + CELL))
-	if detail and CEIL_MAT[b] == MAT_CEILING_TILE:
+	if _detail and CEIL_MAT[b] == MAT_CEILING_TILE:
 		_tbar_grid(xa, za, c, gen.light_state(gx, gz, b) != WorldGen.L_NONE, PANEL_SIZE[b])
 	if is_pool:
 		_emit_water(xa, za)
@@ -1154,7 +1172,7 @@ func _emit_cell(li: int, lj: int) -> void:
 			pb.add(Vector3(cx + o.x * sz.x * 0.5, y, cz + o.y * sz.y * 0.5), Vector3.DOWN, Vector3.RIGHT,
 					Vector2((o.x + 1.0) * 0.5, (o.y + 1.0) * 0.5) * sz, Vector2(sd, 1.0 if s != WorldGen.L_DEAD else 0.0), emit)
 		_tri_quad(pb, st, st + 1, st + 2, st + 3, Vector3(1, 0, 0).cross(Vector3(0, 0, 1)).dot(Vector3.DOWN) > 0.0)
-		if detail and CEIL_MAT[b] == MAT_CEILING_TILE:
+		if _detail and CEIL_MAT[b] == MAT_CEILING_TILE:
 			_troffer_rim(cx, cz, sz, c)
 		if s != WorldGen.L_DEAD:
 			_emit_halo(Vector3(cx, y - 0.05, cz), emit, sd, HALO_SIZE[b])
@@ -1182,7 +1200,7 @@ func _emit_water(xa: float, za: float) -> void:
 			lit.append(Color(light.r * ao, light.g * ao, light.b * ao, light.a))
 			sds.push_back(_seed)
 	_no_sun = false
-	var sub_n := water_sub
+	var sub_n := _water_sub
 	var b := buf(MAT_WATER)
 	var start := b.v.size()
 	var n := sub_n + 1
@@ -1291,7 +1309,7 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 	if e == WorldGen.E_WALL:
 		for sd in sides:
 			_vface(WALL_MAT[sd[2]], axis, sd[1], sd[0], a0, a1, sd[3], sd[4], sd[3], sd[4])
-			if detail and WALL_MAT[sd[2]] == MAT_WALLPAPER:
+			if _detail and WALL_MAT[sd[2]] == MAT_WALLPAPER:
 				_skirting(axis, sd[1], sd[0], a0 - T, a1 + T, sd[3], sd[4])
 			if (sd[2] == WorldGen.LOBBY or sd[2] == WorldGen.DARK) and gen.rnd(floori(plane * 10.0), floori(s0 * 10.0) + int(sd[0]), 93) < 0.08:
 				var at := s0 + 0.4 + 1.6 * gen.rnd(floori(plane * 10.0), floori(s0 * 10.0), 94)
@@ -1316,10 +1334,11 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 		var c: float = sd[4]
 		_vface(m, axis, sd[1], sd[0], a0, o0, f, c, f, c)
 		_vface(m, axis, sd[1], sd[0], o1, a1, f, c, f, c)
-		if detail and m == MAT_WALLPAPER:
+		if _detail and m == MAT_WALLPAPER:
 			_skirting(axis, sd[1], sd[0], a0 - T, o0 - 0.07, f, c)
 			_skirting(axis, sd[1], sd[0], o1 + 0.07, a1 + T, f, c)
-			_casing(axis, sd[1], sd[0], o0, o1, yb, yt, f, c)
+			if e != WorldGen.E_PASS:     # archways are plain wallpapered openings
+				_casing(axis, sd[1], sd[0], o0, o1, yb, yt, f, c)
 		_vface(m, axis, sd[1], sd[0], o0, o1, yt, c, f, c)
 		_vface(m, axis, sd[1], sd[0], o0, o1, f, yb, f, c)
 	# Door reveals (jamb sides), lintel underside, sill top.
@@ -1697,7 +1716,7 @@ func _emit_window(axis: int, plane: float, s0: float, o0: float, o1: float, side
 	else:
 		_hface(mr, o0, o1, plane - T, plane + T, y1, false, 1, false)
 		_hface(mr, o0, o1, plane - T, plane + T, y0, true, 1, false)
-	if god_rays:
+	if _god_rays:
 		_emit_sun_shaft(axis, plane + sun_side * T, o0, o1, y0, y1)
 	_col_wall(axis, plane, a0 - T, a1 + T, bottom, top)
 

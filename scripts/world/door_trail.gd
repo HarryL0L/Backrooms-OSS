@@ -14,7 +14,7 @@ extends Node3D
 
 const REACH := 26              # rooms (cells) the arrows reach out to
 const LITTER_REACH := 10
-const PASSABLE := [WorldGen.E_OPEN, WorldGen.E_DOOR, WorldGen.E_ARCH, WorldGen.E_GATE]
+const PASSABLE := [WorldGen.E_OPEN, WorldGen.E_DOOR, WorldGen.E_ARCH, WorldGen.E_GATE, WorldGen.E_PASS]
 const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
 var mall := false

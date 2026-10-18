@@ -28,8 +28,11 @@ const E_DOOR := 2
 const E_ARCH := 3
 const E_GATE := 4
 const E_WINDOW := 5
-const DOOR_W := [0.0, 0.0, 1.1, 1.7, 1.7, 0.95]
-const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95]
+## A wide doorless opening cut through a wallpapered wall; in the Lobby they
+## come in rows (an arcade), like the archways of the original 2002 photo.
+const E_PASS := 6
+const DOOR_W := [0.0, 0.0, 1.1, 1.7, 1.7, 0.95, 1.8]
+const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95, 2.6]
 # Sun gallery windows (Tiled Baths): absolute sill height (top is DOOR_H[E_WINDOW]).
 const WIN_Y0 := 0.45
 
@@ -222,6 +225,10 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 	var big := floori(along / 24.0)
 	match ba:
 		LOBBY, DARK:
+			# Now and then a straight run of wall becomes a row of archways:
+			# opening, pier, opening, pier...
+			if ba == LOBBY and not open_hall(ex, ez) and rnd(line, floori(along / 8.0), 60 + salt) < 0.1:
+				return E_PASS if posmod(along, 2) == 0 else E_WALL
 			var dens := 0.16 + 0.52 * rnd(line, big, 43 + salt)
 			if open_hall(ex, ez):
 				dens *= 0.12
