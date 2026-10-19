@@ -48,6 +48,24 @@ static func _mat(key: String) -> Material:
 		"mask": [Color(0.09, 0.09, 0.1), 0.5, 0.45, 0.0],
 		"filter": [Color(0.32, 0.33, 0.3), 0.45, 0.7, 0.0],
 		"zip": [Color(0.2, 0.2, 0.2), 0.4, 0.8, 0.0],
+		# FigureModel: the people (and things) in the Backrooms.
+		"shirt": [Color(0.78, 0.79, 0.76), 0.7, 0.3, 0.5],
+		"shirt_blue": [Color(0.55, 0.63, 0.72), 0.7, 0.3, 0.5],
+		"shirt_cream": [Color(0.8, 0.74, 0.6), 0.7, 0.3, 0.5],
+		"trousers": [Color(0.2, 0.2, 0.21), 0.75, 0.25, 0.4],
+		"trousers_navy": [Color(0.12, 0.14, 0.22), 0.75, 0.25, 0.4],
+		"trousers_khaki": [Color(0.42, 0.37, 0.27), 0.75, 0.25, 0.4],
+		"tie": [Color(0.3, 0.08, 0.08), 0.6, 0.3, 0.0],
+		"skin": [Color(0.72, 0.6, 0.52), 0.6, 0.35, 0.0],
+		"skin_wax": [Color(0.78, 0.74, 0.68), 0.4, 0.5, 0.0],
+		"hair": [Color(0.09, 0.07, 0.06), 0.8, 0.2, 0.0],
+		"hair_grey": [Color(0.42, 0.41, 0.4), 0.8, 0.2, 0.0],
+		"shoe": [Color(0.04, 0.035, 0.03), 0.4, 0.6, 0.0],
+		"vest": [Color(0.75, 0.85, 0.1), 0.7, 0.3, 0.3],
+		"vest_strip": [Color(0.7, 0.72, 0.72), 0.25, 0.9, 0.0],
+		"overall": [Color(0.16, 0.18, 0.2), 0.8, 0.2, 0.6],
+		"crawler": [Color(0.66, 0.64, 0.6), 0.35, 0.55, 0.15],
+		"socket": [Color(0.0, 0.0, 0.0), 1.0, 0.0, 0.0],
 	}
 	if spec.has(key):
 		var sm := ShaderMaterial.new()
