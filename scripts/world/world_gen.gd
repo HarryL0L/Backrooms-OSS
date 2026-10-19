@@ -325,6 +325,10 @@ func crates_at(gx: int, gz: int) -> bool:
 func pillar_at(vx: int, vz: int, b: int) -> float:
 	if near_spawn(vx, vz, 1):
 		return 0.0
+	# Never on a corner of a stairwell (it would stand inside the shaft).
+	for c in [Vector2i(vx - 1, vz - 1), Vector2i(vx, vz - 1), Vector2i(vx - 1, vz), Vector2i(vx, vz)]:
+		if stair_zone(c.x, c.y, 0):
+			return 0.0
 	match b:
 		CONCRETE:
 			# Warehouse columns, 0.8 m.
