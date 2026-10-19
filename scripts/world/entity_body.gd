@@ -1,16 +1,23 @@
 class_name EntityBody
 extends Node3D
-## A downloaded figure (assets/entities, CC0: see assets/entities/LICENSE.md)
-## with its own clips (idle, walks, run), relit like the world with the
-## figure shader. Faces +Z. update() advances the clips and then applies
-## anything laid over them: a head turn, a neck stoop, or the crawl (posed
-## from limb directions, since the base mesh has no clips of its own).
+## A downloaded figure (assets/entities, CC0: see assets/entities/LICENSE.md),
+## relit like the world with the figure shader. Faces +Z. The base mesh has
+## no clips of its own: as the tall one it walks and runs with the clips of
+## a locomotion figure on the same rig (motion.glb), limbs and neck
+## stretched; as the crawler it's posed on all fours from limb directions.
+## update() advances the clips and then applies anything laid over them (a
+## head turn, a neck stoop).
 
 const SCENES := {
-	"sam": "res://assets/entities/sam.glb",
-	"harper": "res://assets/entities/harper.glb",
-	"jordan": "res://assets/entities/jordan.glb",
 	"crawler": "res://assets/entities/crawler.glb",
+	"tall": "res://assets/entities/crawler.glb",
+}
+const MOTION := "res://assets/entities/motion.glb"
+## The tall one's proportions: bone -> scale along the bone.
+const STRETCH := {
+	"upperarm_l": 1.25, "upperarm_r": 1.25, "lowerarm_l": 1.35, "lowerarm_r": 1.35,
+	"thigh_l": 1.12, "thigh_r": 1.12, "calf_l": 1.18, "calf_r": 1.18, "neck_01": 1.7,
+	"spine_03": 1.08,
 }
 ## Clip name -> in-place travel speed (m/s), from the source pages.
 const CLIP_SPEED := {"Walk_Relaxed": 1.3, "Walk_Brisk": 1.7, "Run": 4.5}
@@ -25,9 +32,11 @@ const CHILD := {
 
 static var _scenes := {}
 static var _shader: Shader
+static var _motion: AnimationLibrary
 
-var who := "sam"
+var who := "crawler"
 var tint := Color.WHITE
+var roughness := -1.0       # >= 0 overrides the model's
 var skeleton: Skeleton3D
 var anim: AnimationPlayer
 var head_yaw := 0.0
@@ -48,6 +57,15 @@ func _ready() -> void:
 		skeleton = n
 	for n in inst.find_children("*", "AnimationPlayer", true, false):
 		anim = n
+	if who == "tall":
+		anim = AnimationPlayer.new()
+		inst.add_child(anim)
+		anim.add_animation_library("", _motion_for(skeleton, str(inst.get_path_to(skeleton))))
+		for b in STRETCH:
+			var i := skeleton.find_bone(b)
+			if i >= 0:
+				var k: float = STRETCH[b]
+				skeleton.set_bone_pose_scale(i, Vector3(0.85, k, 0.85))
 	if anim:
 		# Advanced by hand in update(), so the overlays go on after it.
 		anim.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
@@ -72,12 +90,59 @@ func _relight(mi: MeshInstance3D) -> void:
 			# The tint is for the clothes (the face and hands stay as they are).
 			var cloth := b.resource_name.contains("fabric") or b.resource_name.contains("suit") \
 					or b.resource_name.contains("original top") or b.resource_name.contains("original bottom")
+			cloth = cloth or b.albedo_texture == null
 			m.set_shader_parameter("tint", b.albedo_color * (tint if cloth else Color.WHITE))
-			m.set_shader_parameter("roughness", b.roughness)
+			m.set_shader_parameter("roughness", b.roughness if roughness < 0.0 else roughness)
 			if b.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
 				m.set_shader_parameter("alpha_cut", 0.5)
 		mi.set_surface_override_material(i, m)
 		_mats.append(m)
+
+
+## The locomotion clips, made to fit this skeleton: rotations as they
+## are (the rigs share bone names and axes), the hips' height moved to this
+## body's, and no scale or other positions (so the limbs keep their own
+## lengths, stretched or not).
+static func _motion_for(sk: Skeleton3D, sk_path: String) -> AnimationLibrary:
+	if _motion != null:
+		return _motion
+	var src: Node = (load(MOTION) as PackedScene).instantiate()
+	var player: AnimationPlayer = src.find_children("*", "AnimationPlayer", true, false)[0]
+	var msk: Skeleton3D = src.find_children("*", "Skeleton3D", true, false)[0]
+	var lib := AnimationLibrary.new()
+	for name in player.get_animation_list():
+		var a: Animation = player.get_animation(name).duplicate(true)
+		for t in range(a.get_track_count() - 1, -1, -1):
+			var bone := a.track_get_path(t).get_concatenated_subnames()
+			var ty := a.track_get_type(t)
+			if ty == Animation.TYPE_SCALE_3D or sk.find_bone(bone) < 0 \
+					or (ty == Animation.TYPE_POSITION_3D and bone != "pelvis"):
+				a.remove_track(t)
+				continue
+			a.track_set_path(t, NodePath(sk_path + ":" + bone))
+			if ty == Animation.TYPE_POSITION_3D:
+				var off := sk.get_bone_rest(sk.find_bone(bone)).origin - msk.get_bone_rest(msk.find_bone(bone)).origin
+				# Up by what the stretched legs add, so the feet stay on the floor.
+				var parent := sk.get_bone_parent(sk.find_bone(bone))
+				var pb := sk.get_bone_global_rest(parent).basis if parent >= 0 else Basis.IDENTITY
+				off += pb.inverse() * Vector3(0, _leg_gain(sk), 0)
+				for k in a.track_get_key_count(t):
+					a.track_set_key_value(t, k, (a.track_get_key_value(t, k) as Vector3) + off)
+		a.loop_mode = Animation.LOOP_LINEAR
+		lib.add_animation(name, a)
+	src.free()
+	_motion = lib
+	return lib
+
+
+static func _leg_gain(sk: Skeleton3D) -> float:
+	var gain := 0.0
+	for seg in [["thigh_l", "calf_l"], ["calf_l", "foot_l"]]:
+		var a := sk.find_bone(seg[0])
+		var b := sk.find_bone(seg[1])
+		var length := sk.get_bone_global_rest(a).origin.distance_to(sk.get_bone_global_rest(b).origin)
+		gain += (float(STRETCH[seg[0]]) - 1.0) * length
+	return gain
 
 
 ## Light level where it stands (see figure.gdshader).

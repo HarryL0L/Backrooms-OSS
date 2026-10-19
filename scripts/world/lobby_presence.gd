@@ -25,11 +25,12 @@ var _heard := 0.0          # how much noise you've made lately (0..1)
 
 func _ready() -> void:
 	_rng.randomize()
-	_wait = _rng.randf_range(45.0, 100.0)
+	_wait = _rng.randf_range(35.0, 80.0)
 	_audio = AudioStreamPlayer3D.new()
 	_audio.bus = "World"
-	_audio.unit_size = 5.0
-	_audio.max_distance = 30.0
+	# Carries through the walls: you should know it when you hear it.
+	_audio.unit_size = 9.0
+	_audio.max_distance = 40.0
 	add_child(_audio)
 
 
@@ -37,7 +38,11 @@ func _process(delta: float) -> void:
 	if not allowed or gen == null or player == null or ambience == null or not ambience.is_ready() \
 			or not Settings.get_value("gameplay/entities"):
 		_steps_left = 0
+		if ambience:
+			ambience.hum_duck_presence = 1.0
 		return
+	# The hum dips a little while it walks, so the steps stand out.
+	ambience.hum_duck_presence = lerpf(ambience.hum_duck_presence, 0.6 if _steps_left > 0 else 1.0, 1.0 - exp(-2.0 * delta))
 	var pp := player.global_position
 	var spd := Vector2(player.velocity.x, player.velocity.z).length()
 	_heard = clampf(_heard + delta * (0.22 if spd > 3.4 else -0.04), 0.0, 1.0)
@@ -54,13 +59,13 @@ func _process(delta: float) -> void:
 		_begin()
 
 
-## Starts somewhere 11-17 m away that you can't see.
+## Starts somewhere 9-14 m away that you can't see.
 func _begin() -> void:
 	var eye := player.global_position + Vector3.UP * 1.5
 	var space := get_world_3d().direct_space_state
 	for _try in 24:
 		var a := _rng.randf() * TAU
-		var d := _rng.randf_range(11.0, 17.0)
+		var d := _rng.randf_range(9.0, 14.0)
 		var p := player.global_position + Vector3(cos(a) * d, 0.0, sin(a) * d)
 		var cc := gen.cell_of(p)
 		if gen.biome_at(cc.x, cc.y) != WorldGen.LOBBY or gen.is_solid(cc.x, cc.y, WorldGen.LOBBY):
@@ -92,9 +97,10 @@ func _step() -> void:
 		var dir := to.normalized().rotated(Vector3.UP, _rng.randf_range(-0.5, 0.5))
 		_pos += dir * 0.72
 	_audio.global_position = _pos + Vector3.UP * 0.1
-	_audio.stream = ambience.step_stream(Player.SURF_CARPET)
-	_audio.pitch_scale = _rng.randf_range(0.8, 0.9)        # heavier than yours
-	_audio.volume_db = -3.0
+	# Its own heavy shoes, not like your steps (see AudioSynth.stalk_step).
+	_audio.stream = AudioSynth.cached("stalk_step%d" % _rng.randi_range(0, 3))
+	_audio.pitch_scale = _rng.randf_range(0.94, 1.04)
+	_audio.volume_db = 2.0
 	_audio.play()
 	if _steps_left == 0:
 		_wait = _rng.randf_range(70.0, 160.0)

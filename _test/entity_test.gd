@@ -1,19 +1,19 @@
 extends Node
 # Dev harness for the walking entities. Photographs each in its level and
 # runs their behaviour:
-#   copy:      a Copy ahead in Level 1 walks; you walk up to it (it leaves),
-#              look away (it's gone).
+#   pool:      the far-off voices in the Poolrooms fade up, and stop when
+#              you leave.
 #   crawler:   in the Unlit Halls, flashlight off then on; then you turn
 #              your back and it creeps up and lunges.
 #   attendant: in the car park on B1 he sees you and catches you.
 #   hide:      you sit in an SUV with the doors shut; he walks past and
 #              doesn't see you.
-# ONLY=copy,crawler,... picks parts. Photos in user://photo/ent_*.png.
+# ONLY=crawler,attendant,... picks parts. Photos in user://photo/ent_*.png.
 var game
 var out := OS.get_user_data_dir() + "/photo"
 var step := 0
 var t := 0.0
-var parts := ["copy", "crawler", "attendant", "hide"]
+var parts := ["pool", "crawler", "attendant", "hide"]
 var part := ""
 var phase := 0
 var ent: Walker
@@ -119,41 +119,30 @@ func _ready_here() -> bool:
 	return t > 3.0 and game.chunks.is_area_ready(game.player.global_position, 1)
 
 
-func _copy():
-	var cp: CopyEntity = game.copies[0]
-	ent = cp
+func _pool():
+	var pv: PoolVoices = game.ambience.find_children("*", "PoolVoices", false, false)[0]
 	match phase:
 		0:
-			var p := _find(game.gen, WorldGen.CONCRETE)
+			var p := Vector3.INF
+			var g: WorldGen = game.gen
+			for r in range(6, 400, 2):
+				for k in 16:
+					var a := k * TAU / 16.0
+					var c: Vector2i = g.spawn_cell + Vector2i(int(cos(a) * r), int(sin(a) * r))
+					if p == Vector3.INF and g.biome_at(c.x, c.y) == WorldGen.POOL and not g.pool_noise(c.x, c.y) \
+							and g.biome_at(c.x + 3, c.y) == WorldGen.POOL and g.biome_at(c.x - 3, c.y) == WorldGen.POOL:
+						p = Vector3((c.x + 0.5) * 2.4, 0.05, (c.y + 0.5) * 2.4)
 			game.player.teleport(p, 0.0)
 			phase = 1; t = 0
 		1:
-			if _ready_here():
-				_stage(cp, WorldGen.CONCRETE, game.player.global_position, 9.0)
+			if int(t * 2.0) != int((t - get_process_delta_time()) * 2.0) and int(t) % 5 == 0:
+				print("pool t %.0f voices %s" % [t, pv._voices.map(func(v): return "%s %.1f dB %.0f m" % [v.playing, v.volume_db, v.global_position.distance_to(game.player.global_position)] if v.playing else "-")])
+			if t > 32.0:
+				game.player.teleport(game.gen.spawn_position(), 0.0)
 				phase = 2; t = 0
 		2:
-			if t > 2.5:
-				_shot("copy")
-				phase = 3; t = 0
-		3:
-			# It's been watching; walk up to it.
-			if t > 3.0:
-				var to: Vector3 = cp.global_position - game.player.global_position
-				game.player.teleport(cp.global_position - to.normalized() * 3.5, game.player.yaw, -0.05)
-				phase = 4; t = 0
-		4:
-			if t > 1.5:
-				_shot("copy_leaving")
-				print("copy state after approach: ", cp._state, " (2 = LEAVE)")
-				phase = 41; t = 0
-		41:
-			if t > 0.3:
-				game.player.yaw += PI
-				game.player._apply_rotation()
-				phase = 5; t = 0
-		5:
-			if t > 1.5:
-				print("copy present after looking away: ", cp.present)
+			if t > 4.0:
+				print("pool voices after leaving: ", pv._voices.map(func(v): return v.playing))
 				_next_part()
 
 

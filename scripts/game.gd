@@ -28,7 +28,6 @@ var fixtures: FixtureLights
 var ripples: WaterRipples
 var lining: LiningEntity
 var hall_figure: HallFigure
-var copies: Array[CopyEntity] = []
 var crawler: CrawlerEntity
 var attendant: AttendantEntity
 var presence: LobbyPresence      # heard, never seen
@@ -150,10 +149,6 @@ func _ready() -> void:
 	hall_figure.player = player
 	hall_figure.ambience = ambience
 	add_child(hall_figure)
-	for i in 2:
-		var cp := CopyEntity.new()
-		_walker(cp)
-		copies.append(cp)
 	crawler = CrawlerEntity.new()
 	crawler.hall_figure = hall_figure
 	hall_figure.crawler = crawler
@@ -1293,7 +1288,6 @@ func _walker(w: Walker) -> void:
 
 func _walkers() -> Array[Walker]:
 	var out: Array[Walker] = []
-	out.append_array(copies)
 	out.append(crawler)
 	out.append(attendant)
 	return out

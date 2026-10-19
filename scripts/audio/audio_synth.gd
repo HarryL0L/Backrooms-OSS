@@ -65,6 +65,8 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return car_idle()
 		"car_dead":
 			return car_dead()
+	if fn.begins_with("stalk_step"):
+		return stalk_step(int(fn.trim_prefix("stalk_step")))
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -778,6 +780,35 @@ static func sting() -> AudioStreamWAV:
 
 
 ## One heartbeat (lub-dub), for the hunt; played faster as it gets closer.
+## The Lobby's other walker: a heavy shoe on damp carpet, unlike your own
+## soft steps: a deep heel thud, the sole rolling down a beat later, and
+## a scuff of wet pile. Four variants (0..3).
+static func stalk_step(variant: int) -> AudioStreamWAV:
+	var n := int(RATE * 0.42)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 900 + variant
+	var scuff := _Svf.new(rng.randf_range(700.0, 1000.0), 0.5)
+	var knock := _Svf.new(rng.randf_range(260.0, 320.0), 0.12)
+	var roll := rng.randf_range(0.06, 0.085)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		# Heel: a low thump falling in pitch.
+		var f := 78.0 - 30.0 * minf(t * 12.0, 1.0)
+		ph = fposmod(ph + f / RATE, 1.0)
+		var heel := sin(TAU * ph) * exp(-t * 26.0) * smoothstep(0.0, 0.004, t)
+		var t2 := t - roll
+		var sole := sin(TAU * ph * 1.3) * exp(-maxf(t2, 0.0) * 34.0) * 0.55 if t2 > 0.0 else 0.0
+		var x := rng.randf_range(-1.0, 1.0)
+		knock.step(x * (exp(-t * 60.0) + (exp(-maxf(t2, 0.0) * 70.0) * 0.6 if t2 > 0.0 else 0.0)))
+		scuff.step(x)
+		var sc := scuff.band * 0.35 * smoothstep(0.02, 0.06, t) * exp(-maxf(t - 0.06, 0.0) * 14.0)
+		s[i] = heel * 1.1 + sole + knock.band * 1.4 + sc
+	return to_wav(_normalize(s, 0.95))
+
+
 static func heartbeat() -> AudioStreamWAV:
 	var n := int(RATE * 0.6)
 	var s := PackedFloat32Array()

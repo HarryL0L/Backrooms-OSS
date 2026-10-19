@@ -1,15 +1,17 @@
 class_name AttendantEntity
 extends Walker
-## The car park has an attendant. A grey-haired man in a black suit, far
-## too tall; heavy footsteps you hear long before you see him. He walks the lanes. If he
-## sees you (a torch makes you easier to see, crouching harder) or hears
-## you (running, a car door slamming, an engine), he comes, fast. Lose him
-## and he searches where he last saw you, then gives up and walks off.
-## If he catches you, you're somewhere else.
+## The car park has something that walks its lanes like an attendant:
+## tall (well over two metres), thin, long-armed and pitch black, a shape
+## you see against the lights and lose in the dark (your torch only finds
+## a dull sheen on it). Heavy footsteps you hear long before you see it.
+## If it sees you (a torch makes you easier to see, crouching harder) or
+## hears you (running, a car door slamming, an engine), it comes, fast.
+## Lose it and it searches where it last saw you, then gives up and walks
+## off. If it catches you, you're somewhere else.
 ##
-## Hide in a car: sit in it with the doors shut and the lights off and he
-## can't see you; he may come and look in through the window, then leave.
-## But if he saw you get in, he opens the door.
+## Hide in a car: sit in it with the doors shut and the lights off and it
+## can't see you; it may come and look in through the window, then leave.
+## But if it saw you get in, it opens the door.
 
 signal caught
 
@@ -19,7 +21,8 @@ const SIGHT := 22.0
 const CONE := 35.0
 const CHASE_SPEED := 4.3
 const CATCH := 1.0
-const TINT := Color(0.3, 0.3, 0.32)     # his suit, near black
+const SIZE := 1.3                        # about 2.3 m
+const TINT := Color(0.015, 0.015, 0.017) # pitch black; the torch shows a sheen
 
 var _state := PATROL
 var _timer := 0.0
@@ -29,7 +32,7 @@ var _lost := 0.0
 var _repath := 0.0
 var _search_t := 0.0
 var _saw_get_in := false
-var _car: ParkedCar           # the car you're hiding in, when he's at it
+var _car: ParkedCar           # the car you're hiding in, when it's at it
 var _peer_t := 0.0
 var _unseen := 0.0
 var _life := 0.0
@@ -127,7 +130,7 @@ func _process(delta: float) -> void:
 func _sees_player(d: float) -> bool:
 	if player.seated:
 		var car := _hiding_car()
-		# Shut in a dark car: invisible (unless he watched you get in).
+		# Shut in a dark car: invisible (unless it watched you get in).
 		if car and car.sheltered() and not car.conspicuous() and not player.flashlight_on:
 			return _saw_get_in and d < 30.0 and _lost < 2.0
 		# A lit-up car shows you at closer range, through the glass.
@@ -269,7 +272,7 @@ func _peer(delta: float) -> void:
 		_leave()
 
 
-## He saw you get in: straight to the door, wrenches it open.
+## It saw you get in: straight to the door, wrenches it open.
 func _grab(delta: float) -> void:
 	if _car == null or not is_instance_valid(_car) or _car.driver() != player:
 		_state = CHASE
@@ -304,7 +307,7 @@ func _catch() -> void:
 	caught.emit()
 
 
-## Your heart, while he's after you or close.
+## Your heart, while it's after you or close.
 func _heartbeat(d: float) -> void:
 	var near := (_state == CHASE or _state == PEER or _state == GRAB or _state == INVESTIGATE) and d < 22.0
 	if not near:
@@ -333,7 +336,7 @@ func _try_spawn() -> void:
 	var c := _spawn_cell(26.0, 40.0)
 	if c.x == 1 << 30:
 		return
-	_make_body("harper", 1.27, TINT)
+	_make_body("tall", SIZE, TINT, 0.3)
 	_place(c, player.global_position)
 	set_process(true)
 	_state = PATROL
@@ -351,7 +354,7 @@ func _despawn() -> void:
 		_heart.stop()
 
 
-## The figure takes longer strides than you.
+## It takes longer strides than you.
 func _stride(delta: float, v: float, run := 0.0) -> void:
 	super(delta, v / 1.27, run)
 
@@ -367,7 +370,7 @@ func _step_db() -> float:
 ## For tests: standing here, facing a point, on patrol.
 func debug_place(pos: Vector3, face: Vector3) -> void:
 	_nav(WorldGen.GARAGE)
-	_make_body("harper", 1.27, TINT)
+	_make_body("tall", SIZE, TINT, 0.3)
 	_place(gen.cell_of(pos), face)
 	global_position = pos
 	set_process(true)

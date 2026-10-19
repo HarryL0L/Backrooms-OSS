@@ -22,6 +22,7 @@ var outdoor := false
 ## Multiplier on the fluorescent hum (The Lining makes it fade out near it).
 var hum_duck := 1.0
 var hum_duck_figure := 1.0
+var hum_duck_presence := 1.0
 
 var _hum: AudioStreamPlayer
 var _drone: AudioStreamPlayer
@@ -62,6 +63,9 @@ func _ready() -> void:
 	_distant.max_distance = 80.0
 	_distant.attenuation_filter_cutoff_hz = 1200.0
 	add_child(_distant)
+	var voices := PoolVoices.new()
+	voices.ambience = self
+	add_child(voices)
 	# Synthesis takes a moment; do it off the main thread.
 	_task = WorkerThreadPool.add_task(_generate)
 
@@ -188,7 +192,7 @@ func _process(delta: float) -> void:
 		_update_reverb()
 	var k := 1.0 - exp(-2.5 * delta)
 	var on := 1.0 if enabled and not outdoor else 0.0
-	var hum_v := 0.0 if outdoor else (0.02 + _hum_level * 0.5 * on) * hum_duck * hum_duck_figure
+	var hum_v := 0.0 if outdoor else (0.02 + _hum_level * 0.5 * on) * hum_duck * hum_duck_figure * hum_duck_presence
 	_hum.volume_db = lerpf(_hum.volume_db, linear_to_db(hum_v + 0.0001), k)
 	_drone.volume_db = lerpf(_drone.volume_db, linear_to_db(0.22 * on + 0.0001), k)
 	_water.volume_db = lerpf(_water.volume_db, linear_to_db(_water_level * 0.5 * on + 0.0001), k)

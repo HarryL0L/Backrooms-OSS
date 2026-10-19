@@ -49,7 +49,7 @@ func _ready() -> void:
 ## A new body (a fresh face, clothes and proportions each time).
 ## A body: one of the downloaded figures (see EntityBody.SCENES), `size`
 ## times life size, its clothes tinted.
-func _make_body(who: String, size := 1.0, tint := Color.WHITE) -> void:
+func _make_body(who: String, size := 1.0, tint := Color.WHITE, roughness := -1.0) -> void:
 	if body and body.who == who and is_equal_approx(body.scale.y, size):
 		return
 	if body:
@@ -57,6 +57,7 @@ func _make_body(who: String, size := 1.0, tint := Color.WHITE) -> void:
 	body = EntityBody.new()
 	body.who = who
 	body.tint = tint
+	body.roughness = roughness
 	body.scale = Vector3.ONE * size
 	add_child(body)
 	_light_t = 0.0

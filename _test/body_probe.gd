@@ -1,19 +1,28 @@
 extends Node3D
-# Dev harness: the downloaded entity figures side by side (Sam, Harper,
-# the Attendant, the crawler), front and side. user://photo/body_*.png
+# Dev harness: the downloaded entity figures side by side (the tall one
+# standing, walking and running, and the crawler), front and side. user://photo/body_*.png
 func _ready():
 	var floor := MeshInstance3D.new()
 	var pm := PlaneMesh.new(); pm.size = Vector2(20, 20); floor.mesh = pm
 	var fm := StandardMaterial3D.new(); fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED; fm.albedo_color = Color(0.25, 0.25, 0.24)
 	floor.material_override = fm
 	add_child(floor)
+	var wall := MeshInstance3D.new()
+	var wm := PlaneMesh.new(); wm.size = Vector2(20, 6); wall.mesh = wm
+	wall.material_override = fm.duplicate()
+	(wall.material_override as StandardMaterial3D).albedo_color = Color(0.55, 0.53, 0.5)
+	wall.rotation.x = PI * 0.5
+	wall.position = Vector3(0, 3, -1.5)
+	add_child(wall)
 	var bodies := []
-	var specs := [["sam", 1.0, Color.WHITE, "Idle_Standing"], ["jordan", 1.0, Color.WHITE, "Walk_Relaxed"], ["harper", 1.27, Color(0.3, 0.3, 0.32), "Run"], ["crawler", 1.0, Color(0.9, 0.88, 0.85), ""]]
+	var specs := [["tall", 1.3, Color(0.02, 0.02, 0.022), "Idle_Standing"], ["tall", 1.3, Color(0.02, 0.02, 0.022), "Walk_Relaxed"], ["tall", 1.3, Color(0.02, 0.02, 0.022), "Run"], ["crawler", 1.0, Color(0.9, 0.88, 0.85), ""]]
 	for i in specs.size():
 		var b := EntityBody.new()
 		b.who = specs[i][0]
 		b.scale = Vector3.ONE * specs[i][1]
 		b.tint = specs[i][2]
+		if b.who == "tall":
+			b.roughness = 0.3
 		b.position = Vector3(-2.4 + i * 1.6, 0, 0)
 		add_child(b)
 		bodies.append(b)
@@ -30,7 +39,7 @@ func _ready():
 				b.pose_crawl(f * 0.3, 1.0)
 			b.update(0.03)
 		await get_tree().process_frame
-	cam.look_at_from_position(Vector3(-0.8, 1.3, 5.0), Vector3(-0.8, 1.0, 0))
+	cam.look_at_from_position(Vector3(-0.8, 1.4, 6.5), Vector3(-0.8, 1.2, 0))
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(out + "body_front.png")
 	cam.look_at_from_position(Vector3(4.5, 1.2, 1.5), Vector3(-0.8, 0.9, 0))
