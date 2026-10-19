@@ -36,11 +36,13 @@ const DOOR_Z1 := CELL * 0.5 + 0.55
 const DOOR_H := 2.1
 const LAMP_H := 2.75                       # the wall lights, over each landing
 
-const C_CONCRETE := Color(0.5, 0.49, 0.46)
-const C_WALL := Color(0.66, 0.65, 0.58)
-const C_DADO := Color(0.42, 0.45, 0.4)
+# Alpha tells the shader what the surface is: 1 painted block wall, 0.6
+# concrete, 0.4 the steps' anti-slip nosing, 0.2 steel (door frames).
+const C_CONCRETE := Color(0.5, 0.49, 0.46, 0.6)
+const C_WALL := Color(0.66, 0.65, 0.58, 1.0)
 const C_DOOR := Color(0.36, 0.4, 0.37)
-const C_NOSING := Color(0.72, 0.62, 0.22)
+const C_FRAME := Color(0.3, 0.33, 0.31, 0.2)
+const C_NOSING := Color(0.72, 0.62, 0.22, 0.4)
 
 static var _mesh: ArrayMesh
 static var _mat: ShaderMaterial
@@ -104,67 +106,115 @@ func _ready() -> void:
 		l.rotation = Vector3(0, PI * 0.5, 0)
 		add_child(l)
 		_labels.append(l)
-	# Lights: an oval bulkhead fitting on the wall over each landing and half
-	# landing, fed by a conduit from the slab above.
+	# Lights: an oval bulkhead on the wall over each landing and half landing:
+	# a cast base, an opal glass dome and a cage of bars over it, fed by a
+	# galvanised conduit from the slab above.
 	for p in lamp_positions():
 		var east := p.x > SX * 0.5
 		var out := -1.0 if east else 1.0          # into the shaft
-		var wall_x := (SX - W0) if east else W0
 		var fit := Node3D.new()
-		fit.position = Vector3(wall_x, p.y, p.z)
+		fit.position = Vector3((SX - W0) if east else W0, p.y, p.z)
+		# Local: x out of the wall, y up, z along it.
+		fit.rotation.y = PI if east else 0.0
 		add_child(fit)
+		var parts := []
 		var base := MeshInstance3D.new()
-		var bb := BoxMesh.new()
-		bb.size = Vector3(0.05, 0.17, 0.27)
-		base.mesh = bb
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.5
+		cyl.bottom_radius = 0.5
+		cyl.height = 1.0
+		cyl.radial_segments = 24
+		base.mesh = cyl
+		base.rotation.z = PI * 0.5                 # axis out of the wall
+		base.scale = Vector3(0.17, 0.035, 0.27)    # (height, depth, width) before the turn
+		base.position = Vector3(0.0175, 0, 0)
 		base.material_override = _fitting_material()
-		base.position = Vector3(out * 0.025, 0, 0)
 		fit.add_child(base)
+		parts.append(base)
 		var dome := MeshInstance3D.new()
 		var sm := SphereMesh.new()
 		sm.radius = 0.5
 		sm.height = 1.0
+		sm.radial_segments = 24
+		sm.rings = 12
 		dome.mesh = sm
-		dome.scale = Vector3(0.1, 0.13, 0.22)
-		dome.position = Vector3(out * 0.05, 0, 0)
+		dome.scale = Vector3(0.09, 0.11, 0.19)
+		dome.position = Vector3(0.035, 0, 0)
 		dome.material_override = _bulb_material()
 		fit.add_child(dome)
-		# The cage: two bars across the glass.
-		for k in [-0.045, 0.045]:
-			var bar := MeshInstance3D.new()
-			var cb := BoxMesh.new()
-			cb.size = Vector3(0.012, 0.012, 0.25)
-			bar.mesh = cb
-			bar.material_override = _fitting_material()
-			bar.position = Vector3(out * 0.1, k, 0)
-			fit.add_child(bar)
+		# The cage: a rim round the glass and two bars arching over it.
+		var rim := MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.46
+		tm.outer_radius = 0.5
+		tm.rings = 24
+		tm.ring_segments = 6
+		rim.mesh = tm
+		rim.rotation.z = PI * 0.5                  # in the wall's plane
+		rim.scale = Vector3(0.13, 0.08, 0.215)
+		rim.position = Vector3(0.04, 0, 0)
+		rim.material_override = _fitting_material()
+		fit.add_child(rim)
+		parts.append(rim)
+		for k in [-0.035, 0.035]:
+			var arch := MeshInstance3D.new()
+			arch.mesh = tm
+			arch.scale = Vector3(0.1, 0.06, 0.2)     # flat, round the dome (half in the wall)
+			arch.position = Vector3(0.035, k, 0)
+			arch.material_override = _fitting_material()
+			fit.add_child(arch)
+			parts.append(arch)
 		var conduit := MeshInstance3D.new()
-		var cm := BoxMesh.new()
-		var up := H - 0.3 - LAMP_H                # to the underside of the slab above
-		cm.size = Vector3(0.025, up - 0.08, 0.025)
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.011
+		cm.bottom_radius = 0.011
+		cm.radial_segments = 8
+		var up := H - 0.3 - LAMP_H                 # to the underside of the slab above
+		cm.height = up - 0.08
 		conduit.mesh = cm
-		conduit.material_override = _fitting_material()
-		conduit.position = Vector3(out * 0.02, 0.08 + cm.size.y * 0.5, 0.0)
+		conduit.position = Vector3(0.016, 0.08 + cm.height * 0.5, 0.0)
+		conduit.material_override = _conduit_material()
 		fit.add_child(conduit)
+		parts.append(conduit)
+		for m in parts:
+			(m as MeshInstance3D).set_instance_shader_parameter("origin", position)
 
 
-static var _fit_mat: StandardMaterial3D
+static var _fit_mat: ShaderMaterial
+static var _conduit_mat: ShaderMaterial
 static var _bulb_mat: StandardMaterial3D
 
 
-static func _fitting_material() -> StandardMaterial3D:
+## Painted cast metal, lit like the shaft.
+static func _fitting_material() -> ShaderMaterial:
 	if _fit_mat == null:
-		_fit_mat = StandardMaterial3D.new()
-		_fit_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_fit_mat.albedo_color = Color(0.2, 0.2, 0.19)
+		_fit_mat = _tinted(Color(0.24, 0.25, 0.24), 0.15)
 	return _fit_mat
 
 
+static func _conduit_material() -> ShaderMaterial:
+	if _conduit_mat == null:
+		_conduit_mat = _tinted(Color(0.55, 0.56, 0.55), 0.05)
+	return _conduit_mat
+
+
+static func _tinted(c: Color, amb: float) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/stairwell.gdshader")
+	m.set_shader_parameter("tint", c)
+	m.set_shader_parameter("use_tint", 1.0)
+	m.set_shader_parameter("ambient", amb)
+	m.set_shader_parameter("lamps", lamp_positions())
+	_set_plan(m)
+	return m
+
+
+## The opal glass, glowing.
 static func _bulb_material() -> StandardMaterial3D:
 	if _bulb_mat == null:
 		_bulb_mat = StandardMaterial3D.new()
 		_bulb_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_bulb_mat.albedo_color = Color(1.0, 0.92, 0.75) * 1.5
+		_bulb_mat.albedo_color = Color(1.0, 0.93, 0.8) * 1.4
 	return _bulb_mat
 
 
@@ -237,7 +287,19 @@ static func _door_material() -> ShaderMaterial:
 		_door_mat.set_shader_parameter("use_tint", 1.0)
 		_door_mat.set_shader_parameter("ambient", 0.3)     # lit from the halls too
 		_door_mat.set_shader_parameter("lamps", lamp_positions())
+		_set_plan(_door_mat)
 	return _door_mat
+
+
+## The shaft's plan, for the shader's shading of walls and floors.
+static func _set_plan(m: ShaderMaterial) -> void:
+	m.set_shader_parameter("w0", W0)
+	m.set_shader_parameter("sx", SX)
+	m.set_shader_parameter("sz", SZ)
+	m.set_shader_parameter("land", LAND)
+	m.set_shader_parameter("mid", MID)
+	m.set_shader_parameter("split", SPLIT)
+	m.set_shader_parameter("floor_h", H)
 
 
 # ------------------------------------------------------------- geometry ---
@@ -271,9 +333,14 @@ static func _build_shared() -> void:
 		_ramp(Vector3(MID, y0 - rise, SPLIT + 0.07), Vector3(LAND, y0 - H, SZ - W0))
 		# The west wall around the door, above it up to the next landing.
 		_box(st, Vector3(0.0, y0 + DOOR_H, DOOR_Z0), Vector3(W0, y0 + H - 0.3, DOOR_Z1), C_WALL, true)
-		# A darker painted band along the walls at each landing (dado).
-		_box(st, Vector3(W0, y0, DOOR_Z1), Vector3(W0 + 0.004, y0 + 1.0, SZ - W0), C_DADO, false)
-		_box(st, Vector3(W0, y0, W0), Vector3(W0 + 0.004, y0 + 1.0, DOOR_Z0), C_DADO, false)
+		# A steel frame round the doorway, through the wall's whole depth (it
+		# covers the seam with the world's wall), and a threshold plate.
+		var fx0 := -ChunkBuilder.T - 0.012
+		var fx1 := W0 + 0.012
+		_box(st, Vector3(fx0, y0, DOOR_Z0 - 0.06), Vector3(fx1, y0 + DOOR_H + 0.06, DOOR_Z0), C_FRAME, false)
+		_box(st, Vector3(fx0, y0, DOOR_Z1), Vector3(fx1, y0 + DOOR_H + 0.06, DOOR_Z1 + 0.06), C_FRAME, false)
+		_box(st, Vector3(fx0, y0 + DOOR_H, DOOR_Z0), Vector3(fx1, y0 + DOOR_H + 0.06, DOOR_Z1), C_FRAME, false)
+		_box(st, Vector3(fx0, y0 - 0.05, DOOR_Z0), Vector3(fx1, y0 + 0.008, DOOR_Z1), C_FRAME, false)
 	# The wall between the flights, full height.
 	_box(st, Vector3(LAND, bottom, SPLIT - 0.07), Vector3(MID, top, SPLIT + 0.07), C_WALL, true)
 	# Outer walls (the west one with a door gap at each landing).
@@ -290,6 +357,7 @@ static func _build_shared() -> void:
 	_mat = ShaderMaterial.new()
 	_mat.shader = load("res://shaders/stairwell.gdshader")
 	_mat.set_shader_parameter("lamps", lamp_positions())
+	_set_plan(_mat)
 
 
 static func _box(st: SurfaceTool, lo: Vector3, hi: Vector3, c: Color, collide: bool) -> void:
