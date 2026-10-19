@@ -16,10 +16,10 @@ const CHUNK := 8
 const CHUNK_SIZE := CELL * CHUNK
 const REGION := 34.0
 
-enum { LOBBY, POOL, CONCRETE, DARK, PIPES }
-const BIOME_COUNT := 5
+enum { LOBBY, POOL, CONCRETE, DARK, PIPES, GARAGE }
+const BIOME_COUNT := 6
 const BIOME_NAMES := ["Level 0 - The Lobby", "Level 37 - The Poolrooms", "Level 1 - Habitable Zone",
-	"Level 0.1 - The Unlit Halls", "Level 2 - Pipe Dreams"]
+	"Level 0.1 - The Unlit Halls", "Level 2 - Pipe Dreams", "The Car Park"]
 
 # Edge kinds.
 const E_OPEN := 0
@@ -37,15 +37,15 @@ const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95, 2.6]
 const WIN_Y0 := 0.45
 
 # Per-biome constants.
-const CEIL_H := [3.0, 4.8, 3.6, 2.7, 2.7]
+const CEIL_H := [3.0, 4.8, 3.6, 2.7, 2.7, 2.6]
 const POOL_FLOOR := -0.8
 const WATER_Y := -0.16
-const LIGHT_COLOR := [Color(1.0, 0.97, 0.86), Color(1.0, 0.98, 0.94), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58), Color(1.0, 0.88, 0.7)]
-const LIGHT_POWER := [3.2, 3.4, 5.0, 2.0, 3.4]
-const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0, 7.0]
-const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.09, 0.10, 0.10), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008)]
+const LIGHT_COLOR := [Color(1.0, 0.97, 0.86), Color(1.0, 0.98, 0.94), Color(0.82, 0.90, 1.0), Color(1.0, 0.82, 0.58), Color(1.0, 0.88, 0.7), Color(0.86, 0.95, 1.0)]
+const LIGHT_POWER := [3.2, 3.4, 5.0, 2.0, 3.4, 3.4]
+const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0, 7.0, 8.0]
+const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.09, 0.10, 0.10), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008), Color(0.012, 0.013, 0.014)]
 # Approximate colour of light after bouncing off the room surfaces.
-const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.65, 0.65, 0.65), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42)]
+const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.65, 0.65, 0.65), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42), Color(0.62, 0.63, 0.62)]
 # Skylights in the Tiled Baths: warm "sunlight" pouring in from above.
 const SKY_COLOR := Color(1.0, 0.9, 0.72)
 const SKY_POWER := 5.0
@@ -131,6 +131,12 @@ func region_biome(rx: int, rz: int) -> int:
 	if rx == 0 and rz == 0:
 		return LOBBY
 	var r := rnd(rx, rz, 13)
+	# The first floor down is a car park, mostly; further down there's
+	# a car park now and then.
+	var garage := 0.72 if floor_index == -1 else (0.15 if floor_index < -1 else 0.0)
+	if r < garage:
+		return GARAGE
+	r = (r - garage) / (1.0 - garage)
 	# Down, the floors get older and darker: fewer pools, more pipes and
 	# unlit halls. Up, emptier and more like offices: more concrete floors.
 	var down := clampf(-floor_index * 0.07, 0.0, 0.28)
@@ -169,7 +175,7 @@ func biome_at(gx: int, gz: int) -> int:
 func _biome_compute(gx: int, gz: int) -> int:
 	# Around a stairwell it's always the Lobby, on every floor.
 	if stair_zone(gx, gz, 3):
-		return LOBBY
+		return GARAGE if floor_index == -1 else LOBBY
 	# Domain warp so region borders meander instead of being straight lines.
 	var px := gx + 0.5 + (vnoise(gx * 0.11, gz * 0.11, 14) - 0.5) * 9.0
 	var pz := gz + 0.5 + (vnoise(gx * 0.11, gz * 0.11, 15) - 0.5) * 9.0
@@ -284,6 +290,9 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 			if rnd(line, floori(along / 5.0), 47 + salt) >= dens:
 				return E_OPEN
 			return E_ARCH if rnd(line, along, 48 + salt) < 0.6 else E_WALL
+		GARAGE:
+			# Open floor between the columns; a short wall here and there.
+			return E_WALL if rnd(line, along, 55 + salt) < 0.03 else E_OPEN
 		PIPES:
 			# Bulkhead doorways now and then.
 			return E_DOOR if rnd(line, along, 54 + salt) < 0.04 else E_OPEN
@@ -304,6 +313,10 @@ func pillar_at(vx: int, vz: int, b: int) -> float:
 		CONCRETE:
 			if posmod(vx, 3) == 0 and posmod(vz, 3) == 0:
 				return 0.7
+		GARAGE:
+			# Columns between every three parking bays, at the bays' backs.
+			if posmod(vx, 3) == 0 and posmod(vz, 4) == 0:
+				return 0.6
 		LOBBY, DARK:
 			if open_hall(vx, vz) and posmod(vx, 2) == 0 and posmod(vz, 2) == 0:
 				return 0.42
@@ -324,6 +337,16 @@ func light_state(gx: int, gz: int, b: int) -> int:
 	if stair_zone(gx, gz, 0):
 		return L_NONE
 	var r := rnd(gx, gz, 31)
+	if b == GARAGE:
+		# Tube lights down the middle of each lane, and over the bays.
+		var r2 := rnd(gx, gz, 31)
+		var lane := posmod(gz, 4) == 2 and posmod(gx, 2) == 0
+		var bay := posmod(gz, 4) == 0 and posmod(gx, 3) == 1
+		if not (lane or bay):
+			return L_NONE
+		if r2 < 0.12:
+			return L_DEAD
+		return L_FLICKER if r2 < 0.2 else L_ON
 	match b:
 		LOBBY:
 			if posmod(gz, 2) != 0:

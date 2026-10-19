@@ -111,6 +111,37 @@ void fragment() {
 		float wet = smoothstep(0.58, 0.7, blot);
 		col *= mix(1.0, 0.6, wet);
 		rough = mix(0.85, 0.2, wet);
+	} else if (kind == 5) {
+		// Car park floor: power-floated slab, painted bays and lanes, oil.
+		// Rows of 4 cells (9.6 m): two cells of bays, two of lane.
+		vec2 p = uv;
+		float rz = mod(p.y, 9.6);
+		float px = mod(p.x, 2.4);
+		vec3 paint = vec3(0.86, 0.85, 0.78) * (0.75 + 0.25 * n1);
+		float wear = step(0.3, n2);
+		// Bay dividers, from the back of the bay to its front.
+		float divider = step(min(px, 2.4 - px), 0.05) * step(0.25, rz) * step(rz, 4.75);
+		// Lane centre: a dashed yellow line.
+		float dash = step(abs(rz - 7.2), 0.06) * step(mod(p.x, 3.0), 1.6);
+		// Arrows down the lane now and then.
+		vec2 a = vec2(mod(p.x, 14.4) - 7.2, rz - 7.2 + 1.0);
+		float shaft = step(abs(a.y), 0.08) * step(-1.0, a.x) * step(a.x, 0.4);
+		float head = step(0.4, a.x) * step(a.x, 1.0) * step(abs(a.y), (1.0 - a.x) * 0.55);
+		col = mix(col, paint, max(divider, max(shaft, head)) * wear * 0.85);
+		col = mix(col, vec3(0.7, 0.58, 0.12) * (0.75 + 0.25 * n1), dash * wear * 0.85);
+		// Oil where engines stood (middle of the bays).
+		float oil = smoothstep(0.55, 0.75, texture(noise_blot, uv * 0.45 + 1.7).r) * step(1.2, rz) * step(rz, 3.8)
+				* step(0.5, px) * step(px, 1.9);
+		col = mix(col, col * 0.35, oil * 0.8);
+		rough = mix(0.75, 0.2, oil);
+	} else if (kind == 6) {
+		// Car park column: concrete with a worn yellow-and-black band low down.
+		float y = -uv.y;
+		col *= 0.9;
+		float band = step(0.1, y) * step(y, 1.05);
+		float stripe = step(0.5, fract((uv.x + y) * 2.2));
+		vec3 hz = mix(vec3(0.08, 0.08, 0.07), vec3(0.78, 0.62, 0.12), stripe) * (0.8 + 0.25 * n1);
+		col = mix(col, hz, band * step(0.25, n2) * 0.9);
 	} else {
 		col *= 0.75;
 		vec2 b = fract(uv / 2.4);

@@ -34,7 +34,7 @@ const EXIT_TEXT := ["EXIT", "EXTI", "EIXT", "EXIT", "XIT", "TIXE", "EXIT EXIT", 
 const PLAQUE_TEXT := ["ROOM 0", "ROOM 00", "ROOM -1", "214", "214", "STAFF ONLY", "STAFF OLNY", "OFFICE",
 		"OFIFCE", "STORAGE", "STORGAE", "MEETING ROOM", "MEETNG ROOM", "RESTROOM", "ROOM", "WAITING",
 		"WAITNG", "1/2", "PRIVATE", "PIRVATE", "NO EXIT", "THIS WAY", "ROOM ROOM", ""]
-enum { BIN, BUCKET }
+enum { BIN, BUCKET, CAR }
 ## Seconds of pushing into a thin place before you're through.
 const NOCLIP_TIME := 0.9
 
@@ -115,7 +115,11 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 		for i in REGION:
 			var gx := r.x * REGION + i
 			var gz := r.y * REGION + j
-			if g.biome_at(gx, gz) != WorldGen.LOBBY or g.is_solid(gx, gz, WorldGen.LOBBY):
+			var cb := g.biome_at(gx, gz)
+			if cb == WorldGen.GARAGE:
+				_garage_cell(g, gx, gz, rng, props, signs)
+				continue
+			if cb != WorldGen.LOBBY or g.is_solid(gx, gz, WorldGen.LOBBY):
 				continue
 			var centre := Vector3((gx + 0.5) * C, 0.0, (gz + 0.5) * C)
 			var light := clampf(g.light_level_near(centre + Vector3.UP * 1.2) * 0.22, 0.04, 0.8)
@@ -370,6 +374,19 @@ func _build_sign(root: Node3D, s: Array) -> void:
 	var exit: bool = s[3]
 	var light: float = minf(float(s[4]) * 1.6, 1.0)
 	var basis := Basis(Vector3.UP.cross(n), Vector3.UP, n)
+	if s.size() > 5:
+		# Stencilled straight onto a column.
+		var lp := Label3D.new()
+		lp.text = s[2]
+		lp.font_size = 96
+		lp.pixel_size = 0.0028
+		lp.outline_size = 0
+		lp.shaded = false
+		lp.double_sided = false
+		lp.modulate = Color(0.12, 0.12, 0.11) if light > 0.15 else Color(0.5, 0.48, 0.42) * light * 3.0
+		lp.transform = Transform3D(basis, p + n * 0.004)
+		root.add_child(lp)
+		return
 	if exit:
 		_piece(root, p - n * 0.03, basis, Vector3(0, 0, 0.03), Vector3(0.46, 0.17, 0.06), Color(0.86, 0.85, 0.8) * light)
 	else:
@@ -384,6 +401,26 @@ func _build_sign(root: Node3D, s: Array) -> void:
 	l.modulate = Color(1.0, 0.18, 0.12) * 1.3 if exit else Color(0.9, 0.88, 0.8) * light
 	l.transform = Transform3D(basis, p + n * (0.062 if exit else 0.006))
 	root.add_child(l)
+
+
+## The car park: now and then a car under a dust sheet in a bay, and bay
+## numbers painted on the columns (not always in order).
+static func _garage_cell(g: WorldGen, gx: int, gz: int, rng: RandomNumberGenerator, props: Array, signs: Array) -> void:
+	var C := WorldGen.CELL
+	var light := clampf(g.light_level_near(Vector3((gx + 0.5) * C, 1.2, (gz + 0.5) * C)) * 0.22, 0.04, 0.8)
+	if posmod(gz, 4) == 0 and rng.randf() < 0.09:
+		var tarp := rng.randf() < 0.25
+		props.append([Vector3((gx + 0.5) * C + rng.randf_range(-0.12, 0.12), 0.0, gz * C + 2.55), CAR, light,
+				rng.randf_range(-0.05, 0.05) + (PI if rng.randf() < 0.5 else 0.0), Vector3.ZERO, tarp])
+	if posmod(gx, 3) == 0 and posmod(gz, 4) == 0 and g.pillar_at(gx, gz, WorldGen.GARAGE) > 0.0:
+		var cx := chaos(g, gx, gz)
+		var num := posmod(gx / 3, 40) + 1
+		var text := "%s-%02d" % [WorldGen.floor_name(g.floor_index), num]
+		var odd := rng.randf()
+		if odd < 0.25 * cx:
+			text = ["%s-%02d" % [WorldGen.floor_name(g.floor_index), num - 1], "%s-??" % WorldGen.floor_name(g.floor_index),
+					"%s-%02d" % [WorldGen.floor_name(g.floor_index - 1), num], "P-0", "%02d-%s" % [num, WorldGen.floor_name(g.floor_index)]][rng.randi() % 5]
+		signs.append([Vector3(gx * C, 1.75, gz * C - 0.305), Vector3(0, 0, -1), text, false, light, true])
 
 
 ## How badly the copy has gone wrong here (0 near where you start, 1 far
@@ -413,11 +450,46 @@ func _check_thin(delta: float) -> void:
 		noclipped.emit()
 
 
+## A car under a dust sheet (or a blue tarp): a long low hump with the
+## cabin's hump on top, the sheet hanging to the floor.
+func _build_car(root: Node3D, body: StaticBody3D, e: Array) -> void:
+	var light: float = minf(float(e[2]) * 1.6, 1.0)
+	var col := Color(0.25, 0.33, 0.47) if e[5] else Color(0.58, 0.57, 0.53)
+	var b := Basis(Vector3.UP, e[3])
+	var pos: Vector3 = e[0]
+	# Body (bonnet to boot, its sides running down into the floor like a
+	# sheet hanging to the ground), cabin on top.
+	for part in [[Vector3(0, 0.36, 0.05), Vector3(0.96, 0.86, 2.3), 1.0],
+			[Vector3(0, 1.0, -0.3), Vector3(0.78, 0.48, 1.25), 1.0]]:
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 1.0
+		sm.height = 2.0
+		sm.radial_segments = 24
+		sm.rings = 12
+		mi.mesh = sm
+		mi.material_override = _props_material()
+		mi.transform = Transform3D(b * Basis.from_scale(part[1]), pos + b * part[0])
+		root.add_child(mi)
+		var k: float = part[2] * light
+		mi.set_instance_shader_parameter("tint_light", Color(col.r * k, col.g * k, col.b * k, 1.0))
+		mi.set_instance_shader_parameter("cloth", 1.0)
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = Vector3(1.86, 1.4, 4.4)
+	cs.shape = bs
+	cs.transform = Transform3D(b, pos + Vector3.UP * 0.7)
+	body.add_child(cs)
+
+
 func _build_props(root: Node3D, props: Array) -> void:
 	var meshes := [_cyl(0.21, 0.18, 0.62), _cyl(0.15, 0.12, 0.3)]
 	var tints := [Color(0.42, 0.44, 0.43), Color(0.86, 0.85, 0.8)]
 	var body := StaticBody3D.new()
 	root.add_child(body)
+	for e in props:
+		if e[1] == CAR:
+			_build_car(root, body, e)
 	for kind in 2:
 		var list := props.filter(func(e: Array) -> bool: return e[1] == kind)
 		if list.is_empty():

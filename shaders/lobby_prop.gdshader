@@ -8,6 +8,7 @@ render_mode unshaded;
 #include "res://shaders/ps1.gdshaderinc"
 
 instance uniform vec4 tint_light = vec4(0.0);   // single props: colour x light (a > 0: use it)
+instance uniform float cloth = 0.0;             // dust sheets: softer folds, darker underneath
 
 varying vec3 v_col;
 varying vec3 v_wpos;
@@ -28,6 +29,13 @@ void vertex() {
 
 void fragment() {
 	float shade = 0.62 + 0.38 * clamp(v_wn.y * 0.5 + 0.5, 0.0, 1.0);
+	if (cloth > 0.5) {
+		// Light from the tubes above: tops bright, sides falling off to
+		// shadow where the sheet tucks under; long soft folds hanging down.
+		shade = 0.28 + 0.72 * pow(clamp(v_wn.y * 0.5 + 0.5, 0.0, 1.0), 1.6);
+		float folds = sin(v_wpos.x * 7.0 + sin(v_wpos.z * 2.3) * 2.0) * sin(v_wpos.z * 5.0 + v_wpos.x * 1.7);
+		shade *= 0.9 + 0.1 * folds * (1.0 - abs(v_wn.y));
+	}
 	vec3 base = v_col * shade;
 	if (v_half > 0.0 && v_ln.y > 0.9) {
 		// Looking in: a thin rim, dark inside.

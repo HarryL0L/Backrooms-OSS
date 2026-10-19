@@ -243,7 +243,7 @@ static func surface_for(g: WorldGen, pos: Vector3) -> int:
 	match g.biome_at(c.x, c.y):
 		WorldGen.POOL:
 			return SURF_TILE
-		WorldGen.CONCRETE, WorldGen.PIPES:
+		WorldGen.CONCRETE, WorldGen.PIPES, WorldGen.GARAGE:
 			return SURF_CONCRETE
 	return SURF_CARPET
 

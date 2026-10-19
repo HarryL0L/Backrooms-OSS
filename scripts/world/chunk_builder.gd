@@ -42,17 +42,17 @@ const LM_TEXEL_SUN := 0.15       # ... on sun gallery floors (sharp sun patches)
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
 	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE,
-	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_TRIM, MAT_COUNT
+	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_TRIM, MAT_GARAGE_FLOOR, MAT_GARAGE_COLUMN, MAT_COUNT
 }
 ## Materials whose shaders read the per-chunk lightmap.
 const LIGHTMAPPED := [MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_WALL,
-		MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_BRICK, MAT_GRIME]
-const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER, MAT_GRIME]
-const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_BRICK]
-const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME]
-const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(0.62, 0.62), Vector2(1.7, 0.24), Vector2(1.22, 0.62), Vector2(0.6, 0.6)]
+		MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_BRICK, MAT_GRIME, MAT_GARAGE_FLOOR, MAT_GARAGE_COLUMN]
+const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER, MAT_GRIME, MAT_CONC_WALL]
+const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_BRICK, MAT_GARAGE_FLOOR]
+const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME, MAT_CONC_CEIL]
+const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(0.62, 0.62), Vector2(1.7, 0.24), Vector2(1.22, 0.62), Vector2(0.6, 0.6), Vector2(1.3, 0.12)]
 const SKY_SIZE := 1.8
-const HALO_SIZE := [1.2, 1.5, 1.6, 1.2, 1.1]
+const HALO_SIZE := [1.2, 1.5, 1.6, 1.2, 1.1, 1.0]
 const SUN_DIR := Vector3(0.32, -1.0, 0.22)
 const EMIT_SCALE := 1.5
 
@@ -505,9 +505,9 @@ const GI_RADIUS := 2              # cells a probe gathers from
 const GI_STRENGTH := 1.5
 ## Surface colours for the bounce (what the shaders' textures average to),
 ## per biome: Yellow Halls, Tiled Baths, Grey Floors, Unlit Halls, Pipeworks.
-const ALB_WALL := [Color(0.72, 0.65, 0.34), Color(0.80, 0.85, 0.88), Color(0.50, 0.50, 0.49), Color(0.72, 0.65, 0.34), Color(0.40, 0.35, 0.30)]
-const ALB_FLOOR := [Color(0.52, 0.41, 0.22), Color(0.78, 0.84, 0.88), Color(0.42, 0.42, 0.41), Color(0.52, 0.41, 0.22), Color(0.46, 0.28, 0.20)]
-const ALB_CEIL := [Color(0.78, 0.76, 0.66), Color(0.80, 0.85, 0.88), Color(0.45, 0.45, 0.44), Color(0.78, 0.76, 0.66), Color(0.34, 0.31, 0.29)]
+const ALB_WALL := [Color(0.72, 0.65, 0.34), Color(0.80, 0.85, 0.88), Color(0.50, 0.50, 0.49), Color(0.72, 0.65, 0.34), Color(0.40, 0.35, 0.30), Color(0.50, 0.50, 0.49)]
+const ALB_FLOOR := [Color(0.52, 0.41, 0.22), Color(0.78, 0.84, 0.88), Color(0.42, 0.42, 0.41), Color(0.52, 0.41, 0.22), Color(0.46, 0.28, 0.20), Color(0.40, 0.40, 0.39)]
+const ALB_CEIL := [Color(0.78, 0.76, 0.66), Color(0.80, 0.85, 0.88), Color(0.45, 0.45, 0.44), Color(0.78, 0.76, 0.66), Color(0.34, 0.31, 0.29), Color(0.45, 0.45, 0.44)]
 
 var _direct_only := false
 var _probe := PackedColorArray()      # W*W*6: +x -x +y -y +z -z per cell
@@ -1177,10 +1177,26 @@ func _emit_cell(li: int, lj: int) -> void:
 		if s != WorldGen.L_DEAD:
 			_emit_halo(Vector3(cx, y - 0.05, cz), emit, sd, HALO_SIZE[b])
 	# Props.
+	if b == WorldGen.GARAGE:
+		_emit_garage(gx, gz, xa, za, f, c)
 	if b == WorldGen.PIPES:
 		_emit_pipes(li, lj, xa, za, c)
 	if b == WorldGen.CONCRETE and not is_pool and not gen.near_spawn(gx, gz, 2) and gen.rnd(gx, gz, 61) < 0.06:
 		_emit_crates(li, lj, xa, za, f, c)
+
+
+## Car park: a deep beam across the ceiling on every column line, and a
+## concrete wheel stop at the back of each parking bay.
+func _emit_garage(gx: int, gz: int, xa: float, za: float, f: float, c: float) -> void:
+	if posmod(gx, 3) == 0:
+		var lo := Vector3(xa - 0.22, c - 0.42, za)
+		var hi := Vector3(xa + 0.22, c, za + CELL)
+		_emit_box(MAT_CONC_WALL, lo, hi, f, c, false)
+		_hface(MAT_CONC_WALL, lo.x, hi.x, lo.z, hi.z, lo.y, false, 1, false)
+	if posmod(gz, 4) == 0 and gen.rnd(gx, gz, 66) < 0.85:
+		var z0 := za + 0.55
+		_emit_box(MAT_CONC_WALL, Vector3(xa + 0.45, f, z0), Vector3(xa + CELL - 0.45, f + 0.12, z0 + 0.16), f, c, true)
+		_col_box(Vector3(xa + 0.45, f, z0), Vector3(xa + CELL - 0.45, f + 0.12, z0 + 0.16))
 
 
 ## Pool water surface. Dense (water_sub x water_sub quads per cell) so the
@@ -1396,7 +1412,7 @@ func _emit_vertex(li: int, lj: int) -> void:
 		return
 	if size > 0.0:
 		var h := size * 0.5
-		var m: int = WALL_MAT[b]
+		var m: int = MAT_GARAGE_COLUMN if b == WorldGen.GARAGE else WALL_MAT[b]
 		# Use each face's own floor/ceiling so faces never poke through.
 		_vface(m, 0, px - h, -1.0, pz - h, pz + h, f, c, f, c)
 		_vface(m, 0, px + h, 1.0, pz - h, pz + h, f, c, f, c)

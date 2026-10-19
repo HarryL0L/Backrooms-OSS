@@ -35,6 +35,8 @@ func _init() -> void:
 	materials[ChunkBuilder.MAT_HALO] = _mat("light_halo")
 	materials[ChunkBuilder.MAT_HALO].render_priority = 3
 	materials[ChunkBuilder.MAT_TRIM] = _mat("trim")
+	materials[ChunkBuilder.MAT_GARAGE_FLOOR] = _mat("concrete", {"kind": 5, "base_color": Color(0.42, 0.42, 0.41)})
+	materials[ChunkBuilder.MAT_GARAGE_COLUMN] = _mat("concrete", {"kind": 6})
 	# Photographed materials for Photoreal, if any are in assets/textures/.
 	# (metres per repeat: a real carpet / paper / tile sample is ~1-2 m.)
 	_photo([ChunkBuilder.MAT_CARPET], "carpet", 1.5)

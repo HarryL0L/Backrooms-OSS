@@ -13,6 +13,7 @@ const SUBTITLES := [
 	"Concrete, puddles and flickering tubes.",
 	"The lights have died here. Use your flashlight.",
 	"Narrow tunnels. Hot pipes. Something drips in the dark.",
+	"Low concrete, oil stains, tube lights. Every car is under a sheet.",
 ]
 
 var state := State.BOOT

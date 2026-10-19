@@ -10,6 +10,7 @@ const REVERB := [
 	{"room": 0.85, "damp": 0.45, "wet": 0.38},
 	{"room": 0.6, "damp": 0.6, "wet": 0.3},
 	{"room": 0.75, "damp": 0.3, "wet": 0.42},
+	{"room": 0.95, "damp": 0.35, "wet": 0.4},     # a car park: long, hard echo
 ]
 
 var gen: WorldGen
