@@ -15,7 +15,7 @@ const OPEN_ANGLE := 1.15
 const DOORS := ["DoorFL", "DoorFR", "DoorRL", "DoorRR"]
 ## The key, at the steering column (driver's side, left-hand drive).
 const KEY_POS := Vector3(-0.72, 1.02, 0.36)
-const DASH_POS := Vector3(-0.66, 1.1, 0.37)
+const DASH_POS := Vector3(-0.8, 1.2, 0.37)
 const CABIN_POS := Vector3(-0.25, 1.5, 0.0)
 ## Getting in: the eye outside the driver's door, ducking through the
 ## opening, then in the seat; standing spot when you get out.
@@ -43,7 +43,9 @@ var _ignition := false
 var _dash: MeshInstance3D
 var _beams: MeshInstance3D
 var _audio: AudioStreamPlayer3D
+var _engine: AudioStreamPlayer3D    # the idle, looping
 var _flicker := 0.0
+var _crank := -1.0                  # seconds into starting, -1 when not
 var _driver: Player       # sitting in it
 
 static var _scenes := {}
@@ -107,6 +109,12 @@ func _ready() -> void:
 	_audio.unit_size = 4.0
 	_audio.position = Vector3(-0.3, 1.0, 0.0)
 	add_child(_audio)
+	_engine = AudioStreamPlayer3D.new()
+	_engine.bus = "World"
+	_engine.unit_size = 5.0
+	_engine.volume_db = -6.0
+	_engine.position = Vector3(-1.6, 0.7, 0.0)
+	add_child(_engine)
 	_set_all("light", light)
 	_set_all("light_dir", light_dir)
 	if paint.a > 0.0:
@@ -143,22 +151,30 @@ func use_targets(p: Player) -> Array:
 	return out
 
 
-func use(id: String, p: Player) -> void:
+## Does it; returns a line to show the player, if there's anything to say.
+func use(id: String, p: Player) -> String:
 	match id:
 		"cabin":
 			_cabin = not _cabin
 			_set_all("cabin", 1.0 if _cabin else 0.0)
 			_play("click", 0.0)
 		"key":
-			_play("click", -4.0)
-			if _ignition:
+			if _ignition or _crank >= 0.0:
+				_play("click", -4.0)
 				_set_ignition(false)
 			elif damaged:
-				# Flat battery: the dash flickers and dies.
+				# Flat battery: the solenoid clacks, the dash flickers and dies.
+				_play("car_dead", 0.0)
 				_flicker = 0.6
 				set_process(true)
+				return "The battery's flat."
 			else:
-				_set_ignition(true)
+				# The dash lights up with the key; the engine turns over and
+				# catches, then the lights come on.
+				_play("car_crank", 0.0)
+				_dash.visible = true
+				_crank = 0.0
+				set_process(true)
 		"getin":
 			_get_in(p)
 		"getout":
@@ -169,6 +185,7 @@ func use(id: String, p: Player) -> void:
 				e[1] = not e[1]
 				_play("car_latch" if e[1] else "car_shut", 0.0)
 				set_process(true)
+	return ""
 
 
 ## Duck in through the driver's door and settle in the seat, facing ahead.
@@ -181,7 +198,10 @@ func _get_in(p: Player) -> void:
 	if eye.distance_to(path[1]) < 0.3:
 		path.remove_at(1)
 	var fwd := global_basis * Vector3(-1, 0, 0)
-	p.ride(path, atan2(-fwd.x, -fwd.z), 1.9, func() -> void: pass)
+	# Settled in: pull the door shut.
+	p.ride(path, atan2(-fwd.x, -fwd.z), 1.9, func() -> void:
+		if _doors["DoorFL"][1]:
+			use("DoorFL", p))
 
 
 func _get_out(p: Player) -> void:
@@ -205,9 +225,15 @@ func _exit_tree() -> void:
 
 func _set_ignition(on: bool) -> void:
 	_ignition = on
+	_crank = -1.0
 	_dash.visible = on
 	_beams.visible = on
 	_set_all("lamps", 1.0 if on else 0.0)
+	if on:
+		_engine.stream = AudioSynth.cached("car_idle")
+		_engine.play()
+	else:
+		_engine.stop()
 
 
 func _process(delta: float) -> void:
@@ -223,6 +249,11 @@ func _process(delta: float) -> void:
 		e[2] = a
 		(e[0] as Node3D).rotation.y = -float(e[3]) * a
 		busy = busy or not is_equal_approx(a, target)
+	if _crank >= 0.0:
+		_crank += delta
+		if _crank > 0.95:
+			_set_ignition(true)
+		busy = true
 	if _flicker > 0.0:
 		_flicker -= delta
 		_dash.visible = _flicker > 0.0 and fmod(_flicker * 13.0, 1.0) < 0.5

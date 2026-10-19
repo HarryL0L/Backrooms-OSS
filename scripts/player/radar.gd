@@ -136,7 +136,9 @@ func _pose(delta: float, me: Player) -> void:
 	rotation = ROT_DOWN.lerp(ROT_UP, er) + Vector3(_sway.y * 0.6, _sway.x * 0.8, -_sway.x * 0.5) * k
 
 
-## others: Array of [world position, suit number]. me: the local player.
+## others: Array of [world position, suit number, note]. The note marks
+## someone on another floor ("▲1": a faint blip at their spot) or somewhere
+## else entirely ("FIELD": no blip, a line along the top). me: the local player.
 func update(delta: float, me: Player, others: Array, light: float) -> void:
 	_raise = move_toward(_raise, 1.0 if shown else 0.0, delta / RAISE_TIME)
 	visible = _raise > 0.0
@@ -159,13 +161,23 @@ func update(delta: float, me: Player, others: Array, light: float) -> void:
 			blips.append(Vector4.ZERO)
 			l.visible = false
 			continue
-		var rel: Vector3 = inv * ((others[i][0] as Vector3) - me.global_position)
+		var note: String = others[i][2] if (others[i] as Array).size() > 2 else ""
+		var at: Vector3 = others[i][0]
+		l.visible = true
+		if not at.is_finite():
+			blips.append(Vector4.ZERO)
+			l.text = "%02d %s" % [int(others[i][1]), note]
+			l.position = SCREEN_C + Vector3(-SCREEN_R * 0.55, SCREEN_R * (0.75 - 0.3 * i), 0.001)
+			continue
+		var rel: Vector3 = inv * (at - me.global_position)
 		var p := Vector2(rel.x, -rel.z) / RANGE
 		var rim := p.length() > 0.9
 		if rim:
 			p = p.normalized() * 0.9
-		blips.append(Vector4(p.x, p.y, 0.55 if rim else 1.0, 1.0 if rim else 0.0))
-		l.text = "%02d" % int(others[i][1])
-		l.visible = true
+		var strength := 0.55 if rim else 1.0
+		if note != "":
+			strength *= 0.4                   # another floor
+		blips.append(Vector4(p.x, p.y, strength, 1.0 if rim else 0.0))
+		l.text = "%02d%s" % [int(others[i][1]), note]
 		l.position = SCREEN_C + Vector3(p.x * SCREEN_R + 0.009, p.y * SCREEN_R + 0.006, 0.001)
 	_screen_mat.set_shader_parameter("blips", blips)

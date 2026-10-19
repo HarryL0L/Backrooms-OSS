@@ -34,6 +34,7 @@ const STOREYS := 2                        # above and below
 const DOOR_Z0 := CELL * 0.5 - 0.55        # matches the world's E_DOOR (1.1 x 2.1 m)
 const DOOR_Z1 := CELL * 0.5 + 0.55
 const DOOR_H := 2.1
+const LAMP_H := 2.75                       # the wall lights, over each landing
 
 const C_CONCRETE := Color(0.5, 0.49, 0.46)
 const C_WALL := Color(0.66, 0.65, 0.58)
@@ -103,27 +104,78 @@ func _ready() -> void:
 		l.rotation = Vector3(0, PI * 0.5, 0)
 		add_child(l)
 		_labels.append(l)
-	# Bulbs: one over each landing and half landing.
+	# Lights: an oval bulkhead fitting on the wall over each landing and half
+	# landing, fed by a conduit from the slab above.
 	for p in lamp_positions():
-		var b := MeshInstance3D.new()
+		var east := p.x > SX * 0.5
+		var out := -1.0 if east else 1.0          # into the shaft
+		var wall_x := (SX - W0) if east else W0
+		var fit := Node3D.new()
+		fit.position = Vector3(wall_x, p.y, p.z)
+		add_child(fit)
+		var base := MeshInstance3D.new()
+		var bb := BoxMesh.new()
+		bb.size = Vector3(0.05, 0.17, 0.27)
+		base.mesh = bb
+		base.material_override = _fitting_material()
+		base.position = Vector3(out * 0.025, 0, 0)
+		fit.add_child(base)
+		var dome := MeshInstance3D.new()
 		var sm := SphereMesh.new()
-		sm.radius = 0.07
-		sm.height = 0.14
-		b.mesh = sm
-		var bm := StandardMaterial3D.new()
-		bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		bm.albedo_color = Color(1.0, 0.92, 0.75) * 1.6
-		b.material_override = bm
-		b.position = p
-		add_child(b)
+		sm.radius = 0.5
+		sm.height = 1.0
+		dome.mesh = sm
+		dome.scale = Vector3(0.1, 0.13, 0.22)
+		dome.position = Vector3(out * 0.05, 0, 0)
+		dome.material_override = _bulb_material()
+		fit.add_child(dome)
+		# The cage: two bars across the glass.
+		for k in [-0.045, 0.045]:
+			var bar := MeshInstance3D.new()
+			var cb := BoxMesh.new()
+			cb.size = Vector3(0.012, 0.012, 0.25)
+			bar.mesh = cb
+			bar.material_override = _fitting_material()
+			bar.position = Vector3(out * 0.1, k, 0)
+			fit.add_child(bar)
+		var conduit := MeshInstance3D.new()
+		var cm := BoxMesh.new()
+		var up := H - 0.3 - LAMP_H                # to the underside of the slab above
+		cm.size = Vector3(0.025, up - 0.08, 0.025)
+		conduit.mesh = cm
+		conduit.material_override = _fitting_material()
+		conduit.position = Vector3(out * 0.02, 0.08 + cm.size.y * 0.5, 0.0)
+		fit.add_child(conduit)
+
+
+static var _fit_mat: StandardMaterial3D
+static var _bulb_mat: StandardMaterial3D
+
+
+static func _fitting_material() -> StandardMaterial3D:
+	if _fit_mat == null:
+		_fit_mat = StandardMaterial3D.new()
+		_fit_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_fit_mat.albedo_color = Color(0.2, 0.2, 0.19)
+	return _fit_mat
+
+
+static func _bulb_material() -> StandardMaterial3D:
+	if _bulb_mat == null:
+		_bulb_mat = StandardMaterial3D.new()
+		_bulb_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_bulb_mat.albedo_color = Color(1.0, 0.92, 0.75) * 1.5
+	return _bulb_mat
 
 
 ## The bulbs, in the stairwell's own coordinates.
 static func lamp_positions() -> PackedVector3Array:
 	var lamps := PackedVector3Array()
 	for st in range(-STOREYS, STOREYS + 1):
-		lamps.append(Vector3(0.75, st * H + 3.05, SZ - 1.0))
-		lamps.append(Vector3(SX - 0.75, st * H - H * 0.5 + 3.05, SZ * 0.5))
+		# On the west wall over the door landing, on the east wall over the
+		# half landing (just off the walls: the shader lights from here).
+		lamps.append(Vector3(W0 + 0.1, st * H + LAMP_H, SZ - 1.0))
+		lamps.append(Vector3(SX - W0 - 0.1, st * H - H * 0.5 + LAMP_H, SZ * 0.5 + 0.9))
 	return lamps
 
 

@@ -44,7 +44,8 @@ func _physics_process(delta: float) -> void:
 		var sw := w as Stairwell
 		if sw.contains(p):
 			inside = sw
-		var ready := chunks.is_area_ready(sw.global_position + Vector3(-1.0, 0.0, 1.2), 1)
+		# Just the chunk the door opens onto: the rest builds while you walk.
+		var ready := chunks.is_area_ready(sw.global_position + Vector3(-1.0, 0.0, 1.2), 0)
 		sw.update_door(delta, p, ready)
 	player.in_stairwell = inside != null
 	if inside == null or not player.controls_enabled:

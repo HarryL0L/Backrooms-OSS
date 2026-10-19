@@ -515,3 +515,21 @@ func pose_walk(phase: float, amount: float, run: float) -> void:
 	_rot(SPINE, Vector3(lerpf(0.03, 0.15, run) * amount, sin(phase) * 0.06 * amount, 0))
 	_rot(CHEST, Vector3(lerpf(0.01, 0.07, run) * amount, -sin(phase) * 0.1 * amount, 0))
 	_rot(NECK, Vector3(-lerpf(0.02, 0.12, run) * amount + 0.04, 0, 0))
+
+
+## Sitting in a car seat, hands on the wheel (the body's origin is where the
+## standing player's feet would be, so the hips land on the cushion).
+func pose_sit() -> void:
+	_off.clear()
+	skeleton.set_bone_pose_position(HIPS, BONES[HIPS][2] + Vector3(0, 0, -0.05))
+	for L in [true, false]:
+		var s := -1.0 if L else 1.0
+		_rot(THIGH_L if L else THIGH_R, Vector3(-1.45, 0, s * 0.06))
+		_rot(SHIN_L if L else SHIN_R, Vector3(1.35, 0, 0))
+		_rot(FOOT_L if L else FOOT_R, Vector3(0.1, 0, 0))
+		_rot(UARM_L if L else UARM_R, Vector3(-0.85, 0, s * 0.12))
+		_rot(FARM_L if L else FARM_R, Vector3(-0.7, 0, 0))
+		_rot(HAND_L if L else HAND_R, Vector3(0.1, 0, 0))
+	_rot(SPINE, Vector3(-0.12, 0, 0))
+	_rot(CHEST, Vector3(0.0, 0, 0))
+	_rot(NECK, Vector3(0.08, 0, 0))

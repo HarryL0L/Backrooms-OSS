@@ -31,7 +31,7 @@ func _car() -> ParkedCar:
 
 func _aim_use(id: String) -> void:
 	var car := _car()
-	for tg in car.use_targets():
+	for tg in car.use_targets(game.player):
 		if tg[0] == id:
 			var p: Vector3 = tg[1]
 			var cam: Camera3D = game.player.camera
@@ -78,12 +78,21 @@ func _process(delta):
 				var b := Basis(Vector3.UP, suv[3]) * Basis(Vector3.UP, PI * 0.5)
 				# Car space: front -X, driver side +Z.
 				views.append(["front", sp + b * Vector3(-5.0, 0, 3.0), sp + Vector3(0, 0.7, 0), ""])
-				views.append(["rear", sp + b * Vector3(4.5, 0, -3.2), sp + Vector3(0, 0.7, 0), ""])
-				views.append(["open", sp + b * Vector3(0.2, 0, 2.1), sp + b * Vector3(-0.3, 1.2, 0.9), "DoorFL,key,cabin"])
-				views.append(["cabin", sp + b * Vector3(0.3, 0, 1.55), sp + b * Vector3(-0.7, 0.95, 0.2), ""])
-				views.append(["lights", sp + b * Vector3(-7.0, 0, 2.2), sp + b * Vector3(-2.0, 0.5, 0.0), "DoorRR"])
+				# Get in, start it, and look at the dashboard from the seat.
+				views.append(["seat", sp + b * Vector3(0.6, 0, 1.9), sp + b * Vector3(-0.3, 1.2, 0.9), "DoorFL,getin,key", sp + b * Vector3(-3.0, 1.0, 0.37)])
+				views.append(["lights", sp + b * Vector3(-7.0, 0, 2.2), sp + b * Vector3(-2.0, 0.5, 0.0), ""])
 				var cp: Vector3 = cov[0]
 				views.append(["covered", cp + Vector3(2.4, 0, -4.6), cp + Vector3(0, 0.6, 0), ""])
+				# A column's bay number, and a stairwell landing's light.
+				var res2 := {}
+				LobbyDetails._compute(g, Vector2i(floori(sp.x / 2.4 / 16), floori(sp.z / 2.4 / 16)), res2)
+				for sg in res2.signs:
+					if (sg as Array).size() > 5:
+						views.append(["column", (sg[0] as Vector3) + Vector3(0.6, -1.7, -2.2), (sg[0] as Vector3), ""])
+						break
+				var sb: Vector2i = g.stair_block(1, 1)
+				var so := Vector3(sb.x * 2.4, 0, sb.y * 2.4)
+				views.append(["stair_lamp", so + Vector3(1.2, 0.05, 1.2), so + Vector3(0.2, 2.75, 3.8), ""])
 				game.hud.set_fade(0.0)
 				step = 2; t = 0
 		2:
@@ -97,8 +106,16 @@ func _process(delta):
 				v[3] = ""
 				for id in ids:
 					await _aim_use(id)
-					await get_tree().create_timer(0.8).timeout
-				_look(v[1], v[2])
+					await get_tree().create_timer(2.6 if id == "getin" else 0.8).timeout
+				if "getin" in ids:
+					# Stay in the seat: just look ahead.
+					await get_tree().create_timer(1.5).timeout
+					var d: Vector3 = v[4] - game.player.camera.global_position
+					game.player.yaw = atan2(-d.x, -d.z)
+					game.player.pitch = atan2(d.y, Vector2(d.x, d.z).length())
+					game.player._apply_rotation()
+				else:
+					_look(v[1], v[2])
 				t = 5.0
 			if t > 7.0 and v[3] == "" and game.chunks.is_area_ready(game.player.global_position, 1):
 				get_viewport().get_texture().get_image().save_png("%s/suv_%s.png" % [out, v[0]])

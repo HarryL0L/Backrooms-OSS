@@ -30,10 +30,12 @@ const REGION := 16
 const TILES := 9       # outlet, switch, mount, vent, indents, sodden, seam, odd outlet, clock
 enum { OUTLET, SWITCH, MOUNT, VENT, INDENT, SODDEN, SEAM, OUTLET_ODD, CLOCK }
 enum { FAKE_DOOR, STAIRS_UP, DOOR_SUNK, DOOR_THROUGH }
-const EXIT_TEXT := ["EXIT", "EXTI", "EIXT", "EXIT", "XIT", "TIXE", "EXIT EXIT", "EXI"]
-const PLAQUE_TEXT := ["ROOM 0", "ROOM 00", "ROOM -1", "214", "214", "STAFF ONLY", "STAFF OLNY", "OFFICE",
-		"OFIFCE", "STORAGE", "STORGAE", "MEETING ROOM", "MEETNG ROOM", "RESTROOM", "ROOM", "WAITING",
-		"WAITNG", "1/2", "PRIVATE", "PIRVATE", "NO EXIT", "THIS WAY", "ROOM ROOM", ""]
+## Signs read right near the start; further out the copy gets them wrong
+## (more often the further you go).
+const EXIT_ODD := ["EXTI", "EIXT", "XIT", "TIXE", "EXIT EXIT", "EXI"]
+const PLAQUE_TEXT := ["ROOM 0", "214", "STAFF ONLY", "OFFICE", "STORAGE", "MEETING ROOM", "RESTROOM", "WAITING", "PRIVATE"]
+const PLAQUE_ODD := ["ROOM 00", "ROOM -1", "STAFF OLNY", "OFIFCE", "STORGAE", "MEETNG ROOM", "WAITNG", "1/2", "PIRVATE",
+		"NO EXIT", "THIS WAY", "ROOM ROOM", ""]
 enum { BIN, BUCKET, CAR, SUV }
 ## SUV paint (linear): the original taupe, silver, black, navy, white, dark red, dark green.
 const SUV_PAINT := [Color(0.32, 0.29, 0.25), Color(0.45, 0.46, 0.47), Color(0.02, 0.02, 0.022), Color(0.015, 0.025, 0.08),
@@ -142,12 +144,20 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 					var nd: Vector3 = dirs[k]
 					var fd := centre - nd * (C * 0.5 - ChunkBuilder.T - 0.005)
 					var top: float = WorldGen.DOOR_H[edges[k]]
+					# Only between rooms of the Lobby: an office plaque by the way
+					# into the car park makes no sense.
+					var other := Vector2i(gx, gz) - Vector2i(int(nd.x), int(nd.z))
+					if g.biome_at(other.x, other.y) != WorldGen.LOBBY:
+						continue
 					var sr := rng.randf() / maxf(cx, 0.001)
+					var wrong := rng.randf() < 0.7 * cx * cx
 					if sr < 0.07:
-						signs.append([fd + Vector3.UP * (top + 0.22) + nd * 0.03, nd, EXIT_TEXT[rng.randi() % EXIT_TEXT.size()], true, light])
+						var t: String = EXIT_ODD[rng.randi() % EXIT_ODD.size()] if wrong else "EXIT"
+						signs.append([fd + Vector3.UP * (top + 0.22) + nd * 0.03, nd, t, true, light])
 					elif sr < 0.14 and edges[k] == WorldGen.E_DOOR:
 						var side := Vector3(-nd.z, 0, nd.x) * (0.85 if rng.randf() < 0.5 else -0.85)
-						signs.append([fd + side + Vector3.UP * 1.5 + nd * 0.012, nd, PLAQUE_TEXT[rng.randi() % PLAQUE_TEXT.size()], false, light])
+						var t: String = PLAQUE_ODD[rng.randi() % PLAQUE_ODD.size()] if wrong else PLAQUE_TEXT[rng.randi() % PLAQUE_TEXT.size()]
+						signs.append([fd + side + Vector3.UP * 1.5 + nd * 0.012, nd, t, false, light])
 					continue
 				if edges[k] != WorldGen.E_WALL:
 					continue
@@ -382,7 +392,9 @@ func _build_sign(root: Node3D, s: Array) -> void:
 		var lp := Label3D.new()
 		lp.text = s[2]
 		lp.font_size = 96
-		lp.pixel_size = 0.0028
+		# As wide as fits on the column's face (about 0.6 of a character's
+		# height per character).
+		lp.pixel_size = minf(0.0024, 0.6 / (maxf(lp.text.length(), 1) * 0.6 * 96.0))
 		lp.outline_size = 0
 		lp.shaded = false
 		lp.double_sided = false
@@ -411,8 +423,10 @@ func _build_sign(root: Node3D, s: Array) -> void:
 static func _garage_cell(g: WorldGen, gx: int, gz: int, rng: RandomNumberGenerator, props: Array, signs: Array) -> void:
 	var C := WorldGen.CELL
 	var light := clampf(g.light_level_near(Vector3((gx + 0.5) * C, 1.2, (gz + 0.5) * C)) * 0.22, 0.04, 0.8)
-	if posmod(gz, 4) == 0 and rng.randf() < 0.09:
-		var at := Vector3((gx + 0.5) * C + rng.randf_range(-0.12, 0.12), 0.0, gz * C + 2.45)
+	if posmod(gz, 4) == 0 and rng.randf() < 0.09 and _bay_clear(g, gx, gz):
+		# Clear of the column at the bay's back corner.
+		var shift := 0.2 if posmod(gx, 3) == 0 else (-0.2 if posmod(gx, 3) == 2 else 0.0)
+		var at := Vector3((gx + 0.5) * C + shift + rng.randf_range(-0.06, 0.06), 0.0, gz * C + 2.6)
 		# Most are under dust sheets; now and then one isn't (more often
 		# damaged further out).
 		var kind := SUV if rng.randf() < 0.25 else CAR
@@ -427,7 +441,21 @@ static func _garage_cell(g: WorldGen, gx: int, gz: int, rng: RandomNumberGenerat
 		if odd < 0.25 * cx:
 			text = ["%s-%02d" % [WorldGen.floor_name(g.floor_index), num - 1], "%s-??" % WorldGen.floor_name(g.floor_index),
 					"%s-%02d" % [WorldGen.floor_name(g.floor_index - 1), num], "P-0", "%02d-%s" % [num, WorldGen.floor_name(g.floor_index)]][rng.randi() % 5]
-		signs.append([Vector3(gx * C, 1.75, gz * C - 0.305), Vector3(0, 0, -1), text, false, light, true])
+		signs.append([Vector3(gx * C, 1.75, gz * C - 0.405), Vector3(0, 0, -1), text, false, light, true])
+
+
+## A car fits in the bay at (gx, gz) (two cells deep): all car park, nothing
+## solid, no wall or doorway across or beside it, not by a stairwell.
+static func _bay_clear(g: WorldGen, gx: int, gz: int) -> bool:
+	for dz in 2:
+		var z := gz + dz
+		if g.biome_at(gx, z) != WorldGen.GARAGE or g.is_solid(gx, z, WorldGen.GARAGE) or g.stair_zone(gx, z, 1) \
+				or g.near_spawn(gx, z, 2):
+			return false
+		var e: Array = g._cell_edges(gx, z)       # W, E, N, S
+		if e[0] == WorldGen.E_DOOR or e[1] == WorldGen.E_DOOR or e[3] != WorldGen.E_OPEN:
+			return false
+	return true
 
 
 ## How badly the copy has gone wrong here (0 near where you start, 1 far

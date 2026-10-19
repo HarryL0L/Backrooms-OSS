@@ -80,6 +80,9 @@ var _scan_t := 0.0
 var _fog_color := Color.BLACK
 var _fog_density := 0.03
 var _play_time := 0.0
+## Which Field / Dead Mall you're in: made from the door you came through, so
+## two players who take the same door are in the same one.
+var _side_seed := 0
 var _autosave_t := 0.0
 var _settings_return := State.MENU
 var _loading_done: Callable
@@ -575,6 +578,7 @@ func continue_game() -> void:
 		return
 	main_menu.hide()
 	_play_time = save.get("time", 0.0)
+	_side_seed = int(save.get("side_seed", 0))
 	await hud.fade_to(1.0, 0.4)
 	if save.get("mall", false):
 		# Saved in the Dead Mall: load the Backrooms (for the way back), then
@@ -809,6 +813,9 @@ func _focus_first(menu: Control) -> void:
 ## What you're looking at that you can use (a car door, a switch):
 ## [node, id, label] or [].
 var _use_target := []
+## A line from the last thing used ("The battery's flat."), shown for a while.
+var _use_hint := ""
+var _use_hint_t := 0.0
 
 
 func _update_use() -> void:
@@ -832,7 +839,10 @@ func _update_use() -> void:
 				best = off + along * 0.2
 				_use_target = [node, t[0], t[2]]
 	var label := ""
-	if not _use_target.is_empty():
+	_use_hint_t -= get_process_delta_time()
+	if _use_hint_t > 0.0:
+		label = _use_hint
+	elif not _use_target.is_empty():
 		label = _use_target[2]
 		if not _using_touch:
 			var key := Settings.binding_label(Settings.keys["interact"][0])
@@ -845,7 +855,10 @@ func _update_use() -> void:
 
 func _use() -> void:
 	if not _use_target.is_empty() and is_instance_valid(_use_target[0]):
-		_use_target[0].use(_use_target[1], player)
+		var said: String = _use_target[0].use(_use_target[1], player)
+		if said != "":
+			_use_hint = said
+			_use_hint_t = 2.5
 		_update_use()
 
 
@@ -881,7 +894,8 @@ func _process(delta: float) -> void:
 			_net_t = 0.05
 			net.send_state({"p": player.global_position, "y": player.yaw, "x": player.pitch,
 				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching,
-				"g": player.is_on_floor(), "fl": _in_field, "ml": _in_mall, "fr": _floor})
+				"g": player.is_on_floor(), "fl": _in_field, "ml": _in_mall, "fr": _floor,
+				"sd": _side_seed, "s": player.seated or player._ride_t >= 0.0, "t": Time.get_ticks_msec()})
 	_update_radar(delta)
 	lining.allowed = state == State.PLAYING and not _away() and not _transition
 	hall_figure.allowed = lining.allowed
@@ -993,6 +1007,7 @@ func _perf_watch(delta: float) -> void:
 func _on_odd_door(door: OddDoor) -> void:
 	if state != State.PLAYING or _transition or _away():
 		return
+	_side_seed = gen.hashi(floori(door.global_position.x * 4.0), floori(door.global_position.z * 4.0), 811 + _floor) & 0x7FFFFFFF
 	if door.mall:
 		_go_to_mall(door)
 		return
@@ -1017,7 +1032,7 @@ func _enter_field(exit_pos := Vector3.INF, pos := Vector3.INF, yaw := 0.0) -> vo
 	field.process_mode = Node.PROCESS_MODE_PAUSABLE
 	field.player = player
 	add_child(field)
-	field.build(gen.hashi(int(_play_time * 10.0), gen.seed_value, 811), exit_pos)
+	field.build(gen.hashi(_side_seed, gen.seed_value, 811), exit_pos)
 	field.exit_entered.connect(_on_field_exit)
 	world_env.environment = field.environment
 	chunks.visible = false
@@ -1116,7 +1131,7 @@ func _enter_mall(pos := Vector3.INF, yaw := 0.0) -> void:
 	mall.process_mode = Node.PROCESS_MODE_PAUSABLE
 	mall.player = player
 	add_child(mall)
-	mall.build(gen.hashi(int(_play_time * 10.0), gen.seed_value, 977))
+	mall.build(gen.hashi(_side_seed, gen.seed_value, 977))
 	mall.exit_entered.connect(_on_mall_exit)
 	mall.caught.connect(_on_dresser_caught)
 	world_env.environment = mall.environment
@@ -1315,6 +1330,7 @@ func _write_save() -> void:
 	cf.set_value("save", "pitch", player.pitch)
 	cf.set_value("save", "flashlight", player.flashlight_on)
 	cf.set_value("save", "time", _play_time)
+	cf.set_value("save", "side_seed", _side_seed)
 	if _in_field:
 		cf.set_value("save", "field_exit", field.exit_pos)
 	if _in_mall:
@@ -1454,12 +1470,25 @@ func _update_radar(delta: float) -> void:
 	touch.radar_available = net.active
 	if not net.active:
 		radar.shown = false
+	# Same place: a blip where they are. Another floor of the Backrooms
+	# (the floors share one plan, the stairwells line up): a faint blip at
+	# their spot marked with how many floors up or down. Somewhere else
+	# entirely (another Field or Mall, or the Backrooms while you're out):
+	# just their number and where.
 	var others := []
 	for id in _remotes:
 		var r := _remotes[id] as RemotePlayer
-		r.viewer_floor = _floor
-		if r.visible and r.in_field == _in_field and r.in_mall == _in_mall:
-			others.append([r.global_position, r.number])
+		r.gen = gen
+		r.set_viewer(_floor, _in_field, _in_mall, _side_seed)
+		if not r.has_state():
+			continue
+		if r.visible:
+			others.append([r.global_position, r.number, ""])
+		elif not _away() and not r.away():
+			var df := r.floor_index - _floor
+			others.append([r.global_position, r.number, ("▲%d" if df > 0 else "▼%d") % absi(df)])
+		else:
+			others.append([Vector3.INF, r.number, r.place_name()])
 	var light := 1.0
 	if gen and not _away():
 		light = gen.light_level_near(player.global_position + Vector3.UP * 1.2) * 0.35

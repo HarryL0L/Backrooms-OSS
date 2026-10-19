@@ -59,6 +59,12 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return car_latch()
 		"car_shut":
 			return car_shut()
+		"car_crank":
+			return car_crank()
+		"car_idle":
+			return car_idle()
+		"car_dead":
+			return car_dead()
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -467,6 +473,81 @@ static func car_shut() -> AudioStreamWAV:
 		hi.step(x * exp(-maxf(t - 0.02, 0.0) * 400.0) * float(t > 0.02))
 		s[i] = lo.low * 1.4 + panel.band * 0.5 + hi.band * 0.3
 	return to_wav(_normalize(s, 0.85))
+
+
+## The starter turning the engine over (each compression a lurch), then it
+## catches with a rev that settles.
+static func car_crank() -> AudioStreamWAV:
+	var n := int(RATE * 1.6)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 612
+	var whine := _Svf.new(420.0, 0.2)
+	var body := _Svf.new(90.0, 0.25)
+	var ph := 0.0
+	var fire_ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		var v := 0.0
+		if t < 0.95:
+			# Cranking: the starter's whine pulsing with each compression.
+			ph += 5.5 / RATE
+			var lurch := 0.55 + 0.45 * sin(TAU * ph)
+			whine.step(x * lurch)
+			v = whine.band * 1.6 * lurch * smoothstep(0.0, 0.05, t)
+		var run := smoothstep(0.85, 1.0, t)
+		if run > 0.0:
+			# Firing: pulses at ~30 Hz, revving up and settling down.
+			var rpm := 30.0 + 22.0 * exp(-(t - 1.0) * 5.0) * float(t > 1.0)
+			fire_ph += rpm / RATE
+			var pulse := pow(maxf(sin(TAU * fire_ph), 0.0), 6.0)
+			body.step((pulse * 2.0 + x * 0.3) * run)
+			v += body.low * 3.0
+		s[i] = v
+	return to_wav(_normalize(s, 0.8))
+
+
+## A petrol engine idling, as a seamless loop.
+static func car_idle() -> AudioStreamWAV:
+	var n := int(RATE * 2.0)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 613
+	var body := _Svf.new(85.0, 0.25)
+	var hiss := _Svf.new(900.0, 0.6)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		# 30 firing pulses a second (a whole number per loop, so it loops).
+		var pulse := pow(maxf(sin(TAU * 30.0 * t + 0.4 * sin(TAU * 1.5 * t)), 0.0), 6.0)
+		body.step(pulse * 2.0 + x * 0.25)
+		hiss.step(x * 0.1)
+		s[i] = body.low * 3.0 + hiss.band * 0.4
+	return to_wav(_make_loop(_normalize(s, 0.55), n - int(RATE * 0.1)), true)
+
+
+## A flat battery: the starter solenoid clacking and nothing else.
+static func car_dead() -> AudioStreamWAV:
+	var n := int(RATE * 0.7)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 614
+	var bp := _Svf.new(1800.0, 0.35)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		var v := 0.0
+		for k in 4:
+			var kt := t - k * 0.13
+			if kt > 0.0:
+				v += x * exp(-kt * 220.0) * (1.0 - k * 0.15)
+		bp.step(v)
+		s[i] = bp.band
+	return to_wav(_normalize(s, 0.6))
 
 
 ## Unsettling distant sounds: 0 thud, 1 metal creak, 2 knocking, 3 footsteps.

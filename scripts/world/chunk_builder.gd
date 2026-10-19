@@ -1191,8 +1191,8 @@ func _emit_cell(li: int, lj: int) -> void:
 ## concrete wheel stop at the back of each parking bay.
 func _emit_garage(gx: int, gz: int, xa: float, za: float, f: float, c: float) -> void:
 	if posmod(gx, 3) == 0:
-		var lo := Vector3(xa - 0.22, c - 0.42, za)
-		var hi := Vector3(xa + 0.22, c, za + CELL)
+		var lo := Vector3(xa - 0.3, c - 0.45, za)
+		var hi := Vector3(xa + 0.3, c, za + CELL)
 		_emit_box(MAT_CONC_WALL, lo, hi, f, c, false)
 		_hface(MAT_CONC_WALL, lo.x, hi.x, lo.z, hi.z, lo.y, false, 1, false)
 	if posmod(gz, 4) == 0 and gen.rnd(gx, gz, 66) < 0.85:

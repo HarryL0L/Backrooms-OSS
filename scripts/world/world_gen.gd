@@ -311,15 +311,18 @@ func pillar_at(vx: int, vz: int, b: int) -> float:
 		return 0.0
 	match b:
 		CONCRETE:
+			# Warehouse columns, 0.8 m.
 			if posmod(vx, 3) == 0 and posmod(vz, 3) == 0:
-				return 0.7
+				return 0.8
 		GARAGE:
-			# Columns between every three parking bays, at the bays' backs.
+			# Columns between every three parking bays, at the bays' backs:
+			# 0.8 m square, the usual size holding up a car park deck.
 			if posmod(vx, 3) == 0 and posmod(vz, 4) == 0:
-				return 0.6
+				return 0.8
 		LOBBY, DARK:
+			# Office building columns, wallpapered, 0.6 m.
 			if open_hall(vx, vz) and posmod(vx, 2) == 0 and posmod(vz, 2) == 0:
-				return 0.42
+				return 0.6
 		POOL:
 			if gallery(vx, vz):
 				return 0.0

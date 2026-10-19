@@ -3,10 +3,15 @@ extends Node3D
 ## Another player, as you see them: the hazmat suit model following their
 ## network updates (buffered ~100 ms and interpolated so it moves smoothly),
 ## walking/running with the same gait as the first-person view, crouching,
-## their chest torch shining when their flashlight is on, and their
-## footsteps in 3D.
+## their chest torch shining when their flashlight is on, sitting when
+## they're in a car, and their footsteps in 3D.
+##
+## States are placed on the sender's clock (so Wi-Fi bunching doesn't make
+## them stutter) and shown 150 ms late, between the two around that time.
 
-const DELAY := 0.1
+const DELAY := 0.15
+## Short airborne blips (the top of a jump, a stair step) keep the jump pose.
+const AIR_GRACE := 0.12
 
 var gen: WorldGen
 var ambience: Ambience
@@ -26,12 +31,20 @@ var _air := 0.0
 var _light_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _last_pos := Vector3.INF
+var _clock_off := INF       # our clock minus theirs (smallest seen), seconds
+var _air_t := 0.0
 var in_field := false
 var in_mall := false
-## The floor they're on, and the floor of the player looking (set by the game):
-## someone a floor up or down stands at the same x, z but isn't here.
+var side_seed := 0
+var seated := false
+## The floor they're on: someone a floor up or down stands at the same x, z
+## but isn't here.
 var floor_index := 0
+## Where the player looking at them is (set_viewer).
 var viewer_floor := 0
+var viewer_field := false
+var viewer_mall := false
+var viewer_side := 0
 
 
 func _ready() -> void:
@@ -86,9 +99,42 @@ func set_number(n: int) -> void:
 
 
 func push_state(s: Dictionary) -> void:
-	_buf.append([Time.get_ticks_msec() / 1000.0, s])
+	var now := Time.get_ticks_msec() / 1000.0
+	var t := now
+	if s.has("t"):
+		# Their send time on our clock: the offset is the smallest gap seen
+		# (the least-delayed packet), so bunched packets keep their spacing.
+		var sent := float(s.t) / 1000.0
+		_clock_off = minf(_clock_off, now - sent)
+		t = sent + _clock_off
+	_buf.append([t, s])
 	if _buf.size() > 30:
 		_buf.pop_front()
+
+
+func has_state() -> bool:
+	return not _buf.is_empty()
+
+
+## Where the player looking at them is.
+func set_viewer(p_floor: int, p_field: bool, p_mall: bool, p_side: int) -> void:
+	viewer_floor = p_floor
+	viewer_field = p_field
+	viewer_mall = p_mall
+	viewer_side = p_side
+
+
+## In the Field or the Mall rather than the Backrooms.
+func away() -> bool:
+	return in_field or in_mall
+
+
+func place_name() -> String:
+	if in_field:
+		return "FIELD"
+	if in_mall:
+		return "MALL"
+	return "B%d" % -floor_index if floor_index < 0 else ("L%d" % floor_index if floor_index > 0 else "L0")
 
 
 func _process(delta: float) -> void:
@@ -110,32 +156,61 @@ func _process(delta: float) -> void:
 	var k := clampf((t - float(a[0])) / span, 0.0, 1.0)
 	var pa: Vector3 = sa.p
 	var pb: Vector3 = sb.p
+	# A floor change on the stairs moves them by a floor height: put the
+	# earlier state into the new floor's frame instead of sliding between.
+	var fa := int(sa.get("fr", 0))
+	var fb := int(sb.get("fr", 0))
+	if fa != fb:
+		pa.y += (fa - fb) * WorldGen.FLOOR_H
 	var pos := pa.lerp(pb, k)
-	if _last_pos.is_finite() and pos.distance_to(_last_pos) > 6.0:
-		_last_pos = pos                       # teleported: no streak
+	if pa.distance_to(pb) > 6.0 or bool(sa.get("fl", false)) != bool(sb.get("fl", false)) \
+			or bool(sa.get("ml", false)) != bool(sb.get("ml", false)):
+		pos = pb                              # teleported: no streak
+	_last_pos = pos
 	global_position = pos
 	var yaw := lerp_angle(float(sa.y), float(sb.y), k)
 	rotation = Vector3(0, yaw + PI, 0)        # the model faces +Z, players look -Z
 	var pitch := lerpf(float(sa.x), float(sb.x), k)
 	in_field = bool(sb.get("fl", false))
 	in_mall = bool(sb.get("ml", false))
+	side_seed = int(sb.get("sd", 0))
 	floor_index = int(sb.get("fr", 0))
-	visible = floor_index == viewer_floor or in_field or in_mall
-	# Gait from their actual movement.
+	seated = bool(sb.get("s", false))
+	# Only where you are: the same floor of the Backrooms, or the same Field
+	# or Mall (the one behind the same door).
+	if in_field or in_mall or viewer_field or viewer_mall:
+		visible = in_field == viewer_field and in_mall == viewer_mall and side_seed == viewer_side
+	else:
+		visible = floor_index == viewer_floor
+	if not visible:
+		return
+	if seated:
+		# In a car (or getting in or out of one): sitting, no steps.
+		model.crouch = 0.0
+		model.air = 0.0
+		model.pose_sit()
+		_speed = 0.0
+		_shadow.visible = false
+		_torch.visible = false
+		return
+	# Gait from their actual movement, backwards when they back up.
 	var vel: Vector3 = sb.get("v", Vector3.ZERO)
 	var hs := Vector2(vel.x, vel.z).length()
+	var fwd := -Basis(Vector3.UP, yaw).z
+	var dir := -1.0 if vel.dot(fwd) < -0.2 * hs else 1.0
 	_speed = lerpf(_speed, hs, 1.0 - exp(-8.0 * delta))
 	_run = lerpf(_run, smoothstep(Player.WALK + 0.3, Player.SPRINT - 0.3, _speed), 1.0 - exp(-4.0 * delta))
 	# Crouching and jumping are poses (legs bend, boots stay on the floor).
 	_crouch = lerpf(_crouch, 1.0 if sb.get("c", false) else 0.0, 1.0 - exp(-10.0 * delta))
-	var airborne := not bool(sb.get("g", true)) and absf(vel.y) > 0.4
+	_air_t = 0.0 if bool(sb.get("g", true)) else _air_t + delta
+	var airborne := _air_t > 0.05 and (absf(vel.y) > 0.4 or _air_t > AIR_GRACE)
 	_air = lerpf(_air, 1.0 if airborne else 0.0, 1.0 - exp(-(12.0 if airborne else 18.0) * delta))
 	model.crouch = _crouch
 	model.air = _air
 	var step_len := clampf(0.45 + 0.27 * _speed, 0.55, 1.8)
 	var prev := _phase
-	_phase += _speed * delta / step_len * PI
-	if _speed > 0.3 and not airborne and floori(prev / PI) != floori(_phase / PI):
+	_phase += dir * _speed * delta / step_len * PI
+	if _speed > 0.3 and not airborne and floori(prev / PI) != floori(_phase / PI) and is_visible_in_tree():
 		_footstep()
 	var amount := clampf(_speed / Player.WALK, 0.0, 1.0)
 	if amount > 0.02:
