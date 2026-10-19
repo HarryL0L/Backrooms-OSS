@@ -182,7 +182,8 @@ func _process(delta: float) -> void:
 		_hum_level = clampf(gen.light_level_near(p + Vector3(0, 1.5, 0)) * 0.55, 0.0, 1.0)
 		_water_level = 0.0
 		if _biome == WorldGen.POOL:
-			_water_level = 1.0 if player.in_water() else 0.55
+			# Splashing only when you're in it; otherwise just a faint lapping.
+			_water_level = 1.0 if player.in_water() else 0.1
 		var f := gen.nearest_flicker(p, 4)
 		if f.is_empty():
 			_buzz_seed = 0.0

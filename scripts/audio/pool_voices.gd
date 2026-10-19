@@ -1,16 +1,14 @@
 class_name PoolVoices
 extends Node3D
 ## The Poolrooms remember being busy. Somewhere off through the tiled
-## halls there are people: voices, children shrieking and laughing,
-## splashing, all far away and drowned in echo. Two of these murmurs drift
+## halls there are people: voices, talk, children shrieking and laughing,
+## far away but clear, with a little of the tiles' echo. Two of these murmurs drift
 ## around you at a distance, each fading up somewhere, carrying on for a
 ## while and fading out, then turning up somewhere else. You never find
-## anyone. Recordings: CC0, see assets/audio/pool/LICENSE.md (made distant
-## and reverberant offline).
+## anyone. Recordings: CC0, see assets/audio/pool/LICENSE.md.
 
 const CLIPS := [
 	"res://assets/audio/pool/leisure.ogg",
-	"res://assets/audio/pool/kids.ogg",
 	"res://assets/audio/pool/far.ogg",
 ]
 const FADE_IN := 5.0
@@ -31,10 +29,11 @@ func _ready() -> void:
 		_streams.append(st)
 	for i in 2:
 		var v := AudioStreamPlayer3D.new()
-		v.bus = "World"
-		v.unit_size = 12.0
+		# Not the World bus: its tiled-hall reverb washed the voices out.
+		v.bus = "Ambience"
+		v.unit_size = 16.0
 		v.max_distance = 70.0
-		v.attenuation_filter_cutoff_hz = 3000.0
+		v.attenuation_filter_cutoff_hz = 9000.0
 		v.volume_db = -60.0
 		add_child(v)
 		_voices.append(v)
