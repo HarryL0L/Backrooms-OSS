@@ -10,10 +10,10 @@ const FIELD_NAME := "Level 10 - The Field"
 const SUBTITLES := [
 	"Yellow wallpaper. Damp carpet. The hum of the lights.",
 	"Warm water. White tiles. Nobody else.",
-	"Concrete, puddles and flickering tubes.",
+	"A damp warehouse. Racks of boxes nobody ordered.",
 	"The lights have died here. Use your flashlight.",
 	"Narrow tunnels. Hot pipes. Something drips in the dark.",
-	"Low concrete, oil stains, tube lights. Every car is under a sheet.",
+	"Low concrete, oil stains, tube lights. Some of the keys are still in.",
 ]
 
 var state := State.BOOT
