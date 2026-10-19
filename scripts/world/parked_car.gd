@@ -85,7 +85,7 @@ func _ready() -> void:
 		var handle := Vector3(bb.end.x - 0.2, bb.get_center().y + 0.12, outer)
 		_doors[n] = [d, false, 0.0, side, handle]
 		for m in d.find_children("*", "MeshInstance3D", true, false) + ([d] if d is MeshInstance3D else []):
-			(m as MeshInstance3D).set_instance_shader_parameter("part_offset", d.position)
+			UniqueParams.set_param(m, &"part_offset", d.position)
 	_dash = MeshInstance3D.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(0.34, 0.11)
@@ -270,7 +270,7 @@ func _play(sound: String, db: float) -> void:
 
 func _set_all(param: String, v: Variant) -> void:
 	for mi in _meshes:
-		mi.set_instance_shader_parameter(param, v)
+		UniqueParams.set_param(mi, param, v)
 
 
 ## The door's mesh bounds in the door's own space.

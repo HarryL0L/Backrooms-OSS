@@ -23,7 +23,7 @@ uniform float land = 1.55;
 uniform float mid = 5.535;
 uniform float split = 2.4;
 uniform float floor_h = 4.0;
-instance uniform vec3 origin;      // where this stairwell stands
+uniform vec3 origin;      // where this stairwell stands
 
 varying vec3 v_col;
 varying float v_kind;              // COLOR.a: 1 wall, 0.6 concrete, 0.4 nosing, 0.2 fittings

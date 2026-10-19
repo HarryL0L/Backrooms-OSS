@@ -27,6 +27,8 @@ window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=4
 window/vsync/vsync_mode=1
+window/frame_pacing/android/enable_frame_pacing=true
+window/frame_pacing/android/swappy_mode=2
 
 [debug]
 

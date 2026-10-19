@@ -82,7 +82,7 @@ static func _mat(key: String) -> Material:
 func set_env_light(c: Color) -> void:
 	for mi in find_children("*", "MeshInstance3D", true, false):
 		if (mi as MeshInstance3D).material_override is ShaderMaterial:
-			(mi as MeshInstance3D).set_instance_shader_parameter("env_light", c)
+			UniqueParams.set_param(mi, &"env_light", c)
 
 
 func set_tag(t: String) -> void:

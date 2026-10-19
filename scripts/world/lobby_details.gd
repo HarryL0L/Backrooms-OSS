@@ -45,7 +45,12 @@ const NOCLIP_TIME := 0.9
 
 var gen: WorldGen
 var target: Node3D
+## The world's chunks: a region's details show chunk by chunk, only where the
+## rooms around them are built (no doors and bins floating in the void while
+## a slow phone catches up).
+var chunks: ChunkManager
 var _regions := {}         # Vector2i -> Node3D (or null while building)
+var _parts: Array = []     # [chunk, Node3D] of every built part
 var _tasks := {}           # Vector2i -> [task id, result dict]
 var _scan := 0.0
 var _thin := []           # [Area3D, wall normal] of the thin places nearby
@@ -62,6 +67,7 @@ func clear() -> void:
 		if _regions[r]:
 			_regions[r].queue_free()
 	_regions.clear()
+	_parts.clear()
 
 
 func _exit_tree() -> void:
@@ -80,7 +86,8 @@ func _process(delta: float) -> void:
 			WorkerThreadPool.wait_for_task_completion(t[0])
 			_tasks.erase(r)
 			if _regions.has(r):
-				_regions[r] = _build(t[1])
+				_regions[r] = _build_parts(t[1])
+	_show_parts()
 	_scan -= delta
 	if _scan > 0.0:
 		return
@@ -101,6 +108,53 @@ func _process(delta: float) -> void:
 			if _regions[r]:
 				_regions[r].queue_free()
 			_regions.erase(r)
+
+
+## Builds a region's details as one part per world chunk.
+func _build_parts(res: Dictionary) -> Node3D:
+	var region := Node3D.new()
+	add_child(region)
+	var parts := {}
+	var put := func(key: String, p: Vector3, v: Variant) -> void:
+		var c := ChunkManager.chunk_of(p)
+		if not parts.has(c):
+			parts[c] = {}
+		var d: Dictionary = parts[c]
+		if key == "sodden" or key == "thin":
+			d[key] = v
+		else:
+			if not d.has(key):
+				d[key] = []
+			(d[key] as Array).append(v)
+	for it in res.get("items", []):
+		put.call("items", (it[0] as Transform3D).origin, it)
+	for e in res.get("props", []):
+		put.call("props", e[0], e)
+	for f in res.get("fakes", []):
+		put.call("fakes", f[1], f)
+	for sg in res.get("signs", []):
+		put.call("signs", sg[0], sg)
+	var sp: Vector3 = res.get("sodden", Vector3.INF)
+	if sp != Vector3.INF:
+		put.call("sodden", sp, sp)
+	var th: Array = res.get("thin", [])
+	if not th.is_empty():
+		put.call("thin", th[0], th)
+	for c in parts:
+		var part := _build(parts[c])
+		part.reparent(region, false)
+		part.visible = false
+		_parts.append([c, part])
+	return region
+
+
+func _show_parts() -> void:
+	for i in range(_parts.size() - 1, -1, -1):
+		var e: Array = _parts[i]
+		if not is_instance_valid(e[1]):
+			_parts.remove_at(i)
+			continue
+		(e[1] as Node3D).visible = chunks == null or chunks.is_area_ready(Vector3((e[0] as Vector2i).x + 0.5, 0, (e[0] as Vector2i).y + 0.5) * WorldGen.CHUNK_SIZE, 0)
 
 
 # --------------------------------------------------------------- placing ---
@@ -376,7 +430,7 @@ func _piece(root: Node3D, face: Vector3, basis: Basis, local: Vector3, size: Vec
 	mi.material_override = _props_material()
 	mi.transform = Transform3D(basis, face + basis * local)
 	root.add_child(mi)
-	mi.set_instance_shader_parameter("tint_light", Color(col.r, col.g, col.b, 1.0))
+	UniqueParams.set_param(mi, &"tint_light", Color(col.r, col.g, col.b, 1.0))
 
 
 ## An exit sign over a doorway (a lit box, the word not quite right), or a
@@ -506,8 +560,8 @@ func _build_car(root: Node3D, body: StaticBody3D, e: Array) -> void:
 			var mi := m as MeshInstance3D
 			for i in mi.mesh.get_surface_count():
 				mi.set_surface_override_material(i, _car_material(mi.mesh.surface_get_material(i)))
-			mi.set_instance_shader_parameter("light", light)
-			mi.set_instance_shader_parameter("light_dir", ldir)
+			UniqueParams.set_param(mi, &"light", light)
+			UniqueParams.set_param(mi, &"light_dir", ldir)
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_car_shadow(root, xf, ldir)
 	var cs := CollisionShape3D.new()
@@ -532,7 +586,7 @@ static func _car_shadow(root: Node3D, xf: Transform3D, ldir: Vector3) -> void:
 	mi.transform = xf.translated_local(Vector3.UP * 0.012)
 	# Leans away from the lights, in the plane's own axes.
 	var l := xf.basis.inverse() * ldir
-	mi.set_instance_shader_parameter("lean", -Vector2(l.x, l.z))
+	UniqueParams.set_param(mi, &"lean", -Vector2(l.x, l.z))
 	root.add_child(mi)
 
 

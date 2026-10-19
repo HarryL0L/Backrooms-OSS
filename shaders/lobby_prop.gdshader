@@ -7,8 +7,8 @@ render_mode unshaded;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
 
-instance uniform vec4 tint_light = vec4(0.0);   // single props: colour x light (a > 0: use it)
-instance uniform float cloth = 0.0;             // dust sheets: softer folds, darker underneath
+uniform vec4 tint_light = vec4(0.0);   // single props: colour x light (a > 0: use it)
+uniform float cloth = 0.0;             // dust sheets: softer folds, darker underneath
 
 varying vec3 v_col;
 varying vec3 v_wpos;

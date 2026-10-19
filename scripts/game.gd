@@ -160,6 +160,7 @@ func _ready() -> void:
 	details = LobbyDetails.new()
 	details.process_mode = Node.PROCESS_MODE_PAUSABLE
 	details.target = player
+	details.chunks = chunks
 	details.floor_gave_way.connect(_on_floor_gave_way)
 	details.noclipped.connect(_on_noclipped)
 	stairs = Stairwells.new()

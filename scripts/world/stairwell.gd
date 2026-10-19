@@ -54,6 +54,7 @@ var _door_open := 0.0
 var _door_block: CollisionShape3D
 var _labels: Array[Label3D] = []
 var _rng := RandomNumberGenerator.new()
+var _own := {}                    # shared material -> this stairwell's copy
 
 
 func setup(p_block: Vector2i) -> void:
@@ -66,11 +67,10 @@ func _ready() -> void:
 		_build_shared()
 	var mi := MeshInstance3D.new()
 	mi.mesh = _mesh
-	mi.material_override = _mat
+	mi.material_override = _mine(_mat)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 	add_child(mi)
-	mi.set_instance_shader_parameter("origin", position)
 	var body := StaticBody3D.new()
 	for s in _shapes:
 		var cs := CollisionShape3D.new()
@@ -91,7 +91,7 @@ func _ready() -> void:
 		d.position = Vector3(ChunkBuilder.T * 0.5, st * H, DOOR_Z0)
 		add_child(d)
 		for m in d.find_children("*", "MeshInstance3D", true, false):
-			(m as MeshInstance3D).set_instance_shader_parameter("origin", position)
+			(m as MeshInstance3D).material_override = _mine((m as MeshInstance3D).material_override)
 		if st == 0:
 			_door = d
 		# The floor number, stencilled beside the door.
@@ -177,7 +177,18 @@ func _ready() -> void:
 		fit.add_child(conduit)
 		parts.append(conduit)
 		for m in parts:
-			(m as MeshInstance3D).set_instance_shader_parameter("origin", position)
+			(m as MeshInstance3D).material_override = _mine((m as MeshInstance3D).material_override)
+
+
+## This stairwell's own copy of a shared shaft material, knowing where the
+## stairwell stands (a material uniform, not an instance uniform: some old
+## phone GPU drivers drop those; see UniqueParams).
+func _mine(m: Material) -> Material:
+	if not _own.has(m):
+		var d: ShaderMaterial = m.duplicate()
+		d.set_shader_parameter("origin", position)
+		_own[m] = d
+	return _own[m]
 
 
 static var _fit_mat: ShaderMaterial
@@ -335,11 +346,15 @@ static func _build_shared() -> void:
 		_box(st, Vector3(0.0, y0 + DOOR_H, DOOR_Z0), Vector3(W0, y0 + H - 0.3, DOOR_Z1), C_WALL, true)
 		# A steel frame round the doorway, through the wall's whole depth (it
 		# covers the seam with the world's wall), and a threshold plate.
-		var fx0 := -ChunkBuilder.T - 0.012
-		var fx1 := W0 + 0.012
-		_box(st, Vector3(fx0, y0, DOOR_Z0 - 0.06), Vector3(fx1, y0 + DOOR_H + 0.06, DOOR_Z0), C_FRAME, false)
-		_box(st, Vector3(fx0, y0, DOOR_Z1), Vector3(fx1, y0 + DOOR_H + 0.06, DOOR_Z1 + 0.06), C_FRAME, false)
-		_box(st, Vector3(fx0, y0 + DOOR_H, DOOR_Z0), Vector3(fx1, y0 + DOOR_H + 0.06, DOOR_Z1), C_FRAME, false)
+		# Its inner faces stand 1.5 cm proud of the wall's own reveal, and its
+		# outer faces 1.5 cm off both wall faces, so no two surfaces share a
+		# plane (that flickers on phones' depth buffers).
+		var fx0 := -ChunkBuilder.T - 0.015
+		var fx1 := W0 + 0.015
+		var inset := 0.015
+		_box(st, Vector3(fx0, y0, DOOR_Z0 - 0.07), Vector3(fx1, y0 + DOOR_H + 0.07, DOOR_Z0 + inset), C_FRAME, false)
+		_box(st, Vector3(fx0, y0, DOOR_Z1 - inset), Vector3(fx1, y0 + DOOR_H + 0.07, DOOR_Z1 + 0.07), C_FRAME, false)
+		_box(st, Vector3(fx0, y0 + DOOR_H - inset, DOOR_Z0), Vector3(fx1, y0 + DOOR_H + 0.07, DOOR_Z1), C_FRAME, false)
 		_box(st, Vector3(fx0, y0 - 0.05, DOOR_Z0), Vector3(fx1, y0 + 0.008, DOOR_Z1), C_FRAME, false)
 	# The wall between the flights, full height.
 	_box(st, Vector3(LAND, bottom, SPLIT - 0.07), Vector3(MID, top, SPLIT + 0.07), C_WALL, true)

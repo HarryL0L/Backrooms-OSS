@@ -136,4 +136,4 @@ func head_position() -> Vector3:
 
 func set_env_light(c: Color) -> void:
 	for m in _meshes:
-		m.set_instance_shader_parameter("env_light", Vector3(c.r, c.g, c.b))
+		UniqueParams.set_param(m, &"env_light", Vector3(c.r, c.g, c.b))

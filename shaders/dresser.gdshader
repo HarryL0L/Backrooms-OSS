@@ -13,7 +13,7 @@ uniform bool use_textures = true;
 uniform vec3 albedo : source_color = vec3(0.74, 0.68, 0.55);
 uniform float roughness = 0.4;
 uniform float glow = 0.0;              // emissive parts (eye glints)
-instance uniform vec3 env_light = vec3(0.3);
+uniform vec3 env_light = vec3(0.3);
 
 varying vec3 v_wpos;
 

@@ -1398,7 +1398,9 @@ func _emit_wall(axis: int, plane: float, s0: float, e: int, ba: int, bb: int, fa
 		if _detail and m == MAT_WALLPAPER:
 			_skirting(axis, sd[1], sd[0], a0 - T, o0 - 0.07, f, c)
 			_skirting(axis, sd[1], sd[0], o1 + 0.07, a1 + T, f, c)
-			if e != WorldGen.E_PASS:     # archways are plain wallpapered openings
+			# Archways are plain wallpapered openings; a stairwell's door has
+			# its own steel frame.
+			if e != WorldGen.E_PASS and not _stair_door(axis, plane, s0):
 				_casing(axis, sd[1], sd[0], o0, o1, yb, yt, f, c)
 		_vface(m, axis, sd[1], sd[0], o0, o1, yt, c, f, c)
 		_vface(m, axis, sd[1], sd[0], o0, o1, f, yb, f, c)
@@ -1605,6 +1607,15 @@ func _trim_on_wall(axis: int, face: float, sgn: float, a0: float, a1: float, y0:
 
 func _skirting(axis: int, face: float, sgn: float, a0: float, a1: float, f: float, c: float) -> void:
 	_trim_on_wall(axis, face, sgn, a0, a1, f, f + 0.1, 0.014, f, c)
+
+
+## Whether the wall segment at (plane, s0) is a stairwell's doorway.
+func _stair_door(axis: int, plane: float, s0: float) -> bool:
+	var line := roundi(plane / CELL)
+	var along := floori((s0 + CELL * 0.5) / CELL)
+	var b := Vector2i(line, along) if axis == 0 else Vector2i(along, line)
+	var a := b - (Vector2i(1, 0) if axis == 0 else Vector2i(0, 1))
+	return gen.stair_block_at(a.x, a.y).x != WorldGen.NO_STAIRS or gen.stair_block_at(b.x, b.y).x != WorldGen.NO_STAIRS
 
 
 ## Door casing: a flat frame round the opening on this side of the wall.

@@ -1,5 +1,5 @@
 // Poly Haven's covered car (assets/garage) in the Car Park. Self-lit like the
-// rest of the Backrooms: the light where it stands (instance uniform), shaded
+// rest of the Backrooms: the light where it stands (per car), shaded
 // by which way the cloth faces and where the lights are, with the hem in
 // shadow (car_light.gdshaderinc), the cover's own normal map for its folds,
 // plus the flashlight.
@@ -12,7 +12,7 @@ render_mode unshaded;
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap;
 uniform float has_normal = 1.0;
-instance uniform float light = 0.5;
+uniform float light = 0.5;
 
 varying vec3 v_wpos;
 

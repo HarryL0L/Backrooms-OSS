@@ -152,7 +152,7 @@ func update(delta: float, me: Player, others: Array, light: float) -> void:
 	var lv := clampf(light, 0.3, 1.1)
 	_body_mat.albedo_color = Color(0.3, 0.31, 0.28) * lv
 	for mi in _hand:
-		mi.set_instance_shader_parameter("env_light", Color(1.0, 0.97, 0.9) * lv * 0.9)
+		UniqueParams.set_param(mi, &"env_light", Color(1.0, 0.97, 0.9) * lv * 0.9)
 	var inv := me.global_basis.inverse()
 	var blips: Array[Vector4] = []
 	for i in 4:

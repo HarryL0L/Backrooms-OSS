@@ -1,15 +1,15 @@
 // Shared by garage_suv (opaque) and garage_suv_glass: how the parked SUV is
 // lit. Like everything in the Backrooms it is self-lit: the light where it
-// stands (instance uniform), shading by which way a surface faces, and for
+// stands (per car), shading by which way a surface faces, and for
 // paint, chrome and glass a reflection of the car park's own tube lights
 // on the ceiling above. Cabin light and lamps are switched per car.
 
-instance uniform float light = 0.5;
-instance uniform float lamps = 0.0;      // head and tail lights
-instance uniform float cabin = 0.0;      // the dome light
-instance uniform vec4 paint = vec4(0.0); // rgb, a = 1 to repaint the body
+uniform float light = 0.5;
+uniform float lamps = 0.0;      // head and tail lights
+uniform float cabin = 0.0;      // the dome light
+uniform vec4 paint = vec4(0.0); // rgb, a = 1 to repaint the body
 // For a door: where its hinge sits in the car (the mesh is hinge-relative).
-instance uniform vec3 part_offset = vec3(0.0);
+uniform vec3 part_offset = vec3(0.0);
 
 const vec3 CABIN_LAMP = vec3(-0.25, 1.52, 0.0);
 const float GARAGE_CEIL = 2.6;

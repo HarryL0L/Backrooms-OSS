@@ -9,8 +9,8 @@ uniform vec2 size = vec2(3.6, 6.4);       // plane size (x, z)
 uniform vec2 body = vec2(0.9, 2.2);       // half extents of the car
 uniform vec2 wheels = vec2(0.78, 1.32);   // tyre contact points (half track, half base)
 // Light-facing side: the shadow leans away from the lights (plane space).
-instance uniform vec2 lean = vec2(0.0);
-instance uniform float strength = 1.0;
+uniform vec2 lean = vec2(0.0);
+uniform float strength = 1.0;
 
 float box(vec2 p, vec2 b, float r) {
 	vec2 d = abs(p) - b + r;

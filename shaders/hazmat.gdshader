@@ -13,7 +13,7 @@ uniform vec3 albedo : source_color = vec3(0.86, 0.68, 0.1);
 uniform float roughness = 0.45;
 uniform float specular_amt = 0.5;
 uniform float wrinkles = 0.0;          // 0 = smooth rubber
-instance uniform vec3 env_light = vec3(0.0);
+uniform vec3 env_light = vec3(0.0);
 
 varying vec3 v_wpos;
 varying vec3 v_wnormal;

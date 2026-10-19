@@ -3,7 +3,7 @@
 // side the nearest tubes are on (light_dir, from WorldGen.light_dir_near,
 // longer = more one-sided), and occlusion low down and underneath, where
 // the floor and the body hide each other.
-instance uniform vec3 light_dir = vec3(0.0, 0.3, 0.0);
+uniform vec3 light_dir = vec3(0.0, 0.3, 0.0);
 
 // h: height above the floor (metres).
 float car_shade(vec3 wn, float h) {
