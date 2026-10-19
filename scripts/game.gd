@@ -821,7 +821,7 @@ func _update_use() -> void:
 		var node := n as Node3D
 		if node.global_position.distance_squared_to(o) > 36.0:
 			continue
-		for t in node.use_targets():
+		for t in node.use_targets(player):
 			var d: Vector3 = t[1] - o
 			var along := d.dot(f)
 			if along < 0.15 or along > 2.4:
@@ -845,7 +845,7 @@ func _update_use() -> void:
 
 func _use() -> void:
 	if not _use_target.is_empty() and is_instance_valid(_use_target[0]):
-		_use_target[0].use(_use_target[1])
+		_use_target[0].use(_use_target[1], player)
 		_update_use()
 
 
@@ -1310,7 +1310,7 @@ func _write_save() -> void:
 		return                     # mid-flight; the last save off the stairs stands
 	cf.set_value("save", "seed", gen.seed_value)
 	cf.set_value("save", "floor", _floor)
-	cf.set_value("save", "pos", player.global_position)
+	cf.set_value("save", "pos", player.seat_exit if player.seated else player.global_position)
 	cf.set_value("save", "yaw", player.yaw)
 	cf.set_value("save", "pitch", player.pitch)
 	cf.set_value("save", "flashlight", player.flashlight_on)

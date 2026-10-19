@@ -6,6 +6,8 @@ extends Node3D
 ## it: turning it lights the dashboard, the headlights and the tail lights.
 ## The damaged ones have a flat battery.
 ##
+## You can get in the driver's seat once its door is open (and back out).
+##
 ## The game asks `use_targets()` which parts you could be looking at and
 ## calls `use(id)` when you press Use.
 
@@ -15,6 +17,12 @@ const DOORS := ["DoorFL", "DoorFR", "DoorRL", "DoorRR"]
 const KEY_POS := Vector3(-0.72, 1.02, 0.36)
 const DASH_POS := Vector3(-0.66, 1.1, 0.37)
 const CABIN_POS := Vector3(-0.25, 1.5, 0.0)
+## Getting in: the eye outside the driver's door, ducking through the
+## opening, then in the seat; standing spot when you get out.
+const DOOR_EYE := Vector3(-0.3, 1.58, 1.5)
+const DUCK_EYE := Vector3(-0.2, 1.18, 0.9)
+const SEAT_EYE := Vector3(0.0, 1.3, 0.37)
+const EXIT_FEET := Vector3(-0.3, 0.0, 1.75)
 
 ## Material name in the GLB -> [kind, gloss, glass] (see garage_suv.gdshader).
 const KINDS := {
@@ -36,6 +44,7 @@ var _dash: MeshInstance3D
 var _beams: MeshInstance3D
 var _audio: AudioStreamPlayer3D
 var _flicker := 0.0
+var _driver: Player       # sitting in it
 
 static var _scenes := {}
 static var _mats := {}
@@ -107,8 +116,15 @@ func _ready() -> void:
 
 
 ## What you can do from here: [id, world position, label].
-func use_targets() -> Array:
+func use_targets(p: Player) -> Array:
 	var out := []
+	if _driver != null:
+		# From the seat: the key, the dome light, and the way out.
+		if p == _driver:
+			out.append(["key", global_transform * KEY_POS, "Switch off" if _ignition else "Turn the key"])
+			out.append(["cabin", global_transform * CABIN_POS, "Dome light off" if _cabin else "Dome light on"])
+			out.append(["getout", global_transform * Vector3(-0.15, 1.15, 0.95), "Get out"])
+		return out
 	var front_open := false
 	var any_open := false
 	for n in _doors:
@@ -122,10 +138,12 @@ func use_targets() -> Array:
 		out.append(["cabin", global_transform * CABIN_POS, "Dome light off" if _cabin else "Dome light on"])
 	if front_open:
 		out.append(["key", global_transform * KEY_POS, "Switch off" if _ignition else "Turn the key"])
+	if _doors.has("DoorFL") and _doors["DoorFL"][1]:
+		out.append(["getin", global_transform * Vector3(-0.1, 0.95, 0.55), "Get in"])
 	return out
 
 
-func use(id: String) -> void:
+func use(id: String, p: Player) -> void:
 	match id:
 		"cabin":
 			_cabin = not _cabin
@@ -141,12 +159,48 @@ func use(id: String) -> void:
 				set_process(true)
 			else:
 				_set_ignition(true)
+		"getin":
+			_get_in(p)
+		"getout":
+			_get_out(p)
 		_:
 			if _doors.has(id):
 				var e: Array = _doors[id]
 				e[1] = not e[1]
 				_play("car_latch" if e[1] else "car_shut", 0.0)
 				set_process(true)
+
+
+## Duck in through the driver's door and settle in the seat, facing ahead.
+func _get_in(p: Player) -> void:
+	_driver = p
+	p.seated = true
+	p.seat_exit = global_transform * EXIT_FEET
+	var eye := p.camera.global_position
+	var path := PackedVector3Array([eye, global_transform * DOOR_EYE, global_transform * DUCK_EYE, global_transform * SEAT_EYE])
+	if eye.distance_to(path[1]) < 0.3:
+		path.remove_at(1)
+	var fwd := global_basis * Vector3(-1, 0, 0)
+	p.ride(path, atan2(-fwd.x, -fwd.z), 1.9, func() -> void: pass)
+
+
+func _get_out(p: Player) -> void:
+	var e: Array = _doors["DoorFL"]
+	if not e[1]:
+		use("DoorFL", p)
+	var out := global_transform * EXIT_FEET + Vector3.UP * Player.EYE
+	var side := global_basis * Vector3(0, 0, 1)
+	p.ride(PackedVector3Array([p.camera.global_position, global_transform * DUCK_EYE, out]),
+			atan2(-side.x, -side.z), 1.5, func() -> void:
+				p.stand_up()
+				_driver = null)
+
+
+func _exit_tree() -> void:
+	# Unloaded with you in it (a new game, a reload): back on your feet.
+	if _driver != null and is_instance_valid(_driver):
+		_driver.stand_up()
+		_driver = null
 
 
 func _set_ignition(on: bool) -> void:

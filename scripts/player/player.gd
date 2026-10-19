@@ -59,6 +59,15 @@ var _climb_to := Vector3.ZERO
 var _roll := 0.0
 var _idle_t := 0.0
 var _safe_pos := Vector3.ZERO
+## Sitting in a car (ParkedCar): no walking, only looking around.
+var seated := false
+## Where you'll stand again when you get out (saved instead of the seat).
+var seat_exit := Vector3.ZERO
+var _ride := PackedVector3Array()   # eye positions along the way in or out
+var _ride_t := -1.0
+var _ride_time := 1.0
+var _ride_yaw := Vector2.ZERO        # from, to
+var _ride_done := Callable()
 ## True while in the outdoor Field level (grass, no pools, no Backrooms rules).
 var field_mode := false
 ## In the Dead Mall (tiled floors, far below the Backrooms).
@@ -127,6 +136,10 @@ func _apply_settings() -> void:
 
 
 func teleport(p: Vector3, p_yaw: float, p_pitch := 0.0) -> void:
+	if seated or _ride_t >= 0.0:
+		_ride_t = -1.0
+		_ride_done = Callable()
+		stand_up()
 	global_position = p
 	_safe_pos = p
 	velocity = Vector3.ZERO
@@ -256,6 +269,16 @@ func _physics_process(delta: float) -> void:
 	if _climb_t >= 0.0:
 		_process_climb(delta)
 		return
+	if _ride_t >= 0.0:
+		_process_ride(delta)
+		return
+	if seated:
+		if controls_enabled:
+			_gamepad_look(delta)
+		velocity = Vector3.ZERO
+		wish_dir = Vector3.ZERO
+		_update_flash_rig(delta)
+		return
 	var input := Vector2.ZERO
 	if controls_enabled:
 		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back", 0.2)
@@ -369,6 +392,50 @@ func _process_climb(delta: float) -> void:
 		_climb_t = -1.0
 		footstep.emit(surface_at(), 0.6)
 	_update_flash_rig(delta)
+
+
+## Moves the eye along `eyes` (world positions, the first is where it is
+## now) over `time` seconds, turning to `to_yaw`, with no collision: getting
+## into or out of a car. Calls `done` at the end.
+func ride(eyes: PackedVector3Array, to_yaw: float, time: float, done: Callable) -> void:
+	_ride = eyes
+	_ride_t = 0.0
+	_ride_time = time
+	_ride_yaw = Vector2(yaw, to_yaw)
+	_ride_done = done
+	velocity = Vector3.ZERO
+	crouching = false
+	_col.disabled = true
+
+
+func _process_ride(delta: float) -> void:
+	_ride_t = minf(_ride_t + delta / _ride_time, 1.0)
+	# Each stretch eases in and out: duck, slide across, settle.
+	var n := _ride.size() - 1
+	var f := _ride_t * n
+	var i := mini(floori(f), n - 1)
+	var e := _ride[i].lerp(_ride[i + 1], smoothstep(0.0, 1.0, f - i))
+	global_position = e - Vector3.UP * _eye
+	head.position.y = _eye
+	yaw = lerp_angle(_ride_yaw.x, _ride_yaw.y, smoothstep(0.15, 0.85, _ride_t))
+	pitch = lerpf(pitch, -0.08, 1.0 - exp(-4.0 * delta))
+	_apply_rotation()
+	camera.rotation.z = sin(_ride_t * PI) * 0.05
+	if _ride_t >= 1.0:
+		_ride_t = -1.0
+		camera.rotation.z = 0.0
+		var d := _ride_done
+		_ride_done = Callable()
+		if d.is_valid():
+			d.call()
+	_update_flash_rig(delta)
+
+
+## Back on your feet after a ride out of a seat.
+func stand_up() -> void:
+	seated = false
+	_col.disabled = false
+	_safe_pos = global_position
 
 
 func _update_crouch(delta: float) -> void:

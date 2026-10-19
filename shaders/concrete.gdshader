@@ -7,7 +7,8 @@ uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotro
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform sampler2D noise_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 base_color : source_color = vec3(0.47, 0.47, 0.45);
-// 0 = wall (formwork panels), 1 = floor (joints, puddles), 2 = ceiling
+// 0 = wall (formwork panels), 1 = floor (joints, puddles), 2 = ceiling,
+// 3 grime, 4 pavers, 5 car park floor, 6 car park column, 7 painted block wall
 uniform int kind = 0;
 uniform float ceiling_y = 3.6;
 
@@ -77,11 +78,11 @@ void fragment() {
 		vec2 j = fract(uv / 4.8);
 		float joint = min(min(j.x, 1.0 - j.x), min(j.y, 1.0 - j.y)) * 4.8;
 		col *= mix(0.55, 1.0, smoothstep(0.004, 0.01, joint));
-		// Painted guide line.
-		float stripe = abs(fract(uv.x / 7.2) - 0.5) * 7.2;
-		col = mix(col, vec3(0.62, 0.53, 0.16) * (0.7 + 0.3 * n1), step(stripe, 0.06) * step(0.35, n2) * 0.8);
-		float puddle = smoothstep(0.6, 0.66, texture(noise_blot, uv * 0.07 + 0.2).r);
-		col = mix(col, col * 0.45, puddle);
+		// A damp warehouse slab: dark seepage and standing water.
+		float damp = smoothstep(0.42, 0.62, texture(noise_blot, uv * 0.07 + 0.2).r);
+		col *= mix(1.0, 0.72, damp);
+		float puddle = smoothstep(0.55, 0.6, texture(noise_blot, uv * 0.07 + 0.2).r);
+		col = mix(col, col * 0.4, puddle);
 		rough = mix(0.8, 0.04, puddle);
 		float fres = 0.05 + 0.6 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
 		extra = ceiling_reflection(v_wpos, CAMERA_POSITION_WORLD, vec3(0.0, 1.0, 0.0), ceiling_y, 1, world_time) * fres * puddle;
@@ -142,6 +143,29 @@ void fragment() {
 		float stripe = step(0.5, fract((uv.x + y) * 2.2));
 		vec3 hz = mix(vec3(0.08, 0.08, 0.07), vec3(0.78, 0.62, 0.12), stripe) * (0.8 + 0.25 * n1);
 		col = mix(col, hz, band * step(0.25, n2) * 0.9);
+	} else if (kind == 7) {
+		// Concrete block wall in a running bond, painted: a faded green
+		// dado to 1.2 m, off-white above, flaking and stained with damp.
+		float y = -uv.y;
+		vec2 b = vec2(uv.x / 0.4, y / 0.2);
+		b.x += step(1.0, mod(floor(b.y), 2.0)) * 0.5;
+		vec2 bf = fract(b);
+		float joint = min(min(bf.x, 1.0 - bf.x) * 0.4, min(bf.y, 1.0 - bf.y) * 0.2);
+		float bh = hash12(floor(b));
+		vec3 paint_lo = vec3(0.30, 0.36, 0.30);
+		vec3 paint_hi = vec3(0.66, 0.64, 0.58);
+		float edge = 1.2 + (n1 - 0.5) * 0.02;
+		col = mix(paint_lo, paint_hi, step(edge, y)) * (0.9 + 0.12 * n2) * (0.95 + 0.08 * bh);
+		col = mix(col, vec3(0.16, 0.18, 0.15), step(abs(y - edge), 0.025) * 0.8);   // the painted line
+		float flake = smoothstep(0.66, 0.7, texture(noise_blot, uv * 0.9 + 4.0).r) * 0.85;
+		col = mix(col, vec3(0.42, 0.41, 0.38) * (0.85 + 0.3 * n1), flake);   // bare block
+		col *= mix(0.74, 1.0, smoothstep(0.004, 0.012, joint));
+		// Damp rising from the floor and running down from the top.
+		float wick = 1.0 - smoothstep(0.0, 0.45 + 0.35 * blot, y);
+		col = mix(col, col * vec3(0.55, 0.56, 0.48), wick * 0.7);
+		float run = texture(noise_fine, vec2(uv.x * 2.3, y * 0.06)).r;
+		col *= 1.0 - smoothstep(0.62, 0.85, run) * 0.3;
+		rough = 0.8;
 	} else {
 		col *= 0.75;
 		vec2 b = fract(uv / 2.4);

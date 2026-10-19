@@ -1,8 +1,9 @@
 // The shadow a parked car leaves on the floor: ambient occlusion under the
 // body (nothing reaches there from the ceiling), darkest at the tyres, and
-// fading out around it. Multiplies whatever the floor is lit with.
+// fading out around it. Black with alpha rather than a multiply: the Mobile
+// renderer stores colour at half scale, so multiplying by 1 still darkens.
 shader_type spatial;
-render_mode unshaded, blend_mul, depth_draw_never, cull_back, fog_disabled;
+render_mode unshaded, blend_mix, depth_draw_never, cull_back, fog_disabled;
 
 uniform vec2 size = vec2(3.6, 6.4);       // plane size (x, z)
 uniform vec2 body = vec2(0.9, 2.2);       // half extents of the car
@@ -30,5 +31,6 @@ void fragment() {
 		tyres = max(tyres, exp(-dot(d, d)));
 	}
 	float occ = clamp(under * 0.62 + tyres * 0.3, 0.0, 0.85) * strength;
-	ALBEDO = vec3(1.0 - occ);
+	ALBEDO = vec3(0.0);
+	ALPHA = occ;
 }

@@ -41,6 +41,7 @@ func _process(delta):
 				views.append(["corner", sp, 2.4, -0.25])
 				var pool := sp
 				var dark := sp
+				var conc := sp
 				for r in range(6, 400, 2):
 					for k in 16:
 						var a := k * TAU / 16.0
@@ -50,8 +51,11 @@ func _process(delta):
 							pool = Vector3((c.x + 0.5) * 2.4, 0.05, (c.y + 0.5) * 2.4)
 						if dark == sp and b == WorldGen.DARK and not g.is_solid(c.x, c.y, b) and g.biome_at(c.x + 3, c.y) == b and g.biome_at(c.x - 3, c.y) == b:
 							dark = Vector3((c.x + 0.5) * 2.4, 0.05, (c.y + 0.5) * 2.4)
+						if conc == sp and b == WorldGen.CONCRETE and not g.is_solid(c.x, c.y, b) and g.biome_at(c.x + 4, c.y) == b and g.biome_at(c.x - 4, c.y) == b and g.biome_at(c.x, c.y + 4) == b:
+							conc = Vector3((c.x + 0.5) * 2.4, 0.05, (c.y + 0.5) * 2.4)
 				views.append(["baths", pool, 0.4, 0.0])
 				views.append(["unlit", dark, 0.0, -0.05])
+				views.append(["level1", conc, 0.3, -0.05])
 				views.append(["mall", Vector3(24, MallLevel.MALL_Y + 0.05, 3.5), -PI * 0.5, 0.05])
 				var lamp_cell := g.cell_of(sp)
 				lamp_cell.y -= posmod(lamp_cell.y, 2)

@@ -42,12 +42,12 @@ const LM_TEXEL_SUN := 0.15       # ... on sun gallery floors (sharp sun patches)
 enum {
 	MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_WATER,
 	MAT_CONC_WALL, MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_LIGHT, MAT_CRATE,
-	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_TRIM, MAT_GARAGE_FLOOR, MAT_GARAGE_COLUMN, MAT_COUNT
+	MAT_CHROME, MAT_SHAFT, MAT_PIPE, MAT_BRICK, MAT_GRIME, MAT_OUTLET, MAT_HALO, MAT_TRIM, MAT_GARAGE_FLOOR, MAT_GARAGE_COLUMN, MAT_BLOCK_WALL, MAT_RACK, MAT_COUNT
 }
 ## Materials whose shaders read the per-chunk lightmap.
 const LIGHTMAPPED := [MAT_WALLPAPER, MAT_CARPET, MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_WALL,
-		MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_BRICK, MAT_GRIME, MAT_GARAGE_FLOOR, MAT_GARAGE_COLUMN]
-const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_CONC_WALL, MAT_WALLPAPER, MAT_GRIME, MAT_CONC_WALL]
+		MAT_CONC_FLOOR, MAT_CONC_CEIL, MAT_BRICK, MAT_GRIME, MAT_GARAGE_FLOOR, MAT_GARAGE_COLUMN, MAT_BLOCK_WALL]
+const WALL_MAT := [MAT_WALLPAPER, MAT_POOL_TILE, MAT_BLOCK_WALL, MAT_WALLPAPER, MAT_GRIME, MAT_CONC_WALL]
 const FLOOR_MAT := [MAT_CARPET, MAT_POOL_TILE, MAT_CONC_FLOOR, MAT_CARPET, MAT_BRICK, MAT_GARAGE_FLOOR]
 const CEIL_MAT := [MAT_CEILING_TILE, MAT_POOL_TILE, MAT_CONC_CEIL, MAT_CEILING_TILE, MAT_GRIME, MAT_CONC_CEIL]
 const PANEL_SIZE := [Vector2(1.22, 0.62), Vector2(0.62, 0.62), Vector2(1.7, 0.24), Vector2(1.22, 0.62), Vector2(0.6, 0.6), Vector2(1.3, 0.12)]
@@ -1181,7 +1181,9 @@ func _emit_cell(li: int, lj: int) -> void:
 		_emit_garage(gx, gz, xa, za, f, c)
 	if b == WorldGen.PIPES:
 		_emit_pipes(li, lj, xa, za, c)
-	if b == WorldGen.CONCRETE and not is_pool and not gen.near_spawn(gx, gz, 2) and gen.rnd(gx, gz, 61) < 0.06:
+	if b == WorldGen.CONCRETE and not is_pool and _rack_at(gx, gz):
+		_emit_rack(gx, gz, xa, za, f, c)
+	elif b == WorldGen.CONCRETE and not is_pool and not gen.near_spawn(gx, gz, 2) and gen.rnd(gx, gz, 61) < 0.08:
 		_emit_crates(li, lj, xa, za, f, c)
 
 
@@ -1254,6 +1256,49 @@ func _emit_crates(li: int, lj: int, xa: float, za: float, f: float, c: float) ->
 			y0 = f + 0.5
 		_emit_box(MAT_CRATE, Vector3(xa + ox, y0, za + oz), Vector3(xa + ox + sx, y0 + sy, za + oz + sz), f, c, true)
 		_col_box(Vector3(xa + ox, y0, za + oz), Vector3(xa + ox + sx, y0 + sy, za + oz + sz))
+
+
+## Level 1's warehouse: in places, rows of pallet racking run through it
+## (every third column of cells, the lights hang over the aisles between),
+## with a gap every fourth cell to cut across.
+func _rack_at(gx: int, gz: int) -> bool:
+	if posmod(gx, 3) != 0 or posmod(gz, 4) == 3:
+		return false
+	if gen.vnoise(gx * 0.06, gz * 0.06, 67) < 0.52:
+		return false
+	return not gen.near_spawn(gx, gz, 3) and not gen.stair_zone(gx, gz, 1) and not gen.is_solid(gx, gz, WorldGen.CONCRETE)
+
+
+## One bay of racking: orange uprights and beams at 1, 2 and 2.95 m, and on
+## each level pallets of boxes, some bays empty.
+func _emit_rack(gx: int, gz: int, xa: float, za: float, f: float, c: float) -> void:
+	var x0 := xa + 0.65
+	var x1 := xa + 1.75
+	var top := minf(f + 3.0, c - 0.3)
+	for u in [Vector2(x0, za + 0.03), Vector2(x1 - 0.08, za + 0.03), Vector2(x0, za + CELL - 0.11), Vector2(x1 - 0.08, za + CELL - 0.11)]:
+		_emit_box(MAT_RACK, Vector3(u.x, f, u.y), Vector3(u.x + 0.08, top, u.y + 0.08), f, c, true)
+	var levels := [f]
+	for y in [f + 1.0, f + 2.0, top - 0.05]:
+		if y + 0.4 > c:
+			continue
+		levels.append(y)
+		_emit_box(MAT_RACK, Vector3(x0, y - 0.11, za), Vector3(x0 + 0.06, y, za + CELL), f, c, true)
+		_emit_box(MAT_RACK, Vector3(x1 - 0.06, y - 0.11, za), Vector3(x1, y, za + CELL), f, c, true)
+	for li in levels.size():
+		var y: float = levels[li]
+		var room: float = (levels[li + 1] - 0.11 if li + 1 < levels.size() else c) - y - 0.08
+		for k in 2:
+			var r := gen.rnd(gx * 7 + k, gz * 5 + li, 68)
+			if r < 0.3:
+				continue
+			var z0 := za + 0.16 + k * 1.1
+			# The pallet, then a stack of cartons on it.
+			_emit_box(MAT_CRATE, Vector3(x0 + 0.05, y, z0), Vector3(x1 - 0.05, y + 0.13, z0 + 1.0), f, c, true)
+			var h := minf(0.35 + 0.5 * gen.rnd(gx * 7 + k, gz * 5 + li, 69), room - 0.13)
+			if h > 0.15:
+				var inset := 0.04 + 0.08 * r
+				_emit_box(MAT_CRATE, Vector3(x0 + 0.05 + inset, y + 0.13, z0 + inset), Vector3(x1 - 0.05 - inset, y + 0.13 + h, z0 + 1.0 - inset), f, c, true)
+	_col_box(Vector3(x0, f, za), Vector3(x1, top, za + CELL))
 
 
 func _emit_box(mat: int, lo: Vector3, hi: Vector3, f: float, c: float, top: bool) -> void:
