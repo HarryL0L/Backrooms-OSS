@@ -154,7 +154,9 @@ func _show_parts() -> void:
 		if not is_instance_valid(e[1]):
 			_parts.remove_at(i)
 			continue
-		(e[1] as Node3D).visible = chunks == null or chunks.is_area_ready(Vector3((e[0] as Vector2i).x + 0.5, 0, (e[0] as Vector2i).y + 0.5) * WorldGen.CHUNK_SIZE, 0)
+		# Shown with its chunk: once the rooms are built, and not while the
+		# chunk is culled as out of sight.
+		(e[1] as Node3D).visible = chunks == null or chunks.is_shown(e[0])
 
 
 # --------------------------------------------------------------- placing ---

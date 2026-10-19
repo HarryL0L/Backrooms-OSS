@@ -27,6 +27,15 @@ var _wanted: Array[Vector2i] = []
 var _initial_done := false
 var _max_tasks := 2
 var _generation := 0
+## Only draw chunks you could see (ChunkVisibility): rooms behind walls
+## aren't drawn at all.
+var culling := true
+var _vis: ChunkVisibility
+var _vis_task := -1
+var _vis_result := {}
+var _vis_t := 0.0
+var _vis_center := Vector2i(1 << 30, 0)
+var _vis_pending := {}
 
 
 func _ready() -> void:
@@ -38,6 +47,7 @@ func setup(p_gen: WorldGen, p_mats: WorldMaterials) -> void:
 	gen = p_gen
 	mats = p_mats
 	mats.set_world_seed(gen.seed_value)
+	_vis = ChunkVisibility.new(gen)
 	_initial_done = false
 	_last_center = Vector2i(1 << 30, 0)
 
@@ -46,7 +56,9 @@ func setup(p_gen: WorldGen, p_mats: WorldMaterials) -> void:
 ## (their results are dropped): no hitch while you're on the stairs.
 func swap_world(p_gen: WorldGen) -> void:
 	_generation += 1
+	_wait_vis()
 	gen = p_gen
+	_vis = ChunkVisibility.new(gen)
 	_mutex.lock()
 	_results.clear()
 	_mutex.unlock()
@@ -61,6 +73,7 @@ func swap_world(p_gen: WorldGen) -> void:
 
 func clear() -> void:
 	_generation += 1
+	_wait_vis()
 	for id in _tasks.values():
 		WorkerThreadPool.wait_for_task_completion(id)
 	_tasks.clear()
@@ -110,9 +123,60 @@ func _process(_delta: float) -> void:
 	_reap_tasks()
 	_schedule()
 	_upload(center)
+	_update_visibility(center, _delta)
 	if not _initial_done and is_area_ready(target.global_position, 1):
 		_initial_done = true
 		initial_area_ready.emit()
+
+
+# ------------------------------------------------------------- culling ---
+
+## Whether chunk c is loaded and drawn (not culled as out of sight).
+func is_shown(c: Vector2i) -> bool:
+	return _chunks.has(c) and (_chunks[c] as Node3D).visible
+
+
+func _wait_vis() -> void:
+	if _vis_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_vis_task)
+		_vis_task = -1
+	_vis_result = {}
+
+
+func _update_visibility(center: Vector2i, delta: float) -> void:
+	if _vis_task >= 0 and WorkerThreadPool.is_task_completed(_vis_task):
+		WorkerThreadPool.wait_for_task_completion(_vis_task)
+		_vis_task = -1
+		_vis_result = _vis_pending
+		_apply_visibility(center)
+	elif center != _vis_center:
+		# Moved into another chunk: its neighbours show at once.
+		_apply_visibility(center)
+	_vis_center = center
+	_vis_t -= delta
+	if _vis_task < 0 and _vis_t <= 0.0 and culling and _vis:
+		_vis_t = 0.15
+		var res := {}
+		var p := target.global_position
+		var reach := (view_radius + 1.5) * WorldGen.CHUNK_SIZE
+		var v := _vis
+		_vis_pending = res
+		_vis_task = WorkerThreadPool.add_task(func() -> void:
+			res.merge(v.visible_from(p, reach)))
+
+
+func _apply_visibility(center: Vector2i) -> void:
+	for k in _chunks:
+		(_chunks[k] as Node3D).visible = _wants_shown(k, center)
+
+
+func _wants_shown(k: Vector2i, center: Vector2i) -> bool:
+	if not culling or _vis_result.is_empty():
+		return true
+	# Right around you, always (nothing can pop in close up).
+	if absi(k.x - center.x) <= 1 and absi(k.y - center.y) <= 1:
+		return true
+	return _vis_result.has(k)
 
 
 func _refresh_wanted(center: Vector2i) -> void:
@@ -193,10 +257,12 @@ func _upload(center: Vector2i) -> void:
 			return
 		if not _chunks.has(best):
 			_chunks[best] = _make_chunk(data)
+			_chunks[best].visible = _wants_shown(best, center)
 		elif _stale.has(best):
 			_stale.erase(best)
 			_chunks[best].queue_free()
 			_chunks[best] = _make_chunk(data)
+			_chunks[best].visible = _wants_shown(best, center)
 
 
 func _make_chunk(data: Dictionary) -> Node3D:

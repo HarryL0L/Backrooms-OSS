@@ -82,6 +82,9 @@ jobs:
           mode=--export-debug
           if [ "$RELEASE_SIGNING" = "1" ]; then mode=--export-release; fi
           ~/godot/godot --headless --path . $mode "Android" build/Backrooms-OSS.apk
+          # Smaller per-CPU APKs: each phone only needs one copy of the engine.
+          ~/godot/godot --headless --path . $mode "Android 64-bit" build/Backrooms-OSS-arm64.apk
+          ~/godot/godot --headless --path . $mode "Android 32-bit" build/Backrooms-OSS-armv7.apk
           ~/godot/godot --headless --path . --export-release "Linux" build/linux/Backrooms-OSS.x86_64
           ~/godot/godot --headless --path . --export-release "Windows" build/windows/Backrooms-OSS.exe
           test -s build/Backrooms-OSS.apk
@@ -103,7 +106,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Backrooms-OSS-android
-          path: build/Backrooms-OSS.apk
+          path: |
+            build/Backrooms-OSS.apk
+            build/Backrooms-OSS-arm64.apk
+            build/Backrooms-OSS-armv7.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -118,5 +124,7 @@ jobs:
         with:
           files: |
             build/Backrooms-OSS.apk
+            build/Backrooms-OSS-arm64.apk
+            build/Backrooms-OSS-armv7.apk
             build/Backrooms-OSS-linux.zip
             build/Backrooms-OSS-windows.zip
