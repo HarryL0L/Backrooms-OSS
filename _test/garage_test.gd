@@ -68,7 +68,7 @@ func _process(delta):
 					views.append(["column", col + Vector3(1.0, 0, -2.0), col + Vector3(0, 1.7, -0.3)])
 				if not car.is_empty():
 					var cp: Vector3 = car[0]
-					views.append(["car", cp + Vector3(0.6, 0, -5.4), cp + Vector3(0, 0.7, 0)])
+					views.append(["car", cp + Vector3(2.0, 0, -5.0), cp + Vector3(0, 0.7, 0)])
 				game.hud.set_fade(0.0)
 				step = 2; t = 0
 		2:

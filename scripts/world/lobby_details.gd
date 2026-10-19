@@ -409,9 +409,8 @@ static func _garage_cell(g: WorldGen, gx: int, gz: int, rng: RandomNumberGenerat
 	var C := WorldGen.CELL
 	var light := clampf(g.light_level_near(Vector3((gx + 0.5) * C, 1.2, (gz + 0.5) * C)) * 0.22, 0.04, 0.8)
 	if posmod(gz, 4) == 0 and rng.randf() < 0.09:
-		var tarp := rng.randf() < 0.25
-		props.append([Vector3((gx + 0.5) * C + rng.randf_range(-0.12, 0.12), 0.0, gz * C + 2.55), CAR, light,
-				rng.randf_range(-0.05, 0.05) + (PI if rng.randf() < 0.5 else 0.0), Vector3.ZERO, tarp])
+		props.append([Vector3((gx + 0.5) * C + rng.randf_range(-0.12, 0.12), 0.0, gz * C + 2.45), CAR, light,
+				rng.randf_range(-0.05, 0.05) + (PI if rng.randf() < 0.5 else 0.0), Vector3.ZERO, false])
 	if posmod(gx, 3) == 0 and posmod(gz, 4) == 0 and g.pillar_at(gx, gz, WorldGen.GARAGE) > 0.0:
 		var cx := chaos(g, gx, gz)
 		var num := posmod(gx / 3, 40) + 1
@@ -450,36 +449,49 @@ func _check_thin(delta: float) -> void:
 		noclipped.emit()
 
 
-## A car under a dust sheet (or a blue tarp): a long low hump with the
-## cabin's hump on top, the sheet hanging to the floor.
+## A car under a dust cover: Poly Haven's "Covered Car" (CC0, see
+## assets/garage/LICENSE.md), re-lit with our own shader.
 func _build_car(root: Node3D, body: StaticBody3D, e: Array) -> void:
 	var light: float = minf(float(e[2]) * 1.6, 1.0)
-	var col := Color(0.25, 0.33, 0.47) if e[5] else Color(0.58, 0.57, 0.53)
-	var b := Basis(Vector3.UP, e[3])
-	var pos: Vector3 = e[0]
-	# Body (bonnet to boot, its sides running down into the floor like a
-	# sheet hanging to the ground), cabin on top.
-	for part in [[Vector3(0, 0.36, 0.05), Vector3(0.96, 0.86, 2.3), 1.0],
-			[Vector3(0, 1.0, -0.3), Vector3(0.78, 0.48, 1.25), 1.0]]:
-		var mi := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 1.0
-		sm.height = 2.0
-		sm.radial_segments = 24
-		sm.rings = 12
-		mi.mesh = sm
-		mi.material_override = _props_material()
-		mi.transform = Transform3D(b * Basis.from_scale(part[1]), pos + b * part[0])
-		root.add_child(mi)
-		var k: float = part[2] * light
-		mi.set_instance_shader_parameter("tint_light", Color(col.r * k, col.g * k, col.b * k, 1.0))
-		mi.set_instance_shader_parameter("cloth", 1.0)
+	var car: Node3D = _car_scene().instantiate()
+	car.transform = Transform3D(Basis(Vector3.UP, e[3]), e[0])
+	root.add_child(car)
+	for m in car.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			mi.set_surface_override_material(i, _car_material(mi.mesh.surface_get_material(i)))
+		mi.set_instance_shader_parameter("light", light)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var cs := CollisionShape3D.new()
 	var bs := BoxShape3D.new()
-	bs.size = Vector3(1.86, 1.4, 4.4)
+	bs.size = Vector3(1.8, 1.4, 4.4)
 	cs.shape = bs
-	cs.transform = Transform3D(b, pos + Vector3.UP * 0.7)
+	cs.transform = Transform3D(Basis(Vector3.UP, e[3]), e[0] + Vector3.UP * 0.7)
 	body.add_child(cs)
+
+
+static var _car_packed: PackedScene
+static var _car_mats := {}
+
+
+static func _car_scene() -> PackedScene:
+	if _car_packed == null:
+		_car_packed = load("res://assets/garage/covered_car.glb")
+	return _car_packed
+
+
+static func _car_material(src: Material) -> ShaderMaterial:
+	if _car_mats.has(src):
+		return _car_mats[src]
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/garage_car.gdshader")
+	var sm := src as BaseMaterial3D
+	if sm:
+		m.set_shader_parameter("albedo_tex", sm.albedo_texture)
+		m.set_shader_parameter("normal_tex", sm.normal_texture)
+		m.set_shader_parameter("has_normal", 1.0 if sm.normal_texture else 0.0)
+	_car_mats[src] = m
+	return m
 
 
 func _build_props(root: Node3D, props: Array) -> void:
