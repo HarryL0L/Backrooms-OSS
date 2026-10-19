@@ -42,12 +42,7 @@ EDIT = [
     ("shot", "field_exit", 0.0, 0.5),
     ("card", ["Not every door", "leads somewhere better."], 2.8),
     ("shot", "mall", 0.5, 0.0),
-    ("shot", "court", 0.0, 0.3),
-    ("card", ["Don't look away."], 2.0),
-    ("shot", "dresser_still", 0.3, 0.0),
-    ("shot", "dresser_wake", 0.0, 0.0),
-    ("shot", "dresser_run", 0.0, 0.0),
-    ("shot", "dresser_lunge", 0.0, 0.0),
+    ("shot", "court", 0.0, 0.6),
     ("black", 1.4),
     ("title", 4.5),
     ("card", ["Free and open source.", "Android  ·  LAN co-op  ·  Seven levels"], 3.5),
@@ -204,17 +199,9 @@ def main():
     add(S("wind"), st("field"), du("field") + du("field_exit"), 0.9, 0.6, 0.8, loop=True)
     # The mall: the music, a little slow and sour.
     m0 = st("mall")
-    wake = st("dresser_wake")
-    add(MALL, m0, wake - m0, 0.85, 0.8, 0.05, extra="asetrate=44100*0.92,aresample=44100,lowpass=f=5000")
-    add(S("hum"), m0, wake - m0, 0.25, 1.0, 0.1, loop=True)
-    add(S("crack"), wake, 2.0, 1.6)
-    # Stop-motion footsteps: one per pose change.
-    run0 = st("dresser_run")
-    k = 0.0
-    while k < du("dresser_run") - 0.1:
-        add(S("clack"), run0 + k, 0.5, 1.2 + k * 0.4)
-        k += 0.24
-    add(S("shriek"), st("dresser_lunge"), 2.5, 1.8, 0.0, 1.2)
+    m1 = st("court") + du("court")
+    add(MALL, m0, m1 - m0, 0.85, 0.8, 1.0, extra="asetrate=44100*0.92,aresample=44100,lowpass=f=5000")
+    add(S("hum"), m0, m1 - m0, 0.25, 1.0, 1.0, loop=True)
     # The title.
     tt = times["title"][0]
     add(S("drone"), tt - 0.5, total - tt + 0.5, 0.6, 1.0, 2.0, loop=True)

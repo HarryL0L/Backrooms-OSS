@@ -5,15 +5,12 @@ extends Node3D
 ## Entrance, three concourse sections (an arcade, a leaking roof), the
 ## Fountain Court, a cafe row, the food court, the first three again, and the
 ## department store at the far end: about 240 m. "Fountain Court" drifts from
-## the ceiling speakers. Mannequins stand in the shop windows and on the
-## department store's stages. One of them is the Window Dresser.
+## the ceiling speakers. Nobody else is here.
 ##
 ## It lives far below the Backrooms (MALL_Y), like the Field. Sections run
 ## along +X from the entrance; the concourse is 12 m wide (z -6..6).
 
 signal exit_entered
-## The Window Dresser got you.
-signal caught
 
 const MALL_Y := -4000.0
 const NAME := "The Dead Mall"
@@ -43,26 +40,15 @@ var environment: Environment
 var length := 0.0
 ## Named places from the Blender kit ("spot_*" empties), world transforms.
 var spots := {}
-var mannequin_spots: Array[Transform3D] = []
-var decoys: Array[WindowDresser] = []
-var ai: DresserAI
-## True while the Window Dresser hunts (lights stutter, music slurs). There
-## used to be a teleporting loop here too; you saw the jump, so it's gone:
-## the mall is long enough to run in.
-var loop_on := false
 var _base_exposure := 1.45
-var _flicker_t := 0.0
-var _shuffle_t := 20.0
 var _door: OddDoor
 var _music: AudioStreamPlayer
 var _hum: AudioStreamPlayer
-var _heart: AudioStreamPlayer
-var _heart_t := 0.0
 var _rng := RandomNumberGenerator.new()
 static var _mats := {}
 
 
-## Weak phones (Potato/Low): fewer mannequins, far sections hidden in thicker haze.
+## Weak phones (Potato/Low): far sections hidden in thicker haze.
 var low := false
 
 
@@ -82,8 +68,6 @@ func build(seed_value: int) -> void:
 	length = x
 	_collect_spots()
 	environment = _make_environment()
-	_build_navigation()
-	_place_mannequins()
 	_place_exit()
 	_music = AudioStreamPlayer.new()
 	var st: AudioStream = load(MUSIC).duplicate()
@@ -100,10 +84,6 @@ func build(seed_value: int) -> void:
 	_hum.bus = "World"
 	add_child(_hum)
 	_hum.play()
-	_heart = AudioStreamPlayer.new()
-	_heart.stream = AudioSynth.cached("heartbeat")
-	_heart.bus = "World"
-	add_child(_heart)
 
 
 ## Swaps each Blender material for the mall shader with this section's
@@ -159,16 +139,13 @@ func _collect_spots() -> void:
 	for n in find_children("spot_*", "Node3D", true, false):
 		var t := (n as Node3D).global_transform
 		var key := String(n.name)
-		if key.begins_with("spot_mannequin"):
-			mannequin_spots.append(t)
-		else:
-			# Several sections repeat: keep every copy as name, name#2, ...
-			var k := key
-			var i := 2
-			while spots.has(k):
-				k = "%s#%d" % [key, i]
-				i += 1
-			spots[k] = t
+		# Several sections repeat: keep every copy as name, name#2, ...
+		var k := key
+		var i := 2
+		while spots.has(k):
+			k = "%s#%d" % [key, i]
+			i += 1
+		spots[k] = t
 
 
 ## Spots whose name starts with `prefix`.
@@ -178,30 +155,6 @@ func spots_named(prefix: String) -> Array[Transform3D]:
 		if String(k).begins_with(prefix):
 			out.append(spots[k])
 	return out
-
-
-## Shop-window mannequins: still, posed like shop dummies. A few have a
-## different pose each time you come, and nobody saw them move.
-func _place_mannequins() -> void:
-	var pool := mannequin_spots.duplicate()
-	pool.shuffle()
-	var count := mini(pool.size(), 3 if low else 5)     # including the real one
-	# One of them is real.
-	if count > 0 and player and Settings.get_value("gameplay/entities"):
-		ai = DresserAI.new()
-		add_child(ai)
-		ai.setup(self, player, pool[0])
-		ai.caught.connect(func() -> void: caught.emit())
-		ai.hunt_started.connect(_on_hunt_started)
-		ai.hunt_ended.connect(_on_hunt_ended)
-	for i in range(1, count):
-		var d := WindowDresser.new()
-		add_child(d)
-		d.global_transform = pool[i]
-		d.rotate_y(_rng.randf_range(-0.25, 0.25))
-		d.set_pose(["dormant", "dormant", "stalk_a", "stalk_b"][_rng.randi() % 4])
-		d.set_env_light(Color(0.55, 0.53, 0.5))
-		decoys.append(d)
 
 
 func _place_exit() -> void:
@@ -255,70 +208,6 @@ func _make_environment() -> Environment:
 	e.adjustment_contrast = 1.05
 	e.adjustment_saturation = 0.85
 	return e
-
-
-## Walkable areas from the collision shapes, baked once on arrival (the
-## entity paths over it).
-func _build_navigation() -> void:
-	var nm := NavigationMesh.new()
-	nm.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
-	nm.cell_size = 0.25
-	nm.cell_height = 0.25
-	nm.agent_radius = 0.35
-	nm.agent_height = 1.8
-	nm.agent_max_climb = 0.42       # window display plinths are 0.3 m
-	nm.agent_max_slope = 30.0
-	nm.filter_baking_aabb = AABB(Vector3(-2, MALL_Y - 1.0, -16), Vector3(length + 4, 4.0, 32))
-	var src := NavigationMeshSourceGeometryData3D.new()
-	NavigationServer3D.parse_source_geometry_data(nm, src, self)
-	NavigationServer3D.bake_from_source_geometry_data(nm, src)
-	var region := NavigationRegion3D.new()
-	region.navigation_mesh = nm
-	add_child(region)
-
-
-func _process(delta: float) -> void:
-	if environment == null:
-		return
-	# During the hunt the lights stutter and the music slurs.
-	if loop_on:
-		_flicker_t -= delta
-		if _flicker_t <= 0.0:
-			_flicker_t = _rng.randf_range(0.05, 0.35)
-			environment.tonemap_exposure = _base_exposure * (0.35 if _rng.randf() < 0.25 else _rng.randf_range(0.7, 1.0))
-		_music.pitch_scale = move_toward(_music.pitch_scale, 0.78, delta * 0.2)
-		environment.fog_density = move_toward(environment.fog_density, 0.05, delta * 0.02)
-		# Your heartbeat, faster and louder the closer it is.
-		_heart_t -= delta
-		if _heart_t <= 0.0:
-			var d := 40.0
-			if ai and player:
-				d = ai.pos.distance_to(player.global_position)
-			var k := clampf(1.0 - d / 30.0, 0.0, 1.0)
-			_heart_t = lerpf(0.85, 0.36, k)
-			_heart.volume_db = lerpf(-14.0, -2.0, k)
-			_heart.play()
-	else:
-		environment.tonemap_exposure = move_toward(environment.tonemap_exposure, _base_exposure, delta)
-		_music.pitch_scale = move_toward(_music.pitch_scale, 1.0, delta * 0.1)
-		environment.fog_density = move_toward(environment.fog_density, 0.034 if low else 0.018, delta * 0.01)
-	# Now and then a mannequin you weren't looking at has changed its pose.
-	_shuffle_t -= delta
-	if _shuffle_t <= 0.0 and decoys.size() > 0 and player:
-		_shuffle_t = _rng.randf_range(15.0, 35.0)
-		var d: WindowDresser = decoys[_rng.randi() % decoys.size()]
-		var cam := player.camera
-		if not cam.is_position_in_frustum(d.global_position + Vector3.UP):
-			d.set_pose(["dormant", "stalk_a", "stalk_b", "stalk_c"][_rng.randi() % 4])
-			d.rotation.y = atan2(cam.global_position.x - d.global_position.x, cam.global_position.z - d.global_position.z) * _rng.randf_range(0.3, 1.0)
-
-
-func _on_hunt_started() -> void:
-	loop_on = true
-
-
-func _on_hunt_ended() -> void:
-	loop_on = false
 
 
 ## Light level at a point (for the entity and players to match the room).

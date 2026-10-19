@@ -1134,7 +1134,6 @@ func _enter_mall(pos := Vector3.INF, yaw := 0.0) -> void:
 	add_child(mall)
 	mall.build(gen.hashi(_side_seed, gen.seed_value, 977))
 	mall.exit_entered.connect(_on_mall_exit)
-	mall.caught.connect(_on_dresser_caught)
 	world_env.environment = mall.environment
 	chunks.visible = false
 	chunks.process_mode = Node.PROCESS_MODE_DISABLED
@@ -1153,7 +1152,7 @@ func _enter_mall(pos := Vector3.INF, yaw := 0.0) -> void:
 	else:
 		var t := mall.arrival()
 		player.teleport(t.origin + Vector3(0, 0.05, 0), t.basis.get_euler().y)
-	await _warm_now(MallLevel.warm_materials() + WindowDresser.warm_materials())
+	await _warm_now(MallLevel.warm_materials())
 
 
 func _leave_mall() -> void:
@@ -1179,37 +1178,6 @@ func _on_mall_exit() -> void:
 	await mall.open_exit()
 	await hud.fade_to(1.0, 0.8)
 	_leave_mall()
-	_return_somewhere_else()
-
-
-## The Window Dresser got you: its broken face in yours, a shriek, the
-## camera shaking, then darkness, and you wake somewhere else.
-func _on_dresser_caught() -> void:
-	if state != State.PLAYING or _transition or mall == null:
-		return
-	_transition = true
-	player.controls_enabled = false
-	mall.loop_on = false
-	if mall.ai:
-		mall.ai.set_physics_process(false)
-		mall.ai.lunge_at(player.camera)
-	# The lens punches in on its face and the view shakes hard, then less.
-	var fov := player.camera.fov
-	var tw := create_tween()
-	tw.tween_property(player.camera, "fov", fov - 16.0, 0.07)
-	tw.tween_property(player.camera, "fov", fov - 6.0, 0.6)
-	for i in 22:
-		var a := 1.0 - float(i) / 22.0
-		player.camera.h_offset = randf_range(-0.06, 0.06) * a
-		player.camera.v_offset = randf_range(-0.045, 0.045) * a
-		await get_tree().create_timer(0.04).timeout
-	player.camera.fov = fov
-	player.camera.h_offset = 0.0
-	player.camera.v_offset = 0.0
-	await hud.fade_to(1.0, 0.15)
-	await get_tree().create_timer(1.2).timeout
-	_leave_mall()
-	hud.show_level("Caught", "You wake up somewhere else. Your arms feel stiff.")
 	_return_somewhere_else()
 
 

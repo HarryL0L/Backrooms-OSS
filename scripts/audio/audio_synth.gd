@@ -588,7 +588,7 @@ static func distant(kind: int) -> AudioStreamWAV:
 	return to_wav(_normalize(s, 0.7))
 
 
-# -------------------------------------------------------- Window Dresser ---
+# --------------------------------------------------------------- entities ---
 
 ## A hollow fibreglass foot on tile: a hard knock and a short boxy ring.
 static func clack() -> AudioStreamWAV:

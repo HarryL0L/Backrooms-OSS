@@ -55,6 +55,6 @@ func _process(delta):
 				print("shot ", views[vi][0])
 				vi += 1
 				if vi >= views.size():
-					print("decoys ", game.mall.decoys.size(), " spots ", game.mall.spots.size(), " mannequin spots ", game.mall.mannequin_spots.size())
+					print("spots ", game.mall.spots.size())
 					get_tree().quit(); return
 				step = 2; t = 2.0
