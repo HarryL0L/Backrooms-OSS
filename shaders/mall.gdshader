@@ -15,7 +15,8 @@ uniform float roughness = 0.7;
 uniform float emit = 0.0;
 uniform float grime = 0.35;
 uniform float lm_scale = 4.0;
-uniform float floor_y = -4000.0;     // the mall's floor height (dirt collects low on walls)
+uniform float floor_y = -4000.0;     // the mall's ground floor (dirt collects low on walls)
+uniform float storey_h = 5.0;        // floor to floor, for the floors above
 
 varying vec3 v_wpos;
 varying vec3 v_wn;
@@ -71,7 +72,7 @@ void fragment() {
 	}
 	// Grime: dirt pooling low on walls, blotches everywhere.
 	float g = vnoise(pp * 0.6) * 0.6 + vnoise(pp * 2.7) * 0.4;
-	float low = abs(n.y) < 0.6 ? smoothstep(0.6, 0.0, v_wpos.y - floor_y) : 0.0;
+	float low = abs(n.y) < 0.6 ? smoothstep(0.6, 0.0, mod(v_wpos.y - floor_y + 0.05, storey_h) - 0.05) : 0.0;
 	col *= 1.0 - grime * (0.35 * smoothstep(0.45, 0.85, g) + 0.25 * low);
 	vec3 lm = texture(lightmap, UV).rgb;
 	vec3 light = lm * lm * lm_scale;

@@ -4,8 +4,11 @@ extends Node3D
 ## (tools/blender/mall_kit.py) as tileable sections with baked lighting.
 ## Entrance, three concourse sections (an arcade, a leaking roof), the
 ## Fountain Court, a cafe row, the food court, the first three again, and the
-## department store at the far end: about 240 m. "Fountain Court" drifts from
-## the ceiling speakers. Nobody else is here.
+## department store at the far end: about 240 m. Three floors: galleries
+## round an atrium that runs the whole length under a glass vault, shops on
+## every level; in the Fountain Court the escalators (still running) and a
+## glass lift (still working) go up. "Fountain Court" drifts from the
+## ceiling speakers. Nobody else is here.
 ##
 ## It lives far below the Backrooms (MALL_Y), like the Field. Sections run
 ## along +X from the entrance; the concourse is 12 m wide (z -6..6).
@@ -67,6 +70,7 @@ func build(seed_value: int) -> void:
 		x += ln
 	length = x
 	_collect_spots()
+	_build_movers()
 	environment = _make_environment()
 	_place_exit()
 	_music = AudioStreamPlayer.new()
@@ -125,6 +129,18 @@ static func _material(sec: String, mname: String, lm: Texture2D) -> Material:
 	return sm
 
 
+## The mall's look for the moving parts (escalator steps, the lift), lit
+## evenly at `light` instead of by a baked lightmap.
+static func lit_material(mname: String, light: float) -> Material:
+	var sec := "lit%.2f" % light
+	if _mats.has(sec + "/" + mname):
+		return _mats[sec + "/" + mname]
+	var img := Image.create(1, 1, false, Image.FORMAT_RGB8)
+	var v := sqrt(clampf(light / 4.0, 0.0, 1.0))
+	img.set_pixel(0, 0, Color(v, v, v))
+	return _material(sec, mname, ImageTexture.create_from_image(img))
+
+
 ## For the loading screen's shader warm-up.
 static func warm_materials() -> Array[Material]:
 	var out: Array[Material] = []
@@ -146,6 +162,22 @@ func _collect_spots() -> void:
 			k = "%s#%d" % [key, i]
 			i += 1
 		spots[k] = t
+
+
+## The escalators and the lift, where the kit left room for them.
+func _build_movers() -> void:
+	for k in spots:
+		var t: Transform3D = spots[k]
+		t.basis = t.basis.orthonormalized()
+		if String(k).begins_with("spot_esc_"):
+			var e := MallEscalator.new()
+			e.player = player
+			add_child(e)
+			e.global_transform = t
+		elif String(k).begins_with("spot_lift"):
+			var l := MallLift.new()
+			add_child(l)
+			l.global_transform = t
 
 
 ## Spots whose name starts with `prefix`.

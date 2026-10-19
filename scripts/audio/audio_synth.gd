@@ -65,6 +65,8 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return car_idle()
 		"car_dead":
 			return car_dead()
+	if fn == "ding":
+		return ding()
 	if fn.begins_with("stalk_step"):
 		return stalk_step(int(fn.trim_prefix("stalk_step")))
 	push_error("AudioSynth.cached: unknown sound " + fn)
@@ -807,6 +809,23 @@ static func stalk_step(variant: int) -> AudioStreamWAV:
 		var sc := scuff.band * 0.35 * smoothstep(0.02, 0.06, t) * exp(-maxf(t - 0.06, 0.0) * 14.0)
 		s[i] = heel * 1.1 + sole + knock.band * 1.4 + sc
 	return to_wav(_normalize(s, 0.95))
+
+
+## A lift arriving: two soft chime tones, high then lower.
+static func ding() -> AudioStreamWAV:
+	var n := int(RATE * 1.6)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		var v := 0.0
+		for e in [[0.0, 1046.5], [0.32, 830.6]]:
+			var tt: float = t - e[0]
+			if tt > 0.0:
+				var f: float = e[1]
+				v += (sin(TAU * f * tt) + 0.3 * sin(TAU * f * 2.0 * tt) * exp(-tt * 6.0)) * exp(-tt * 3.2) * smoothstep(0.0, 0.004, tt)
+		s[i] = v
+	return to_wav(_normalize(s, 0.7))
 
 
 static func heartbeat() -> AudioStreamWAV:

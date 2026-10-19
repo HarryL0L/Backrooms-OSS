@@ -69,6 +69,8 @@ var _ride_time := 1.0
 var _ride_yaw := Vector2.ZERO        # from, to
 var _ride_done := Callable()
 ## True while in the outdoor Field level (grass, no pools, no Backrooms rules).
+## Pushed along by something you stand on (an escalator), this frame.
+var carry := Vector3.ZERO
 var field_mode := false
 ## In the Dead Mall (tiled floors, far below the Backrooms).
 var mall_mode := false
@@ -322,7 +324,10 @@ func _physics_process(delta: float) -> void:
 				crouching = false
 			else:
 				velocity.y = JUMP_V * (0.7 if water else 1.0)
+	velocity += carry
 	move_and_slide()
+	velocity -= Vector3(carry.x, 0.0, carry.z)
+	carry = Vector3.ZERO
 	# Pushing against a pool rim climbs out automatically.
 	if is_on_floor() and is_on_wall() and wish.length() > 0.5:
 		_try_climb(wish.normalized(), 0.85)

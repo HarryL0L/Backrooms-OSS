@@ -17,6 +17,10 @@ var views := [
 	["dept_entry", Vector3(200, 0, 1.5), -PI * 0.5, 0.0],
 	["dept", Vector3(212, 0, -9), -PI * 0.35, 0.0],
 	["exit_door", Vector3(3.5, 0, 0), PI * 0.8, 0.0],
+	["gallery1", Vector3(30, 5, -4.2), -PI * 0.5, -0.1],
+	["gallery2_down", Vector3(50, 10, 3.6), -PI * 0.5, -0.45],
+	["court_up", Vector3(84, 0, -2), -PI * 0.45, 0.55],
+	["court_level2", Vector3(82, 10, -10), -PI * 0.7, -0.25],
 ]
 var vi := 0
 
@@ -46,7 +50,7 @@ func _process(delta):
 		2:
 			if t > 2.0:
 				var v = views[vi]
-				game.player.teleport(Vector3(v[1].x, MallLevel.MALL_Y + 0.05, v[1].z), v[2], v[3])
+				game.player.teleport(Vector3(v[1].x, MallLevel.MALL_Y + v[1].y + 0.05, v[1].z), v[2], v[3])
 				game.hud.set_fade(0.0)
 				step = 3; t = 0
 		3:
