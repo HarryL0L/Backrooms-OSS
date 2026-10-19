@@ -22,6 +22,7 @@ var car_e: Array = []
 var _last_pos := Vector3.ZERO
 var _stuck := 0.0
 var acts: Array = []        # the car sequence: [seconds, Callable]
+var approach := Vector3.ZERO
 
 
 func _ready():
@@ -118,8 +119,26 @@ func _process(delta):
 				_face(Vector3.LEFT)                     # out of the door into the car park
 				step = 7; t = 0
 		7:
-			if t > 1.6:
+			# A few steps into the car park, then fade out ...
+			game.hud.set_fade(clampf((t - 2.4) / 0.6, 0.0, 1.0))
+			if t > 3.1:
+				Input.action_release("move_forward")
+				rec = false
 				_plan_route()
+				var d: Vector3 = path[0] - approach
+				game.player.teleport(approach + Vector3.UP * 0.05, atan2(-d.x, -d.z), -0.1)
+				_face(d)
+				pitch_to = -0.1
+				step = 10; t = 0
+		10:
+			# ... and back in beside an SUV (not recorded while it loads).
+			if t > 3.0 and game.chunks.is_area_ready(game.player.global_position, 1):
+				rec = true
+				step = 11; t = 0
+		11:
+			game.hud.set_fade(1.0 - clampf(t / 0.6, 0.0, 1.0))
+			if t > 1.4:
+				Input.action_press("move_forward")
 				step = 8; t = 0
 		8:
 			_walk(delta)
@@ -152,11 +171,8 @@ func _plan_route() -> void:
 			for e in res.props:
 				if e[1] == LobbyDetails.CAR or e[1] == LobbyDetails.SUV:
 					all.append(e)
-	# The nearest clean SUV we can walk straight to (out into the car park,
-	# then alongside it), with the bay beside its driver's door empty.
-	var space: PhysicsDirectSpaceState3D = game.player.get_world_3d().direct_space_state
-	var start := here + Vector3(-2.0, 0, 0)
-	var cands := all.filter(func(e: Array) -> bool: return e[1] == LobbyDetails.SUV and not e[7] and (e[0] as Vector3).distance_to(here) < 30.0)
+	# The nearest clean SUV with the bay beside its driver's door empty.
+	var cands := all.filter(func(e: Array) -> bool: return e[1] == LobbyDetails.SUV and not e[7])
 	cands.sort_custom(func(a: Array, b: Array) -> bool: return (a[0] as Vector3).distance_to(here) < (b[0] as Vector3).distance_to(here))
 	for e in cands:
 		var xf := _car_xf(e)
@@ -164,31 +180,17 @@ func _plan_route() -> void:
 		for e2 in all:
 			if e2 != e and (e2[0] as Vector3).distance_to(xf * Vector3(0, 0, 2.4)) < 1.5:
 				blocked = true
-		var a := xf * Vector3(0.5, 0, 3.6)
-		var b := xf * Vector3(0.5, 0, 1.6)
-		if blocked or not _clear(space, here, start) or not _clear(space, start, a) or not _clear(space, a, b):
-			continue
-		car_e = e
-		path = [start, a, b]
-		break
+		if not blocked:
+			car_e = e
+			break
 	if car_e.is_empty():
-		print("walkthrough: no car with a clear way")
+		print("walkthrough: no car")
 		get_tree().quit()
 		return
 	print("walkthrough: car ", car_e, " at ", (car_e[0] as Vector3).distance_to(here), " m")
-
-
-func _clear(space: PhysicsDirectSpaceState3D, a: Vector3, b: Vector3) -> bool:
-	for y in [0.5, 1.3]:
-		for side in [-0.32, 0.0, 0.32]:
-			var d := (b - a)
-			d.y = 0.0
-			var off: Vector3 = Vector3(-d.z, 0, d.x).normalized() * side
-			var q := PhysicsRayQueryParameters3D.create(Vector3(a.x, y, a.z) + off, Vector3(b.x, y, b.z) + off)
-			q.exclude = [game.player.get_rid()]
-			if not space.intersect_ray(q).is_empty():
-				return false
-	return true
+	var xf := _car_xf(car_e)
+	approach = xf * Vector3(0.5, 0, 4.4)
+	path = [xf * Vector3(0.5, 0, 1.6)]
 
 
 func _car_xf(e: Array) -> Transform3D:
