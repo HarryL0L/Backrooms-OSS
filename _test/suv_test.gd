@@ -77,10 +77,13 @@ func _process(delta):
 				var sp: Vector3 = suv[0]
 				var b := Basis(Vector3.UP, suv[3]) * Basis(Vector3.UP, PI * 0.5)
 				# Car space: front -X, driver side +Z.
-				views.append(["front", sp + b * Vector3(-5.0, 0, 3.0), sp + Vector3(0, 0.7, 0), ""])
+				if OS.get_environment("ONLY_SEAT") == "":
+					views.append(["front", sp + b * Vector3(-5.0, 0, 3.0), sp + Vector3(0, 0.7, 0), ""])
 				# Get in, start it, and look at the dashboard from the seat.
 				views.append(["seat", sp + b * Vector3(0.6, 0, 1.9), sp + b * Vector3(-0.3, 1.2, 0.9), "DoorFL,getin,key", sp + b * Vector3(-3.0, 1.0, 0.37)])
 				views.append(["lights", sp + b * Vector3(-7.0, 0, 2.2), sp + b * Vector3(-2.0, 0.5, 0.0), ""])
+				if OS.get_environment("ONLY_SEAT") != "":
+					views = views.slice(0, 2)
 				var cp: Vector3 = cov[0]
 				views.append(["covered", cp + Vector3(2.4, 0, -4.6), cp + Vector3(0, 0.6, 0), ""])
 				# A column's bay number, and a stairwell landing's light.
@@ -101,9 +104,9 @@ func _process(delta):
 			var v: Array = views[0]
 			if not placed:
 				_look(v[1], v[2]); placed = true
-			if t > 6.0 and v[3] != "" and game.chunks.is_area_ready(game.player.global_position, 1):
+			if t > 6.0 and v[3] != "" and v[3] != "busy" and game.chunks.is_area_ready(game.player.global_position, 1):
 				var ids: PackedStringArray = (v[3] as String).split(",")
-				v[3] = ""
+				v[3] = "busy"
 				for id in ids:
 					await _aim_use(id)
 					await get_tree().create_timer(2.6 if id == "getin" else 0.8).timeout
@@ -116,6 +119,7 @@ func _process(delta):
 					game.player._apply_rotation()
 				else:
 					_look(v[1], v[2])
+				v[3] = ""
 				t = 5.0
 			if t > 7.0 and v[3] == "" and game.chunks.is_area_ready(game.player.global_position, 1):
 				get_viewport().get_texture().get_image().save_png("%s/suv_%s.png" % [out, v[0]])
