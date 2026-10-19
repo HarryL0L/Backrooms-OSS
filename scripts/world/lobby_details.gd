@@ -34,7 +34,10 @@ const EXIT_TEXT := ["EXIT", "EXTI", "EIXT", "EXIT", "XIT", "TIXE", "EXIT EXIT", 
 const PLAQUE_TEXT := ["ROOM 0", "ROOM 00", "ROOM -1", "214", "214", "STAFF ONLY", "STAFF OLNY", "OFFICE",
 		"OFIFCE", "STORAGE", "STORGAE", "MEETING ROOM", "MEETNG ROOM", "RESTROOM", "ROOM", "WAITING",
 		"WAITNG", "1/2", "PRIVATE", "PIRVATE", "NO EXIT", "THIS WAY", "ROOM ROOM", ""]
-enum { BIN, BUCKET, CAR }
+enum { BIN, BUCKET, CAR, SUV }
+## SUV paint (linear): the original taupe, silver, black, navy, white, dark red, dark green.
+const SUV_PAINT := [Color(0.32, 0.29, 0.25), Color(0.45, 0.46, 0.47), Color(0.02, 0.02, 0.022), Color(0.015, 0.025, 0.08),
+		Color(0.7, 0.7, 0.68), Color(0.18, 0.01, 0.012), Color(0.04, 0.07, 0.05)]
 ## Seconds of pushing into a thin place before you're through.
 const NOCLIP_TIME := 0.9
 
@@ -409,8 +412,13 @@ static func _garage_cell(g: WorldGen, gx: int, gz: int, rng: RandomNumberGenerat
 	var C := WorldGen.CELL
 	var light := clampf(g.light_level_near(Vector3((gx + 0.5) * C, 1.2, (gz + 0.5) * C)) * 0.22, 0.04, 0.8)
 	if posmod(gz, 4) == 0 and rng.randf() < 0.09:
-		props.append([Vector3((gx + 0.5) * C + rng.randf_range(-0.12, 0.12), 0.0, gz * C + 2.45), CAR, light,
-				rng.randf_range(-0.05, 0.05) + (PI if rng.randf() < 0.5 else 0.0), Vector3.ZERO, false])
+		var at := Vector3((gx + 0.5) * C + rng.randf_range(-0.12, 0.12), 0.0, gz * C + 2.45)
+		# Most are under dust sheets; now and then one isn't (more often
+		# damaged further out).
+		var kind := SUV if rng.randf() < 0.25 else CAR
+		props.append([at, kind, light, rng.randf_range(-0.05, 0.05) + (PI if rng.randf() < 0.5 else 0.0), Vector3.ZERO, false,
+				g.light_dir_near(at + Vector3.UP * 0.8), rng.randf() < 0.15 + 0.5 * chaos(g, gx, gz),
+				SUV_PAINT[rng.randi() % SUV_PAINT.size()]])
 	if posmod(gx, 3) == 0 and posmod(gz, 4) == 0 and g.pillar_at(gx, gz, WorldGen.GARAGE) > 0.0:
 		var cx := chaos(g, gx, gz)
 		var num := posmod(gx / 3, 40) + 1
@@ -450,27 +458,59 @@ func _check_thin(delta: float) -> void:
 
 
 ## A car under a dust cover: Poly Haven's "Covered Car" (CC0, see
-## assets/garage/LICENSE.md), re-lit with our own shader.
+## assets/garage/LICENSE.md), re-lit with our own shader. Or an uncovered
+## SUV you can open up (ParkedCar).
 func _build_car(root: Node3D, body: StaticBody3D, e: Array) -> void:
 	var light: float = minf(float(e[2]) * 1.6, 1.0)
-	var car: Node3D = _car_scene().instantiate()
-	car.transform = Transform3D(Basis(Vector3.UP, e[3]), e[0])
-	root.add_child(car)
-	for m in car.find_children("*", "MeshInstance3D", true, false):
-		var mi := m as MeshInstance3D
-		for i in mi.mesh.get_surface_count():
-			mi.set_surface_override_material(i, _car_material(mi.mesh.surface_get_material(i)))
-		mi.set_instance_shader_parameter("light", light)
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var xf := Transform3D(Basis(Vector3.UP, e[3]), e[0])
+	var ldir: Vector3 = e[6]
+	if e[1] == SUV:
+		var pc := ParkedCar.new()
+		pc.setup(light, e[7], e[8], ldir)
+		# The model is long along X.
+		pc.transform = xf * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
+		root.add_child(pc)
+	else:
+		var car: Node3D = _car_scene().instantiate()
+		car.transform = xf
+		root.add_child(car)
+		for m in car.find_children("*", "MeshInstance3D", true, false):
+			var mi := m as MeshInstance3D
+			for i in mi.mesh.get_surface_count():
+				mi.set_surface_override_material(i, _car_material(mi.mesh.surface_get_material(i)))
+			mi.set_instance_shader_parameter("light", light)
+			mi.set_instance_shader_parameter("light_dir", ldir)
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_car_shadow(root, xf, ldir)
 	var cs := CollisionShape3D.new()
 	var bs := BoxShape3D.new()
-	bs.size = Vector3(1.8, 1.4, 4.4)
+	bs.size = Vector3(1.85, 1.45, 4.45)
 	cs.shape = bs
-	cs.transform = Transform3D(Basis(Vector3.UP, e[3]), e[0] + Vector3.UP * 0.7)
+	cs.transform = Transform3D(xf.basis, e[0] + Vector3.UP * 0.72)
 	body.add_child(cs)
 
 
+## Occlusion on the floor under a car (lightmaps are baked without the cars).
+static func _car_shadow(root: Node3D, xf: Transform3D, ldir: Vector3) -> void:
+	if _shadow_mat == null:
+		_shadow_mat = ShaderMaterial.new()
+		_shadow_mat.shader = load("res://shaders/car_shadow.gdshader")
+		_shadow_mesh = PlaneMesh.new()
+		_shadow_mesh.size = Vector2(3.6, 6.4)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _shadow_mesh
+	mi.material_override = _shadow_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.transform = xf.translated_local(Vector3.UP * 0.012)
+	# Leans away from the lights, in the plane's own axes.
+	var l := xf.basis.inverse() * ldir
+	mi.set_instance_shader_parameter("lean", -Vector2(l.x, l.z))
+	root.add_child(mi)
+
+
 static var _car_packed: PackedScene
+static var _shadow_mat: ShaderMaterial
+static var _shadow_mesh: PlaneMesh
 static var _car_mats := {}
 
 
@@ -500,7 +540,7 @@ func _build_props(root: Node3D, props: Array) -> void:
 	var body := StaticBody3D.new()
 	root.add_child(body)
 	for e in props:
-		if e[1] == CAR:
+		if e[1] == CAR or e[1] == SUV:
 			_build_car(root, body, e)
 	for kind in 2:
 		var list := props.filter(func(e: Array) -> bool: return e[1] == kind)

@@ -14,6 +14,7 @@ var _fade: ColorRect
 var _loading: Control
 var _loading_label: Label
 var _story: Label
+var _prompt: Label
 var _title_t := 0.0
 var _vignette_boost := 0.0
 
@@ -69,6 +70,14 @@ func _ready() -> void:
 	_stamina.modulate.a = 0.0
 	_stamina.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_stamina)
+	_prompt = _label(18, HORIZONTAL_ALIGNMENT_CENTER)
+	_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_prompt.offset_left = -300
+	_prompt.offset_right = 300
+	_prompt.offset_top = 46
+	_prompt.offset_bottom = 74
+	_prompt.add_theme_color_override("font_color", Color(0.95, 0.92, 0.8, 0.85))
+	_prompt.visible = false
 	_story = _label(24, HORIZONTAL_ALIGNMENT_CENTER)
 	_story.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_story.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -120,6 +129,12 @@ func _apply_settings() -> void:
 	_post_mat.set_shader_parameter("grain", 0.0 if ps1 else 0.05)
 	_lens.visible = Settings.get_value("graphics/lens_fx") and not ps1 and not footage
 	_fps.visible = Settings.get_value("graphics/show_fps")
+
+
+## What pressing Use would do, under the middle of the view ("" hides it).
+func set_prompt(text: String) -> void:
+	_prompt.text = text
+	_prompt.visible = text != ""
 
 
 func show_level(title: String, subtitle: String) -> void:

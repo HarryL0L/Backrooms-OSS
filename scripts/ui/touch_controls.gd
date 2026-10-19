@@ -8,8 +8,8 @@ extends Control
 signal button_pressed(id: String)
 signal selection_changed(id: String)
 
-const BUTTONS := ["jump", "crouch", "sprint", "flashlight", "radar", "pause"]
-const LABELS := {"jump": "JUMP", "crouch": "CROUCH", "sprint": "RUN", "flashlight": "LIGHT", "radar": "RADAR", "pause": "II"}
+const BUTTONS := ["jump", "crouch", "sprint", "flashlight", "use", "radar", "pause"]
+const LABELS := {"jump": "JUMP", "crouch": "CROUCH", "sprint": "RUN", "flashlight": "LIGHT", "use": "USE", "radar": "RADAR", "pause": "II"}
 const BASE_RADIUS := 46.0
 const STICK_RADIUS := 78.0
 
@@ -23,6 +23,12 @@ var radar_available := false:
 	set(v):
 		if v != radar_available:
 			radar_available = v
+			queue_redraw()
+## The use button only shows when there's something to use.
+var use_available := false:
+	set(v):
+		if v != use_available:
+			use_available = v
 			queue_redraw()
 
 var _stick_finger := -1
@@ -242,7 +248,12 @@ func _draw() -> void:
 
 
 func _shown(id: String) -> bool:
-	return id != "radar" or radar_available or editing
+	match id:
+		"radar":
+			return radar_available or editing
+		"use":
+			return use_available or editing
+	return true
 
 
 func _draw_edit_frame(id: String, c: Vector2, r: float) -> void:

@@ -53,6 +53,12 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return sting()
 		"heartbeat":
 			return heartbeat()
+		"click":
+			return click()
+		"car_latch":
+			return car_latch()
+		"car_shut":
+			return car_shut()
 	push_error("AudioSynth.cached: unknown sound " + fn)
 	return null
 
@@ -417,6 +423,50 @@ static func click() -> AudioStreamWAV:
 			v += x * exp(-t2 * 500.0) * 0.6
 		s[i] = v
 	return to_wav(_normalize(s, 0.5))
+
+
+# ------------------------------------------------------------- car park ---
+
+## A car door unlatching and swinging open: a double click and a soft creak
+## of the check strap.
+static func car_latch() -> AudioStreamWAV:
+	var n := int(RATE * 0.45)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 610
+	var bp := _Svf.new(2600.0, 0.4)
+	var body := _Svf.new(180.0, 0.15)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		var clicks := exp(-t * 300.0) + exp(-maxf(t - 0.035, 0.0) * 260.0) * float(t > 0.035) * 0.8
+		bp.step(x * clicks)
+		body.step(x * clicks * 2.0)
+		var strap := sin(TAU * (240.0 + 60.0 * t) * t) * exp(-absf(t - 0.25) * 25.0) * 0.08
+		s[i] = bp.band + body.band * 0.6 + strap
+	return to_wav(_normalize(s, 0.6))
+
+
+## A car door shutting: a deep, padded thump and the latch catching.
+static func car_shut() -> AudioStreamWAV:
+	var n := int(RATE * 0.6)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 611
+	var lo := _Svf.new(110.0, 0.2)
+	var panel := _Svf.new(380.0, 0.12)
+	var hi := _Svf.new(3000.0, 0.5)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		var hit := exp(-t * 40.0) * (1.0 - exp(-t * 900.0))
+		lo.step(x * hit * 4.0)
+		panel.step(x * hit)
+		hi.step(x * exp(-maxf(t - 0.02, 0.0) * 400.0) * float(t > 0.02))
+		s[i] = lo.low * 1.4 + panel.band * 0.5 + hi.band * 0.3
+	return to_wav(_normalize(s, 0.85))
 
 
 ## Unsettling distant sounds: 0 thud, 1 metal creak, 2 knocking, 3 footsteps.

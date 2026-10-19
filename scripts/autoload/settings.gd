@@ -5,11 +5,11 @@ signal changed
 
 const PATH := "user://settings.cfg"
 
-const ACTIONS := ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "flashlight", "radar", "pause"]
+const ACTIONS := ["move_forward", "move_back", "move_left", "move_right", "sprint", "crouch", "jump", "flashlight", "interact", "radar", "pause"]
 const ACTION_LABELS := {
 	"move_forward": "Move forward", "move_back": "Move back", "move_left": "Strafe left",
 	"move_right": "Strafe right", "sprint": "Sprint", "crouch": "Crouch", "jump": "Jump / climb",
-	"flashlight": "Flashlight", "radar": "Radar (LAN games)", "pause": "Pause",
+	"flashlight": "Flashlight", "interact": "Use (doors, switches)", "radar": "Radar (LAN games)", "pause": "Pause",
 }
 const DEFAULT_KEYS := {
 	"move_forward": ["k:87", "k:4194320"],     # W, Up
@@ -20,11 +20,12 @@ const DEFAULT_KEYS := {
 	"crouch": ["k:4194326", "k:67"],           # Ctrl, C
 	"jump": ["k:32", ""],                      # Space
 	"flashlight": ["k:70", "m:2"],             # F, right mouse
+	"interact": ["k:69", ""],                  # E
 	"radar": ["k:82", ""],                     # R
 	"pause": ["k:4194305", "k:80"],            # Escape, P
 }
 const DEFAULT_PAD := {
-	"sprint": "j:7", "crouch": "j:1", "jump": "j:0", "flashlight": "j:3", "radar": "j:2", "pause": "j:6",
+	"sprint": "j:7", "crouch": "j:1", "jump": "j:0", "flashlight": "j:3", "interact": "j:9", "radar": "j:2", "pause": "j:6",
 	"move_forward": "", "move_back": "", "move_left": "", "move_right": "",
 }
 # Fixed analogue bindings for the movement actions.
@@ -41,6 +42,7 @@ const TOUCH_DEFAULTS := {
 	"flashlight": {"pos": Vector2(0.92, 0.36), "scale": 0.85},
 	"pause": {"pos": Vector2(0.955, 0.08), "scale": 0.7},
 	"radar": {"pos": Vector2(0.765, 0.60), "scale": 0.8},
+	"use": {"pos": Vector2(0.80, 0.38), "scale": 0.85},
 }
 
 var is_mobile := false

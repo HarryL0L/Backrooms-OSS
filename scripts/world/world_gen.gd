@@ -443,6 +443,27 @@ func light_level_near(p: Vector3, radius := 2) -> float:
 	return total
 
 
+## Which way the light comes from around p: the pull of the lit fixtures
+## nearby, each weighted like light_level_near. Its length says how one-sided
+## the light is (0 in the middle of an even grid of lights, up to 1).
+func light_dir_near(p: Vector3, radius := 3) -> Vector3:
+	var c := cell_of(p)
+	var sum := Vector3.ZERO
+	var total := 0.0
+	for dz in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
+			var gx := c.x + dx
+			var gz := c.y + dz
+			var b := biome_at(gx, gz)
+			var s := light_state(gx, gz, b)
+			if s == L_ON or s == L_FLICKER:
+				var lp := Vector3((gx + 0.5) * CELL, CEIL_H[b], (gz + 0.5) * CELL)
+				var w: float = LIGHT_POWER[b] / (1.0 + lp.distance_squared_to(p) * 0.3)
+				sum += (lp - p).normalized() * w
+				total += w
+	return sum / total if total > 0.0 else Vector3.UP * 0.3
+
+
 ## Nearest flickering light (for its buzzing sound). Returns [position, seed] or [].
 func nearest_flicker(p: Vector3, radius_cells: int) -> Array:
 	var c := cell_of(p)

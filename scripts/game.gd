@@ -707,6 +707,8 @@ func _on_touch_button(id: String) -> void:
 			pause()
 		"radar":
 			radar.shown = not radar.shown
+		"use":
+			_use()
 
 
 # ---------------------------------------------------------------- input ---
@@ -737,6 +739,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.is_action_pressed("pause"):
 				get_viewport().set_input_as_handled()
 				pause()
+			elif event.is_action_pressed("interact"):
+				get_viewport().set_input_as_handled()
+				_use()
 			elif event.is_action_pressed("radar") and net.active:
 				get_viewport().set_input_as_handled()
 				radar.shown = not radar.shown
@@ -799,6 +804,51 @@ func _focus_first(menu: Control) -> void:
 			return
 
 
+# ------------------------------------------------------------------ use ---
+
+## What you're looking at that you can use (a car door, a switch):
+## [node, id, label] or [].
+var _use_target := []
+
+
+func _update_use() -> void:
+	_use_target = []
+	var cam := player.camera
+	var o := cam.global_position
+	var f := -cam.global_basis.z
+	var best := INF
+	for n in get_tree().get_nodes_in_group("usable"):
+		var node := n as Node3D
+		if node.global_position.distance_squared_to(o) > 36.0:
+			continue
+		for t in node.use_targets():
+			var d: Vector3 = t[1] - o
+			var along := d.dot(f)
+			if along < 0.15 or along > 2.4:
+				continue
+			# How far off the middle of the view, allowing more up close.
+			var off := (d - f * along).length() / (0.1 + along * 0.12)
+			if off < 1.0 and off + along * 0.2 < best:
+				best = off + along * 0.2
+				_use_target = [node, t[0], t[2]]
+	var label := ""
+	if not _use_target.is_empty():
+		label = _use_target[2]
+		if not _using_touch:
+			var key := Settings.binding_label(Settings.keys["interact"][0])
+			if Input.get_connected_joypads().size() > 0 and not _mouse_seen:
+				key = Settings.binding_label(Settings.pad.get("interact", ""))
+			label = "[%s]  %s" % [key, label]
+	hud.set_prompt(label)
+	touch.use_available = not _use_target.is_empty()
+
+
+func _use() -> void:
+	if not _use_target.is_empty() and is_instance_valid(_use_target[0]):
+		_use_target[0].use(_use_target[1])
+		_update_use()
+
+
 # ---------------------------------------------------------------- frame ---
 
 func _process(delta: float) -> void:
@@ -819,7 +869,12 @@ func _process(delta: float) -> void:
 			_autosave_t = 0.0
 			_write_save()
 		hud.set_stamina(player.stamina, player.exhausted)
+		_update_use()
 		_perf_watch(delta)
+	elif not _use_target.is_empty():
+		_use_target = []
+		hud.set_prompt("")
+		touch.use_available = false
 	if net.active and (state == State.PLAYING or state == State.PAUSED):
 		_net_t -= delta
 		if _net_t <= 0.0:
