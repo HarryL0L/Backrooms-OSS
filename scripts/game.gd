@@ -28,6 +28,9 @@ var fixtures: FixtureLights
 var ripples: WaterRipples
 var lining: LiningEntity
 var hall_figure: HallFigure
+var copies: Array[CopyEntity] = []
+var crawler: CrawlerEntity
+var attendant: AttendantEntity
 var presence: LobbyPresence      # heard, never seen
 var stairs: Stairwells
 ## Which floor you're on (0 = where you started; below is negative).
@@ -147,6 +150,17 @@ func _ready() -> void:
 	hall_figure.player = player
 	hall_figure.ambience = ambience
 	add_child(hall_figure)
+	for i in 2:
+		var cp := CopyEntity.new()
+		_walker(cp)
+		copies.append(cp)
+	crawler = CrawlerEntity.new()
+	crawler.hall_figure = hall_figure
+	hall_figure.crawler = crawler
+	_walker(crawler)
+	attendant = AttendantEntity.new()
+	attendant.caught.connect(_on_caught)
+	_walker(attendant)
 	presence = LobbyPresence.new()
 	presence.process_mode = Node.PROCESS_MODE_PAUSABLE
 	presence.player = player
@@ -387,6 +401,8 @@ func _use_gen(g: WorldGen, swap: bool) -> void:
 	footage.gen = g
 	lining.gen = g
 	hall_figure.gen = g
+	for w in _walkers():
+		w.gen = g
 	presence.gen = g
 	lining.odd_doors = odd_doors
 	stairs.gen = g
@@ -417,15 +433,17 @@ func _warm_shaders() -> void:
 	_warm_list.clear()
 	_warm_next = 0
 	var key := "%s/%s" % [Settings.get_value("graphics/ps1"), ChunkBuilder.lightmaps]
-	if _warmed.has(key) and (_warmed_hazmat or not net.active):
+	if _warmed.has(key) and _warmed_hazmat:
 		return
 	if not _warmed.has(key):
 		_warmed[key] = true
 		_warm_list.append_array(mats.materials)
 		_warm_list.append_array(hall_figure.warm_materials())
-	if net.active and not _warmed_hazmat:
+	# Other players and the entities.
+	if not _warmed_hazmat:
 		_warmed_hazmat = true
 		_warm_list.append_array(HazmatModel.warm_materials())
+		_warm_list.append_array(EntityBody.warm_materials())
 		_warm_list.append_array(Radar.warm_materials())
 	_warm_list = _warm_list.filter(func(m: Material) -> bool: return m != null)
 	_warm_holder = Node3D.new()
@@ -900,6 +918,8 @@ func _process(delta: float) -> void:
 	_update_radar(delta)
 	lining.allowed = state == State.PLAYING and not _away() and not _transition
 	hall_figure.allowed = lining.allowed
+	for w in _walkers():
+		w.allowed = lining.allowed
 	presence.allowed = lining.allowed
 	if _away():
 		return
@@ -1241,6 +1261,42 @@ func _on_noclipped() -> void:
 	player.set_physics_process(true)
 	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "You noclipped. This isn't where you were.")
 	_return_somewhere_else(WorldGen.LOBBY)
+
+
+## The Attendant got you: a jolt, the lights go, and you're somewhere else.
+func _on_caught() -> void:
+	if state != State.PLAYING or _transition or _away():
+		return
+	_transition = true
+	player.controls_enabled = false
+	player.set_physics_process(false)
+	await get_tree().create_timer(0.5).timeout
+	await hud.fade_to(1.0, 0.25)
+	ambience.enabled = false
+	attendant.reset()
+	if player.seated:
+		player.stand_up()
+	await hud.story(["A hand closed on your shoulder.", "Every light in the car park went out at once.", "When they came back, so did the hum."], 2.0)
+	player.set_physics_process(true)
+	player.camera.h_offset = 0.0
+	player.camera.v_offset = 0.0
+	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "Somewhere else.")
+	_return_somewhere_else(WorldGen.LOBBY)
+
+
+func _walker(w: Walker) -> void:
+	w.process_mode = Node.PROCESS_MODE_PAUSABLE
+	w.player = player
+	w.ambience = ambience
+	add_child(w)
+
+
+func _walkers() -> Array[Walker]:
+	var out: Array[Walker] = []
+	out.append_array(copies)
+	out.append(crawler)
+	out.append(attendant)
+	return out
 
 
 func _return_somewhere_else(level := -1) -> void:

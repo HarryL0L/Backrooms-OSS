@@ -24,6 +24,8 @@ const DUCK_EYE := Vector3(-0.2, 1.18, 0.9)
 const SEAT_EYE := Vector3(0.0, 1.3, 0.37)
 const EXIT_FEET := Vector3(-0.3, 0.0, 1.75)
 
+## How far (m) each sound carries for anything listening.
+const NOISE := {"car_shut": 15.0, "car_crank": 22.0, "car_dead": 10.0}
 ## Material name in the GLB -> [kind, gloss, glass] (see garage_suv.gdshader).
 const KINDS := {
 	"car_carpaint": [1, 0.9], "car_chrome": [2, 0.9], "car_light": [4, 0.9], "car_glass_red": [5, 0.9],
@@ -266,6 +268,37 @@ func _play(sound: String, db: float) -> void:
 	_audio.stream = AudioSynth.cached(sound)
 	_audio.volume_db = db
 	_audio.play()
+	# Anything listening (the Attendant) hears doors and the engine.
+	var heard: float = NOISE.get(sound, 0.0)
+	if heard > 0.0:
+		get_tree().call_group(&"listeners", &"hear", global_position, heard)
+
+
+## Who's in the driver's seat (null when nobody).
+func driver() -> Player:
+	return _driver
+
+
+## Shut in: every door closed (or slamming shut).
+func sheltered() -> bool:
+	for n in _doors:
+		if _doors[n][1]:
+			return false
+	return true
+
+
+## Lit up inside, or running with the headlights on: whoever's in it shows.
+func conspicuous() -> bool:
+	return _cabin or _ignition or _crank >= 0.0
+
+
+## Wrenched open from outside.
+func pry_open() -> void:
+	var e: Array = _doors["DoorFL"]
+	if not e[1]:
+		e[1] = true
+		_play("car_latch", 2.0)
+		set_process(true)
 
 
 func _set_all(param: String, v: Variant) -> void:

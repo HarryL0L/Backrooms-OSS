@@ -13,6 +13,7 @@ var gen: WorldGen
 var player: Player
 var ambience: Ambience
 var allowed := false
+var crawler: Walker          # never both at once
 
 var _body: Node3D
 var _mat: StandardMaterial3D
@@ -188,7 +189,7 @@ func _process(delta: float) -> void:
 		if _biome(player.global_position) == WorldGen.DARK:
 			_timer -= delta
 		if _timer <= 0.0:
-			if not _try_spawn():
+			if (crawler and crawler.present) or not _try_spawn():
 				_timer = 2.0
 		return
 	# Barely alive: a slow sway, the head tilting.

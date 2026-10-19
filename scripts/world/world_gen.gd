@@ -304,6 +304,22 @@ func edge_kind(line: int, along: int, vertical: bool, ba: int, bb: int) -> int:
 	return E_OPEN
 
 
+## Level 1's warehouse: in places, rows of pallet racking run through it
+## (every third column of cells, the lights hang over the aisles between),
+## with a gap every fourth cell to cut across (ChunkBuilder._emit_rack).
+func rack_at(gx: int, gz: int) -> bool:
+	if posmod(gx, 3) != 0 or posmod(gz, 4) == 3:
+		return false
+	if vnoise(gx * 0.06, gz * 0.06, 67) < 0.52:
+		return false
+	return not near_spawn(gx, gz, 3) and not stair_zone(gx, gz, 1) and not is_solid(gx, gz, CONCRETE)
+
+
+## A stack of crates stands in this Level 1 cell (when there's no rack).
+func crates_at(gx: int, gz: int) -> bool:
+	return not near_spawn(gx, gz, 2) and rnd(gx, gz, 61) < 0.08
+
+
 ## Size of a structural pillar at grid vertex (vx, vz), 0 for none.
 ## `b` is the biome of cell (vx, vz).
 func pillar_at(vx: int, vz: int, b: int) -> float:

@@ -1181,9 +1181,9 @@ func _emit_cell(li: int, lj: int) -> void:
 		_emit_garage(gx, gz, xa, za, f, c)
 	if b == WorldGen.PIPES:
 		_emit_pipes(li, lj, xa, za, c)
-	if b == WorldGen.CONCRETE and not is_pool and _rack_at(gx, gz):
+	if b == WorldGen.CONCRETE and not is_pool and gen.rack_at(gx, gz):
 		_emit_rack(gx, gz, xa, za, f, c)
-	elif b == WorldGen.CONCRETE and not is_pool and not gen.near_spawn(gx, gz, 2) and gen.rnd(gx, gz, 61) < 0.08:
+	elif b == WorldGen.CONCRETE and not is_pool and gen.crates_at(gx, gz):
 		_emit_crates(li, lj, xa, za, f, c)
 
 
@@ -1256,17 +1256,6 @@ func _emit_crates(li: int, lj: int, xa: float, za: float, f: float, c: float) ->
 			y0 = f + 0.5
 		_emit_box(MAT_CRATE, Vector3(xa + ox, y0, za + oz), Vector3(xa + ox + sx, y0 + sy, za + oz + sz), f, c, true)
 		_col_box(Vector3(xa + ox, y0, za + oz), Vector3(xa + ox + sx, y0 + sy, za + oz + sz))
-
-
-## Level 1's warehouse: in places, rows of pallet racking run through it
-## (every third column of cells, the lights hang over the aisles between),
-## with a gap every fourth cell to cut across.
-func _rack_at(gx: int, gz: int) -> bool:
-	if posmod(gx, 3) != 0 or posmod(gz, 4) == 3:
-		return false
-	if gen.vnoise(gx * 0.06, gz * 0.06, 67) < 0.52:
-		return false
-	return not gen.near_spawn(gx, gz, 3) and not gen.stair_zone(gx, gz, 1) and not gen.is_solid(gx, gz, WorldGen.CONCRETE)
 
 
 ## One bay of racking: orange uprights and beams at 1, 2 and 2.95 m, and on
