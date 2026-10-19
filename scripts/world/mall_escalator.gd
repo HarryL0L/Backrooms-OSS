@@ -13,12 +13,13 @@ const RISE := 5.0
 const RUN := RISE / tan(deg_to_rad(30.0))
 const FLAT := 1.2
 const WIDTH := 1.0
-const SPEED := 0.5
+const SPEED := 0.6
 const PITCH := 0.4           # step depth (horizontal)
 
 var player: Player
-var light := 0.9
+var light := 0.5
 var _steps: MultiMeshInstance3D
+var _edges: MultiMeshInstance3D
 var _offset := 0.0
 var _hum: AudioStreamPlayer3D
 
@@ -40,18 +41,25 @@ func _ready() -> void:
 
 
 func _build_steps() -> void:
-	var m := BoxMesh.new()
-	m.size = Vector3(PITCH - 0.02, 0.24, WIDTH)
-	m.material = MallLevel.lit_material("metal_bright", light)
+	# Dark ribbed aluminium treads, a yellow strip along each front edge.
+	_steps = _multi(Vector3(PITCH - 0.02, 0.24, WIDTH), "shutter")
+	_edges = _multi(Vector3(0.05, 0.012, WIDTH - 0.04), "plastic_yellow")
+	_place_steps()
+
+
+func _multi(size: Vector3, m: String) -> MultiMeshInstance3D:
+	var bm := BoxMesh.new()
+	bm.size = size
+	bm.material = MallLevel.lit_material(m, light)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = m
+	mm.mesh = bm
 	mm.instance_count = ceili((RUN + 2.0 * FLAT) / PITCH)
-	_steps = MultiMeshInstance3D.new()
-	_steps.multimesh = mm
-	_steps.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_steps)
-	_place_steps()
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	return mi
 
 
 ## Height of the step line at u (along, from the foot of the incline).
@@ -67,6 +75,7 @@ func _place_steps() -> void:
 		# Each tread level; on the incline its front edge sits on the line.
 		var h := line(u + PITCH * 0.5)
 		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(u + PITCH * 0.5, h - 0.12, 0.0)))
+		_edges.multimesh.set_instance_transform(i, Transform3D(Basis(), Vector3(u + PITCH - 0.04, h + 0.006, 0.0)))
 
 
 func _build_collision() -> void:

@@ -76,6 +76,11 @@ void fragment() {
 	col *= 1.0 - grime * (0.35 * smoothstep(0.45, 0.85, g) + 0.25 * low);
 	vec3 lm = texture(lightmap, UV).rgb;
 	vec3 light = lm * lm * lm_scale;
+	if (pattern == 6) {
+		// Shutters: hundreds of thin slats get only a few lightmap texels
+		// each and bake too dark; they're out in the concourse light.
+		light = max(light, vec3(0.32, 0.31, 0.29));
+	}
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	SPECULAR = 0.4;

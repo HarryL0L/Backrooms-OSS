@@ -24,6 +24,10 @@ var views := [
 ]
 var vi := 0
 
+func _enter_tree():
+	if OS.get_environment("ONLY") != "":
+		views = views.filter(func(v): return v[0] in OS.get_environment("ONLY").split(","))
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	DirAccess.make_dir_recursive_absolute(out)

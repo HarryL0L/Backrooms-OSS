@@ -135,6 +135,15 @@ static func lit_material(mname: String, light: float) -> Material:
 	var sec := "lit%.2f" % light
 	if _mats.has(sec + "/" + mname):
 		return _mats[sec + "/" + mname]
+	if mname == "glass":
+		# Clear: the lift's glass is seen through twice (car and shaft).
+		var g := StandardMaterial3D.new()
+		g.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		g.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		g.albedo_color = Color(0.62, 0.7, 0.68, 0.1)
+		g.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_mats[sec + "/" + mname] = g
+		return g
 	var img := Image.create(1, 1, false, Image.FORMAT_RGB8)
 	var v := sqrt(clampf(light / 4.0, 0.0, 1.0))
 	img.set_pixel(0, 0, Color(v, v, v))
