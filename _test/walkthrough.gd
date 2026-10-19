@@ -183,7 +183,7 @@ func _clear(space: PhysicsDirectSpaceState3D, a: Vector3, b: Vector3) -> bool:
 		for side in [-0.32, 0.0, 0.32]:
 			var d := (b - a)
 			d.y = 0.0
-			var off := Vector3(-d.z, 0, d.x).normalized() * side
+			var off: Vector3 = Vector3(-d.z, 0, d.x).normalized() * side
 			var q := PhysicsRayQueryParameters3D.create(Vector3(a.x, y, a.z) + off, Vector3(b.x, y, b.z) + off)
 			q.exclude = [game.player.get_rid()]
 			if not space.intersect_ray(q).is_empty():
