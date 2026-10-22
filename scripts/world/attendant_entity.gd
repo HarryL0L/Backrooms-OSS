@@ -38,11 +38,12 @@ var _unseen := 0.0
 var _life := 0.0
 var _heart: AudioStreamPlayer
 var _heard_cool := 0.0
+var _growl_t := 8.0
 
 
 func _ready() -> void:
 	super()
-	_timer = _rng.randf_range(30.0, 60.0)
+	_timer = _rng.randf_range(15.0, 30.0)
 	add_to_group(&"listeners")
 	_steps.unit_size = 7.0
 	_steps.max_distance = 55.0
@@ -57,7 +58,7 @@ func _process(delta: float) -> void:
 	if not on or _player_biome() != WorldGen.GARAGE:
 		if present:
 			_despawn()
-			_timer = _rng.randf_range(40.0, 80.0)
+			_timer = _rng.randf_range(20.0, 40.0)
 		_heart.stop()
 		return
 	if not present:
@@ -89,7 +90,11 @@ func _process(delta: float) -> void:
 		PATROL:
 			speed = 1.3
 			if not _walk(delta):
-				_wander(4, 10)
+				_prowl()
+			_growl_t -= delta
+			if _growl_t <= 0.0:
+				_growl_t = _rng.randf_range(14.0, 28.0)
+				_say("tall_growl_%d" % _rng.randi_range(0, 2), -6.0, _rng.randf_range(0.8, 0.95))
 		INVESTIGATE:
 			if not _walk(delta, 0.4 if speed > 2.0 else 0.0):
 				_search()
@@ -170,7 +175,7 @@ func hear(at: Vector3, radius: float) -> void:
 	_go_to(at, 2.4)
 	_state = INVESTIGATE
 	if _rng.randf() < 0.5:
-		_say("rasp", -4.0, 0.7)
+		_say("tall_growl_%d" % _rng.randi_range(0, 2), -4.0, _rng.randf_range(0.85, 1.0))
 
 
 # ------------------------------------------------------------- actions ---
@@ -178,7 +183,7 @@ func hear(at: Vector3, radius: float) -> void:
 func _start_chase() -> void:
 	_state = CHASE
 	_repath = 0.0
-	_say("rasp", 2.0, 0.6)
+	_say("tall_scream_%d" % _rng.randi_range(0, 2), 3.0, _rng.randf_range(0.8, 0.95))
 	var sting := AudioStreamPlayer.new()
 	sting.stream = AudioSynth.cached("sting")
 	sting.bus = "World"
@@ -235,6 +240,24 @@ func _go_to(at: Vector3, v: float) -> void:
 	_path = nav.path(_cell(), gen.cell_of(at), 16)
 
 
+## Walks the lanes around wherever you are (it knows roughly), so it's
+## never long before it comes past.
+func _prowl() -> void:
+	var here := _cell()
+	var f := nav.flood(here, 18, 1200)
+	var p := player.global_position
+	var best := []
+	for c in f:
+		var at := EntityNav.center(c)
+		var d := Vector2(at.x - p.x, at.z - p.z).length()
+		if d > 6.0 and d < 16.0:
+			best.append(c)
+	if best.is_empty():
+		_wander(4, 10)
+		return
+	_path = EntityNav.path_to(f, best[_rng.randi() % best.size()])
+
+
 func _search() -> void:
 	_state = SEARCH
 	_search_t = _rng.randf_range(4.0, 7.0)
@@ -264,7 +287,9 @@ func _peer(delta: float) -> void:
 	var at := _car.global_transform * (ParkedCar.EXIT_FEET + Vector3(0, 0, 0.35))
 	if _walk(delta) or _approach(at, delta):
 		return
-	# At the window, stooping to look in.
+	# At the window, stooping to look in, breathing on the glass.
+	if not _voice.playing:
+		_say("tall_breath", -2.0, 0.85)
 	_face(_car.global_position - global_position, 1.0 - exp(-4.0 * delta))
 	body.stoop = 0.8
 	_peer_t -= delta
@@ -302,7 +327,7 @@ func _catch() -> void:
 	_state = GRAB
 	set_process(false)
 	_heart.stop()
-	_say("shriek", 4.0, 0.55)
+	_say("tall_roar", 5.0, 0.9)
 	_shake(player.camera, 0.12, 1.0)
 	caught.emit()
 
@@ -317,7 +342,7 @@ func _heartbeat(d: float) -> void:
 	_heart.volume_db = linear_to_db(clampf(1.2 - d / 22.0, 0.15, 1.0)) - 2.0
 	_heart.pitch_scale = 1.35 if _state == CHASE else 1.0
 	if not _heart.playing:
-		_heart.stream = AudioSynth.cached("heartbeat")
+		_heart.stream = Sfx.get_stream("heartbeat")
 		_heart.play()
 
 
@@ -333,7 +358,7 @@ func _hiding_car() -> ParkedCar:
 
 func _try_spawn() -> void:
 	_nav(WorldGen.GARAGE)
-	var c := _spawn_cell(26.0, 40.0)
+	var c := _spawn_cell(18.0, 30.0)
 	if c.x == 1 << 30:
 		return
 	_make_body("tall", SIZE, TINT, 0.3)
@@ -359,12 +384,12 @@ func _stride(delta: float, v: float, run := 0.0) -> void:
 	super(delta, v / 1.27, run)
 
 
-func _step_pitch() -> float:
-	return 0.72
-
-
-func _step_db() -> float:
-	return 0.0
+## Heavy footfalls on the concrete (recorded, pitched down: it's big).
+func _footstep(v: float) -> void:
+	_steps.stream = Sfx.pick("tall_step", 8)
+	_steps.pitch_scale = _rng.randf_range(0.74, 0.84)
+	_steps.volume_db = linear_to_db(clampf(v / Player.SPRINT, 0.45, 1.0)) + 4.0
+	_steps.play()
 
 
 ## For tests: standing here, facing a point, on patrol.

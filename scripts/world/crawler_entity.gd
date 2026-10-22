@@ -53,13 +53,13 @@ func _process(delta: float) -> void:
 				_state = FLEE
 				_flee_t = 0.0
 				speed = 4.2
-				_say("rasp", -6.0, 1.6)
+				_say("crawler_hiss", -2.0, _rng.randf_range(0.95, 1.1))
 				_wander(6, 10, true)
 			elif d < REACH:
 				_state = LUNGE
 				_lunge_t = 0.0
 				_lunge_from = global_position
-				_say("shriek", 2.0, 1.15)
+				_say("crawler_scream", 4.0, _rng.randf_range(0.95, 1.08))
 			elif seen:
 				# Caught in the corner of your eye: perfectly still.
 				body.pose_crawl(_phase, 0.0)
@@ -140,12 +140,14 @@ func _vanish() -> void:
 	_timer = _rng.randf_range(60.0, 120.0)
 
 
-func _step_pitch() -> float:
-	return 1.6
-
-
-func _step_db() -> float:
-	return -15.0
+## Limbs skittering on the carpet (recorded), now and then as it moves.
+func _footstep(v: float) -> void:
+	if _steps.playing:
+		return
+	_steps.stream = Sfx.get_stream("crawler_scuttle")
+	_steps.pitch_scale = _rng.randf_range(0.9, 1.15)
+	_steps.volume_db = linear_to_db(clampf(v / 3.0, 0.3, 1.0)) - 9.0
+	_steps.play(_rng.randf() * 1.5)
 
 
 ## For tests: crouched here, facing a point.

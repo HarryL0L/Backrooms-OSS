@@ -185,7 +185,7 @@ func _step_db() -> float:
 
 
 func _say(sound: String, db := 0.0, pitch := 1.0) -> void:
-	_voice.stream = AudioSynth.cached(sound)
+	_voice.stream = Sfx.get_stream(sound) if Sfx.has(sound) else AudioSynth.cached(sound)
 	_voice.volume_db = db
 	_voice.pitch_scale = pitch
 	_voice.play()

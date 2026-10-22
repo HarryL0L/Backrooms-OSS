@@ -180,7 +180,7 @@ func _limb(m: Material, a: Vector3, b: Vector3, r: float, parent: Node3D = null)
 
 func _process(delta: float) -> void:
 	if _audio.stream == null:
-		_audio.stream = AudioSynth.cached("exhale")
+		_audio.stream = Sfx.pick("breath", 2)
 	var on: bool = allowed and gen != null and player != null and Settings.get_value("gameplay/entities")
 	if not on:
 		_hide()
@@ -285,7 +285,8 @@ func _try_spawn_within(dmax: float) -> bool:
 
 
 func _vanish(with_sound: bool) -> void:
-	if with_sound and _audio.stream:
+	if with_sound:
+		_audio.stream = Sfx.pick("breath", 2)
 		_audio.global_position = global_position + Vector3.UP * 2.0
 		_audio.pitch_scale = _rng.randf_range(0.8, 1.0)
 		_audio.play()
