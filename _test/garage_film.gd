@@ -1,9 +1,9 @@
 extends Node
 # Films the car park's tall one, first person, with sound (Godot's movie
-# writer). You stand by an SUV; it prowls far off. You get in and the door
-# slams: it hears, comes, searches, stoops to look in at the window,
-# breathing, and walks off. You get out and run: it hears you, screams,
-# runs you down. Run with
+# writer). You get into an SUV; it comes prowling down the lane. You try
+# the key: it hears the engine turn over, comes, searches, stoops to look
+# in at the window, breathing, and walks off. You get out and run: it
+# hears you, screams, runs you down. Run with
 #   godot --path . --fixed-fps 30 --resolution 1280x720 --write-movie film.avi res://_test/garage_film.tscn
 var game
 var step := 0
@@ -83,31 +83,13 @@ func _process(delta):
 				for n in get_tree().get_nodes_in_group("usable"):
 					if n is ParkedCar and (car == null or n.global_position.distance_to(game.player.global_position) < car.global_position.distance_to(game.player.global_position)):
 						car = n
-				# It, far down the lane, walking away from you.
-				var nv := EntityNav.new(game.gen, WorldGen.GARAGE)
-				var here: Vector2i = game.gen.cell_of(game.player.global_position)
-				var f := nv.flood(here, 10, 900)
-				var best := here
-				var bd := INF
-				for c in f:
-					var e := absf(EntityNav.center(c).distance_to(game.player.global_position) - 16.0)
-					var q := PhysicsRayQueryParameters3D.create(game.player.camera.global_position, EntityNav.center(c) + Vector3.UP * 1.6)
-					q.exclude = [game.player.get_rid()]
-					if e < bd and game.get_world_3d().direct_space_state.intersect_ray(q).is_empty():
-						bd = e
-						best = c
-				var p := EntityNav.center(best)
-				at.debug_place(p, p + (p - game.player.global_position))
 				game.hud.set_fade(0.0)
-				track = true
-				turn = 1.6
-				step = 3; t = 0
-		3:
-			# Seen it. Into the car, quietly as you can (the door still slams).
-			if t > 4.0:
 				track = false
 				_aim(car.global_transform * Vector3(-0.3, 1.0, 0.9))
-			if t > 5.0:
+				step = 3; t = 0
+		3:
+			# Nobody about. Into the car.
+			if t > 1.5:
 				car.use("DoorFL", game.player)
 				step = 4; t = 0
 		4:
@@ -115,18 +97,45 @@ func _process(delta):
 				car.use("getin", game.player)
 				step = 5; t = 0
 		5:
-			# Seated, the door pulled shut. Watch it.
+			# Seated, the door pulled shut. Looking out ahead, and there it is.
 			if t > 2.6:
+				_aim(car.global_transform * Vector3(-8.0, 1.6, 0.0))
+				turn = 1.5
+			if t > 4.0:
+				var nv := EntityNav.new(game.gen, WorldGen.GARAGE)
+				var eye: Vector3 = game.player.camera.global_position
+				var ahead: Vector3 = car.global_transform * Vector3(-18.0, 0.0, 0.0)
+				var f := nv.flood(game.gen.cell_of(ahead), 6, 400)
+				var best: Vector2i = game.gen.cell_of(ahead)
+				var bd := INF
+				for c in f:
+					var e := EntityNav.center(c).distance_to(ahead)
+					var q := PhysicsRayQueryParameters3D.create(eye, EntityNav.center(c) + Vector3.UP * 1.6)
+					q.exclude = [game.player.get_rid()]
+					if e < bd and game.get_world_3d().direct_space_state.intersect_ray(q).is_empty():
+						bd = e
+						best = c
+				var p := EntityNav.center(best)
+				at.debug_place(p, p + Vector3(1, 0, 0))
 				track = true
 				turn = 2.0
-			if t > 3.0:
-				print("film: seated, it is ", at._state)
+				print("film: it's out there, %.0f m" % at._dist())
+				step = 51; t = 0
+		51:
+			# It prowls closer. Turn the key... and straight off again: too late.
+			if (at._dist() < 13.0 and t > 4.0) or t > 20.0:
+				car.use("key", game.player)
+				step = 52; t = 0
+		52:
+			if t > 0.45:
+				car.use("key", game.player)
+				print("film: it heard the engine, state ", at._state)
 				step = 6; t = 0
 		6:
 			if at._state == AttendantEntity.LEAVE and at._dist() > 12.0 and t > 4.0:
 				print("film: it left after %.0f s" % t)
 				step = 7; t = 0
-			if t > 50.0:
+			if t > 60.0:
 				print("film: it never left, state ", at._state)
 				step = 7; t = 0
 		7:
