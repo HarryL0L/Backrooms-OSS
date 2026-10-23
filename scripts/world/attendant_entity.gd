@@ -237,7 +237,7 @@ func _direct(target: Vector3) -> bool:
 
 func _go_to(at: Vector3, v: float) -> void:
 	speed = v
-	_path = nav.path(_cell(), gen.cell_of(at), 16)
+	_path = nav.path(_cell(), nav.nearest_ok(gen.cell_of(at)), 16)
 
 
 ## Walks the lanes around wherever you are (it knows roughly), so it's
@@ -277,7 +277,7 @@ func _go_peer(car: ParkedCar) -> void:
 	_peer_t = _rng.randf_range(3.5, 5.0)
 	var at := car.global_transform * (ParkedCar.EXIT_FEET + Vector3(0, 0, 0.35))
 	speed = 1.4
-	_path = nav.path(_cell(), gen.cell_of(at), 12)
+	_path = nav.path(_cell(), nav.nearest_ok(gen.cell_of(at)), 12)
 
 
 func _peer(delta: float) -> void:

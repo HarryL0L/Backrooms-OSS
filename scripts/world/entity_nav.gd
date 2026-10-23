@@ -112,5 +112,24 @@ static func path_to(f: Dictionary, to: Vector2i) -> Array[Vector2i]:
 	return out
 
 
+## The walkable cell nearest c (c itself when it's walkable): a noise from a
+## parked car comes from a cell nobody can stand in.
+func nearest_ok(c: Vector2i, reach := 3) -> Vector2i:
+	if cell_ok(c):
+		return c
+	for r in range(1, reach + 1):
+		var best := Vector2i(1 << 30, 0)
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dz)) != r:
+					continue
+				var n := c + Vector2i(dx, dz)
+				if cell_ok(n) and (best.x == 1 << 30 or (n - c).length_squared() < (best - c).length_squared()):
+					best = n
+		if best.x != 1 << 30:
+			return best
+	return c
+
+
 func path(from: Vector2i, to: Vector2i, radius: int) -> Array[Vector2i]:
 	return path_to(flood(from, radius), to)

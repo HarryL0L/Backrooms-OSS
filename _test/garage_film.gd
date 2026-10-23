@@ -132,14 +132,14 @@ func _process(delta):
 				print("film: it heard the engine, state ", at._state)
 				step = 6; t = 0
 		6:
-			if at._state == AttendantEntity.LEAVE and at._dist() > 12.0 and t > 4.0:
+			if at._state == AttendantEntity.LEAVE and at._dist() > 8.0 and t > 4.0:
 				print("film: it left after %.0f s" % t)
 				step = 7; t = 0
 			if t > 60.0:
 				print("film: it never left, state ", at._state)
 				step = 7; t = 0
 		7:
-			if t > 2.0:
+			if t > 0.5:
 				car.use("getout", game.player)
 				step = 8; t = 0
 		8:
