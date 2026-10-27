@@ -110,6 +110,22 @@ lining_tex={
 "type": "sampler2D",
 "value": ""
 }
+level_light_0={
+"type": "vec4",
+"value": Vector4(1, 1, 1, 1)
+}
+level_light_1={
+"type": "vec4",
+"value": Vector4(1, 1, 1, 1)
+}
+level_light_2={
+"type": "vec4",
+"value": Vector4(1, 1, 1, 1)
+}
+level_light_3={
+"type": "vec4",
+"value": Vector4(1, 1, 1, 1)
+}
 
 [editor_plugins]
 

@@ -15,3 +15,7 @@ build/
 # Dev-only harness output
 _test/*.uid
 __pycache__/
+_test/levels/*.uid
+
+# Side level assets keep their import settings (VRAM compression, mipmaps).
+!assets/levels/**/*.import

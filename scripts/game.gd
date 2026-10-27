@@ -54,6 +54,12 @@ var _adapt := 1.0          # Photoreal eye adaptation (exposure multiplier)
 var field: FieldLevel          # the Meadow, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
 var _in_mall := false
+## A side level (SideLevel), only while you're in one, and its id.
+var side: SideLevel
+var side_id := ""
+var _in_side := false
+## The side levels' ways in, around you in the Backrooms (and in the mall).
+var entrances: LevelEntrances
 var world_env: WorldEnvironment
 var _in_field := false
 # Frame-rate watchdog (auto quality): seconds of steady play measured, frames
@@ -171,6 +177,12 @@ func _ready() -> void:
 	odd_doors.target = player
 	odd_doors.door_entered.connect(_on_odd_door)
 	add_child(odd_doors)
+	entrances = LevelEntrances.new()
+	entrances.process_mode = Node.PROCESS_MODE_PAUSABLE
+	entrances.target = player
+	add_child(entrances)
+	# The entrances call us when used (use_level_entrance).
+	add_to_group(LevelEntrance.HOST_GROUP)
 	details = LobbyDetails.new()
 	details.process_mode = Node.PROCESS_MODE_PAUSABLE
 	details.target = player
@@ -346,7 +358,7 @@ func _update_gi() -> void:
 	chunks.set_gi(on)
 	if fixtures:
 		fixtures.set_gi(on)
-	vgi.source = mall if _in_mall else chunks
+	vgi.source = mall if _in_mall else (side if _in_side else chunks)
 	vgi.set_active(on)
 
 
@@ -397,6 +409,8 @@ func _use_gen(g: WorldGen, swap: bool) -> void:
 	ripples.gen = g
 	odd_doors.clear()
 	odd_doors.gen = g
+	entrances.clear()
+	entrances.gen = g
 	details.clear()
 	details.gen = g
 	footage.gen = g
@@ -506,7 +520,7 @@ func _enter_menu() -> void:
 	var sv: int = save.get("seed", MENU_SEED)
 	var sg := WorldGen.new(sv)
 	var pos: Vector3 = save.get("pos", sg.spawn_position())
-	if save.has("field_exit"):
+	if save.has("field_exit") or save.has("side"):
 		pos = sg.spawn_position()
 	_load_world(sv, pos, save.get("yaw", 0.0), 0.0, func() -> void:
 		state = State.MENU
@@ -600,6 +614,17 @@ func continue_game() -> void:
 	_play_time = save.get("time", 0.0)
 	_side_seed = int(save.get("side_seed", 0))
 	await hud.fade_to(1.0, 0.4)
+	if save.has("side") and SideLevels.exists(String(save.side)):
+		# Saved in a side level: load the Backrooms (for the way back), then
+		# go straight back in, where you were, as it was.
+		var lg := WorldGen.new(save.seed)
+		_load_world(save.seed, lg.spawn_position(), 0.0, 0.0, func() -> void:
+			player.set_flashlight(save.get("flashlight", false))
+			_start_playing()
+			await _enter_side(String(save.side), save.pos, save.yaw, save.get("side_state", {}))
+			player.set_stance(int(save.get("stance", 0)))
+			hud.fade_to(0.0, 1.0), int(save.get("floor", 0)))
+		return
 	if save.get("mall", false):
 		# Saved in the Dead Mall: load the Backrooms (for the way back), then
 		# go straight to the mall.
@@ -650,6 +675,8 @@ func pause() -> void:
 	var c := gen.cell_of(player.global_position)
 	var info := pause_menu.find_child("Info", true, false) as Label
 	var where: String = FIELD_NAME if _in_field else (MallLevel.NAME if _in_mall else WorldGen.BIOME_NAMES[gen.biome_at(c.x, c.y)])
+	if _in_side:
+		where = SideLevels.info(side_id).name
 	info.text = "%s\nSeed %d  ·  %s explored" % [where, gen.seed_value, _format_time(_play_time)]
 	if net.active:
 		var nums := []
@@ -913,9 +940,10 @@ func _process(delta: float) -> void:
 		if _net_t <= 0.0:
 			_net_t = 0.05
 			net.send_state({"p": player.global_position, "y": player.yaw, "x": player.pitch,
-				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching,
+				"v": player.velocity, "f": player.flashlight_on, "c": player.crouching or player.crawling,
 				"g": player.is_on_floor(), "fl": _in_field, "ml": _in_mall, "fr": _floor,
-				"sd": _side_seed, "s": player.seated or player._ride_t >= 0.0, "t": Time.get_ticks_msec()})
+				"sd": _side_seed, "s": player.seated or player._ride_t >= 0.0, "t": Time.get_ticks_msec(),
+				"sl": side_id if _in_side else "", "cr": player.crawling})
 	_update_radar(delta)
 	lining.allowed = state == State.PLAYING and not _away() and not _transition
 	hall_figure.allowed = lining.allowed
@@ -1123,7 +1151,7 @@ func _on_field_exit() -> void:
 # ------------------------------------------------------------- dead mall ---
 
 func _away() -> bool:
-	return _in_field or _in_mall
+	return _in_field or _in_mall or _in_side
 
 
 func _leave_side_levels() -> void:
@@ -1131,6 +1159,8 @@ func _leave_side_levels() -> void:
 		_leave_field()
 	if _in_mall:
 		_leave_mall()
+	if _in_side:
+		_leave_side()
 
 
 func _go_to_mall(door: OddDoor) -> void:
@@ -1155,6 +1185,7 @@ func _enter_mall(pos := Vector3.INF, yaw := 0.0) -> void:
 	add_child(mall)
 	mall.build(gen.hashi(_side_seed, gen.seed_value, 977))
 	mall.exit_entered.connect(_on_mall_exit)
+	entrances.place_in_mall(mall)       # side levels' ways in (the hospital lift...)
 	world_env.environment = mall.environment
 	chunks.visible = false
 	chunks.process_mode = Node.PROCESS_MODE_DISABLED
@@ -1200,6 +1231,237 @@ func _on_mall_exit() -> void:
 	await hud.fade_to(1.0, 0.8)
 	_leave_mall()
 	_return_somewhere_else()
+
+
+# ----------------------------------------------------------- side levels ---
+# The side levels (SideLevel, see scripts/world/levels/README.md): reached
+# through an entrance (LevelEntrance, put in the world by LevelEntrances),
+# left by one of their exits: back into the Backrooms somewhere else, or on
+# into another side level (a chain). Like the Dead Mall they live far below
+# (SideLevel.LEVEL_Y) and the Backrooms is hidden while you're in one.
+
+## An entrance was used (LevelEntrance calls everything in its HOST_GROUP).
+func use_level_entrance(e: LevelEntrance) -> void:
+	if not SideLevels.exists(e.dest):
+		push_warning("No side level '%s'" % e.dest)
+		return
+	enter_side_level(e.dest, e)
+
+
+## Into side level `id`: through entrance `from` (its ride in first) when
+## given. Two players who take the same entrance get the same level.
+func enter_side_level(id: String, from: LevelEntrance = null) -> void:
+	if state != State.PLAYING or _transition or _in_side or _in_field:
+		return
+	_transition = true
+	player.controls_enabled = false
+	if from:
+		var p := from.global_position
+		if _in_mall:
+			_side_seed = gen.hashi(_side_seed & 0xFFFFF, floori(p.z * 4.0), 1302) & 0x7FFFFFFF
+		else:
+			_side_seed = gen.hashi(floori(p.x * 4.0), floori(p.z * 4.0), 1301 + _floor) & 0x7FFFFFFF
+		await from.enter(player)
+	else:
+		_side_seed = gen.hashi(id.hash() & 0xFFFF, _floor, 1305) & 0x7FFFFFFF
+	await hud.fade_to(1.0, 0.9)
+	if _in_mall:
+		_leave_mall()
+	await _enter_side(id)
+	_announce_side(id)
+	await hud.fade_to(0.0, 1.6)
+	player.controls_enabled = true
+	_transition = false
+
+
+func _announce_side(id: String) -> void:
+	var info := SideLevels.info(id)
+	hud.show_level(info.name, info.intro)
+
+
+## Dev / test harnesses: straight into side level `id`, as if through a door
+## where you stand (from inside another side level too).
+func debug_enter_side(id: String) -> void:
+	if not _in_side:
+		await enter_side_level(id)
+		return
+	if _transition:
+		return
+	_transition = true
+	await hud.fade_to(1.0, 0.4)
+	_leave_side()
+	_side_seed = gen.hashi(id.hash() & 0xFFFF, _floor, 1305) & 0x7FFFFFFF
+	await _enter_side(id)
+	_announce_side(id)
+	await hud.fade_to(0.0, 0.6)
+	player.controls_enabled = true
+	_transition = false
+
+
+## Swaps the Backrooms out and side level `id` in (a fresh arrival, or where
+## a saved game left you with the level's saved state). Compiles its shaders
+## behind the fade.
+func _enter_side(id: String, pos := Vector3.INF, yaw := 0.0, saved := {}) -> void:
+	_in_side = true
+	side_id = id
+	side = SideLevels.create(id)
+	side.name = "Side_" + id
+	side.process_mode = Node.PROCESS_MODE_PAUSABLE
+	side._setup(player, id)
+	add_child(side)
+	side.build(gen.hashi(_side_seed, gen.seed_value, 1301) & 0x7FFFFFFF)
+	if not saved.is_empty():
+		side.load_state(saved)
+	side.exit_entered.connect(_on_side_exit)
+	side.player_caught.connect(_on_side_caught)
+	side.player_fell.connect(_on_side_fell)
+	if side.environment == null:
+		side.environment = side.make_environment()
+	world_env.environment = side.environment
+	for n in _backrooms_nodes():
+		n.visible = false
+		n.process_mode = Node.PROCESS_MODE_DISABLED
+	if fixtures:
+		fixtures.max_lights = 0
+		fixtures._place()
+	ripples.active = false
+	reflection.set_active(false)
+	# The Backrooms' hum and noises stay quiet (the level brings its own).
+	ambience.outdoor = true
+	ambience.reverb_override = side.reverb()
+	player.side_mode = true
+	player.side = side
+	player.camera.far = side.camera_far()
+	player.camera.cull_mask &= ~SideLevel.FEED_LAYER
+	_update_gi()
+	if pos.is_finite():
+		player.teleport(pos, yaw)
+	else:
+		var t := side.arrival()
+		player.teleport(t.origin + Vector3(0, 0.05, 0), SideLevel._yaw_of(t))
+		if side.wants_flashlight():
+			player.set_flashlight(true)
+	side.on_enter()
+	player.snap_stance()
+	var warm := side.warm_materials()
+	warm.append_array(SideLevel.base_warm_materials())
+	warm.append_array(LevelEntrance.warm_materials())
+	await _warm_now(warm)
+
+
+## What's hidden (and stopped) while you're in a side level.
+func _backrooms_nodes() -> Array[Node3D]:
+	return [chunks, odd_doors, entrances, details, stairs]
+
+
+func _leave_side() -> void:
+	_in_side = false
+	if side:
+		side.on_leave()
+		side._teardown()
+		side.queue_free()
+		side = null
+	side_id = ""
+	world_env.environment = env
+	for n in _backrooms_nodes():
+		n.visible = true
+		n.process_mode = Node.PROCESS_MODE_PAUSABLE
+	ambience.outdoor = false
+	ambience.reverb_override = {}
+	player.side_mode = false
+	player.side = null
+	player.force_crawl = false
+	player.can_climb = true
+	player.camera.far = 95.0
+	player.camera.cull_mask |= SideLevel.FEED_LAYER
+	player.camera.h_offset = 0.0
+	player.camera.v_offset = 0.0
+	_apply_settings()
+
+
+## Through a side level's exit: back into the Backrooms somewhere else, or
+## (`to` another level's id) straight on into that one.
+func _on_side_exit(to: String) -> void:
+	if state != State.PLAYING or _transition or not _in_side:
+		return
+	_transition = true
+	player.controls_enabled = false
+	await side.open_exit()
+	await hud.fade_to(1.0, 0.8)
+	_leave_side()
+	if to != "" and SideLevels.exists(to):
+		_side_seed = gen.hashi(_side_seed & 0xFFFFF, to.hash() & 0xFFFF, 1307) & 0x7FFFFFFF
+		await _enter_side(to)
+		_announce_side(to)
+		await hud.fade_to(0.0, 1.6)
+		player.controls_enabled = true
+		_transition = false
+		return
+	_return_somewhere_else()
+
+
+## Something in a side level got you: its jumpscare (or a jolt), the
+## level's lines on black, and the Backrooms again, somewhere else (like
+## the Attendant's catch).
+func _on_side_caught(lines: Array, how := {}) -> void:
+	if state != State.PLAYING or _transition or not _in_side:
+		return
+	_transition = true
+	player.controls_enabled = false
+	player.set_physics_process(false)
+	var w := how.get("scare") as Walker
+	if w != null and is_instance_valid(w) and Jumpscare.enabled():
+		await jumpscare.run(w, how)
+		await get_tree().create_timer(1.2).timeout
+	else:
+		var hit := AudioStreamPlayer.new()
+		hit.stream = AudioSynth.cached("impact")
+		hit.bus = "Master"
+		add_child(hit)
+		hit.play()
+		hud.scare(0.7, 0.6)
+		await get_tree().create_timer(0.12).timeout
+		hud.scare(0.0, 0.0)
+		await hud.fade_to(1.0, 0.25)
+		hit.finished.connect(hit.queue_free)
+	ambience.enabled = false
+	if player.seated:
+		player.stand_up()
+	_leave_side()
+	await hud.story(lines, 2.0)
+	player.set_physics_process(true)
+	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "Somewhere else.")
+	_return_somewhere_else(WorldGen.LOBBY)
+
+
+## A fall in a side level that nobody walks away from.
+func _on_side_fell(lines: Array) -> void:
+	if state != State.PLAYING or _transition or not _in_side:
+		return
+	_transition = true
+	player.controls_enabled = false
+	var rush := AudioStreamPlayer.new()
+	rush.stream = AudioSynth.cached("wind")
+	rush.volume_db = -2.0
+	rush.bus = "World"
+	add_child(rush)
+	rush.play()
+	await hud.fade_to(1.0, 0.7)
+	player.set_physics_process(false)
+	rush.queue_free()
+	var hit := AudioStreamPlayer.new()
+	hit.stream = AudioSynth.cached("impact")
+	hit.bus = "Master"
+	add_child(hit)
+	hit.play()
+	hit.finished.connect(hit.queue_free)
+	ambience.enabled = false
+	_leave_side()
+	await get_tree().create_timer(0.8).timeout
+	await hud.story(lines, 2.0)
+	player.set_physics_process(true)
+	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "Somewhere else. Somewhere far.")
+	_return_somewhere_else(WorldGen.LOBBY)
 
 
 ## Stepped on a sodden patch of carpet: the floor gives way, and you fall
@@ -1378,6 +1640,10 @@ func _write_save() -> void:
 		cf.set_value("save", "field_exit", field.exit_pos)
 	if _in_mall:
 		cf.set_value("save", "mall", true)
+	if _in_side and side:
+		cf.set_value("save", "side", side_id)
+		cf.set_value("save", "side_state", side.save_state())
+		cf.set_value("save", "stance", player.stance())
 	cf.save(SAVE_PATH)
 
 
@@ -1522,7 +1788,8 @@ func _update_radar(delta: float) -> void:
 	for id in _remotes:
 		var r := _remotes[id] as RemotePlayer
 		r.gen = gen
-		r.set_viewer(_floor, _in_field, _in_mall, _side_seed)
+		r.set_viewer(_floor, _in_field, _in_mall, _side_seed, side_id if _in_side else "")
+		r.level = side if _in_side else null
 		if not r.has_state():
 			continue
 		if r.visible:
@@ -1535,6 +1802,9 @@ func _update_radar(delta: float) -> void:
 	var light := 1.0
 	if gen and not _away():
 		light = gen.light_level_near(player.global_position + Vector3.UP * 1.2) * 0.35
+	elif _in_side and side:
+		var lc := side.light_at(player.global_position + Vector3.UP * 1.2)
+		light = (lc.r + lc.g + lc.b) / 3.0
 	radar.update(delta, player, others, light)
 
 

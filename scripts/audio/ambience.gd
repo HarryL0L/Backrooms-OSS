@@ -19,6 +19,10 @@ var enabled := false
 ## Outdoors (the Field): Backrooms loops and distant noises go silent and the
 ## reverb dries up; footsteps still play.
 var outdoor := false
+## A side level's own echo ({room, damp, wet}, see SideLevel.reverb()) in
+## place of the biome's; empty for none. Side levels also set `outdoor`, so
+## the Backrooms' own hum and noises stay quiet there.
+var reverb_override := {}
 ## Multiplier on the fluorescent hum (The Lining makes it fade out near it).
 var hum_duck := 1.0
 var hum_duck_figure := 1.0
@@ -89,7 +93,7 @@ func _generate() -> void:
 	for fn in ["draught", "hum", "wind", "drip", "paper", "exhale"]:
 		AudioSynth.cached(fn)
 	var steps := []
-	for surf in 5:
+	for surf in Player.SURF_COUNT:
 		var vs := []
 		for v in 4:
 			vs.append(AudioSynth.footstep(surf, v))
@@ -230,6 +234,8 @@ func _update_reverb() -> void:
 	if rev == null:
 		return
 	var r: Dictionary = {"room": 0.3, "damp": 0.9, "wet": 0.03} if outdoor else REVERB[_biome]
+	if not reverb_override.is_empty():
+		r = reverb_override
 	rev.room_size = lerpf(rev.room_size, r.room, 0.35)
 	rev.damping = lerpf(rev.damping, r.damp, 0.35)
 	rev.wet = lerpf(rev.wet, r.wet, 0.35)

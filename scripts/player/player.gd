@@ -1,17 +1,22 @@
 class_name Player
 extends CharacterBody3D
-## First person controller: walking, sprinting with stamina, crouching, jumping,
-## climbing out of pools, head bob, footsteps and a hand-held flashlight.
-## Input comes from keyboard/mouse, gamepads and the on-screen touch controls.
+## First person controller: walking, sprinting with stamina, crouching,
+## crawling (prone, in side levels and under anything too low to crouch
+## under), wading, jumping, climbing out of pools, head bob, footsteps and a
+## hand-held flashlight. Input comes from keyboard/mouse, gamepads and the
+## on-screen touch controls.
 
 signal footstep(surface: int, strength: float)
 signal flashlight_toggled(on: bool)
 
-enum { SURF_CARPET, SURF_TILE, SURF_CONCRETE, SURF_WATER, SURF_GRASS }
+enum { SURF_CARPET, SURF_TILE, SURF_CONCRETE, SURF_WATER, SURF_GRASS, SURF_METAL }
+const SURF_COUNT := 6
 
 const WALK := 2.6
 const SPRINT := 4.9
 const CROUCH := 1.3
+## Elbow crawl, prone.
+const CRAWL := 0.75
 const WATER_MULT := 0.55
 const ACCEL := 10.0
 const AIR_ACCEL := 1.5
@@ -21,6 +26,10 @@ const STAND_H := 1.75
 const CROUCH_H := 1.05
 const EYE := 1.62
 const EYE_CROUCH := 0.95
+## Prone: the capsule is a ball round your chest (RADIUS * 2 high), the eyes
+## just above the floor.
+const CRAWL_H := 0.6
+const EYE_CRAWL := 0.38
 const RADIUS := 0.3
 
 var gen: WorldGen
@@ -67,6 +76,7 @@ var _ride := PackedVector3Array()   # eye positions along the way in or out
 var _ride_t := -1.0
 var _ride_time := 1.0
 var _ride_yaw := Vector2.ZERO        # from, to
+var _ride_pitch := -0.08
 var _ride_done := Callable()
 ## True while in the outdoor Field level (grass, no pools, no Backrooms rules).
 ## Pushed along by something you stand on (an escalator), this frame.
@@ -74,6 +84,22 @@ var carry := Vector3.ZERO
 var field_mode := false
 ## In the Dead Mall (tiled floors, far below the Backrooms).
 var mall_mode := false
+## In a side level (SideLevel, far below everything else): its own floors,
+## water and light; no Backrooms rules. `side` is the level, which answers
+## surface_at / water_level_at / albedo_at.
+var side_mode := false
+var side: SideLevel = null
+## Down on your front: set while the body is lower than a crouch (see
+## _update_crouch). Read it; don't set it.
+var crawling := false
+## A level that's crawl-only (a duct) keeps you down while this is set.
+var force_crawl := false
+## Climbing up onto ledges (pool rims, jump-climbs). Levels can switch it off
+## (a catwalk railing you mustn't vault).
+var can_climb := true
+## Crouched, you went down flat under something too low to crouch under;
+## you get back up by yourself once there's room.
+var _tight := false
 
 
 func _ready() -> void:
@@ -158,6 +184,7 @@ func teleport(p: Vector3, p_yaw: float, p_pitch := 0.0) -> void:
 		stand_up()
 	global_position = p
 	_safe_pos = p
+	_col.disabled = false          # (in case a ride left it off)
 	velocity = Vector3.ZERO
 	yaw = p_yaw
 	pitch = p_pitch
@@ -255,6 +282,11 @@ static func _is_emulated_mouse(event: InputEvent) -> bool:
 
 
 func surface_at() -> int:
+	if side_mode:
+		# Wading splashes, whatever the floor under the water is.
+		if in_water():
+			return SURF_WATER
+		return side.surface_at(global_position) if side else SURF_CONCRETE
 	if field_mode:
 		return SURF_GRASS
 	if mall_mode:
@@ -278,7 +310,16 @@ static func surface_for(g: WorldGen, pos: Vector3) -> int:
 
 
 func in_water() -> bool:
+	if side_mode:
+		return water_depth() > 0.1
 	return not in_stairwell and not field_mode and not mall_mode and global_position.y < WorldGen.WATER_Y - 0.1
+
+
+## How deep the water you stand in is (side levels; 0 for none).
+func water_depth() -> float:
+	if not side_mode or side == null:
+		return 0.0
+	return maxf(side.water_level_at(global_position) - global_position.y, 0.0)
 
 
 func _physics_process(delta: float) -> void:
@@ -306,7 +347,7 @@ func _physics_process(delta: float) -> void:
 	wish_dir = wish
 	var water := in_water()
 	var want_sprint: bool = Input.is_action_pressed("sprint") or sprint_latched or (touch != null and touch.sprint_held)
-	var sprinting: bool = want_sprint and input.y < -0.3 and not crouching and not exhausted and input.length() > 0.5
+	var sprinting: bool = want_sprint and input.y < -0.3 and not crouching and not crawling and not exhausted and input.length() > 0.5
 	if sprinting:
 		stamina = maxf(stamina - delta * 0.11, 0.0)
 		if stamina <= 0.0:
@@ -318,8 +359,12 @@ func _physics_process(delta: float) -> void:
 	if input.length() < 0.1:
 		sprint_latched = false
 	var speed := CROUCH if crouching else (SPRINT if sprinting else WALK)
+	if crawling:
+		speed = CRAWL
 	if water:
-		speed *= WATER_MULT
+		# Side levels' water can be anything from a puddle to waist deep:
+		# the deeper it is, the harder you wade (full drag by 0.6 m).
+		speed *= WATER_MULT if not side_mode else lerpf(1.0, WATER_MULT, clampf((water_depth() - 0.1) / 0.5, 0.0, 1.0))
 	if exhausted:
 		speed = minf(speed, WALK * 0.85)
 	var target := wish * speed
@@ -333,7 +378,13 @@ func _physics_process(delta: float) -> void:
 	_jump_queued -= delta
 	if _jump_queued > 0.0 and on_floor:
 		_jump_queued = 0.0
-		if not _try_climb(wish if wish.length() > 0.1 else -global_basis.z, 1.0):
+		if crawling:
+			# Up off your front (as far as there's room), unless the level
+			# keeps you down.
+			if not force_crawl:
+				crouching = false
+				_tight = false
+		elif not _try_climb(wish if wish.length() > 0.1 else -global_basis.z, 1.0):
 			if crouching:
 				crouching = false
 			else:
@@ -343,14 +394,19 @@ func _physics_process(delta: float) -> void:
 	velocity -= Vector3(carry.x, 0.0, carry.z)
 	carry = Vector3.ZERO
 	# Pushing against a pool rim climbs out automatically.
-	if is_on_floor() and is_on_wall() and wish.length() > 0.5:
+	if is_on_floor() and is_on_wall() and wish.length() > 0.5 and not crawling:
 		_try_climb(wish.normalized(), 0.85)
-	_update_crouch(delta)
+	_update_crouch(delta, wish)
 	_update_bob(delta, input)
+	# Fell out of the world: back to the last floor you stood on. In the
+	# Backrooms that's anything below the pools; elsewhere (the Field, the
+	# mall, side levels, all far below) a long drop. A side level that
+	# wants falls to kill sets SideLevel.fall_kill, which acts first.
+	var far_below := field_mode or mall_mode or side_mode
 	if is_on_floor():
-		if global_position.y > -1.0 or field_mode or mall_mode:
+		if global_position.y > -1.0 or far_below:
 			_safe_pos = global_position
-	if global_position.y < (_safe_pos.y - 30.0 if field_mode or mall_mode else -12.0):
+	if global_position.y < (_safe_pos.y - 30.0 if far_below else -12.0):
 		teleport(_safe_pos + Vector3(0, 0.2, 0), yaw, pitch)
 	_update_flash_rig(delta)
 
@@ -368,6 +424,8 @@ func _gamepad_look(delta: float) -> void:
 
 
 func _try_climb(dir: Vector3, max_h: float) -> bool:
+	if not can_climb:
+		return false
 	dir.y = 0.0
 	if dir.length() < 0.1:
 		return false
@@ -414,13 +472,15 @@ func _process_climb(delta: float) -> void:
 
 
 ## Moves the eye along `eyes` (world positions, the first is where it is
-## now) over `time` seconds, turning to `to_yaw`, with no collision: getting
-## into or out of a car. Calls `done` at the end.
-func ride(eyes: PackedVector3Array, to_yaw: float, time: float, done: Callable) -> void:
+## now) over `time` seconds, turning to `to_yaw` (and the view settling to
+## `to_pitch`), with no collision: getting into or out of a car, ducking
+## into a vent, climbing down a hatch or a ladder. Calls `done` at the end.
+func ride(eyes: PackedVector3Array, to_yaw: float, time: float, done: Callable, to_pitch := -0.08) -> void:
 	_ride = eyes
 	_ride_t = 0.0
 	_ride_time = time
 	_ride_yaw = Vector2(yaw, to_yaw)
+	_ride_pitch = to_pitch
 	_ride_done = done
 	velocity = Vector3.ZERO
 	crouching = false
@@ -437,7 +497,7 @@ func _process_ride(delta: float) -> void:
 	global_position = e - Vector3.UP * _eye
 	head.position.y = _eye
 	yaw = lerp_angle(_ride_yaw.x, _ride_yaw.y, smoothstep(0.15, 0.85, _ride_t))
-	pitch = lerpf(pitch, -0.08, 1.0 - exp(-4.0 * delta))
+	pitch = lerpf(pitch, _ride_pitch, 1.0 - exp(-4.0 * delta))
 	_apply_rotation()
 	camera.rotation.z = sin(_ride_t * PI) * 0.05
 	if _ride_t >= 1.0:
@@ -450,6 +510,11 @@ func _process_ride(delta: float) -> void:
 	_update_flash_rig(delta)
 
 
+## Being moved for you (a ride, a climb out of a pool) or sitting in a car.
+func busy() -> bool:
+	return _ride_t >= 0.0 or _climb_t >= 0.0 or seated
+
+
 ## Back on your feet after a ride out of a seat.
 func stand_up() -> void:
 	seated = false
@@ -457,16 +522,81 @@ func stand_up() -> void:
 	_safe_pos = global_position
 
 
-func _update_crouch(delta: float) -> void:
-	var target_h := CROUCH_H if crouching else STAND_H
-	if not crouching and _shape.height < STAND_H - 0.01:
-		# Don't stand up into something.
-		if test_move(global_transform, Vector3(0, STAND_H - _shape.height, 0)):
+## Standing, crouched or flat on your front. Crouched and pushing into a gap
+## too low to crouch through (a duct mouth, under a shelf), you go down flat
+## and crawl (`_tight`), and get back up by yourself once there's room. A
+## level can keep you down (force_crawl). Never up into something: if only
+## a crouch fits, you crouch; if not even that, you stay down.
+func _update_crouch(delta: float, wish := Vector3.ZERO) -> void:
+	if (crouching or crawling) and not force_crawl and not _tight and is_on_floor() and wish.length() > 0.5:
+		var ahead := wish.normalized() * 0.35
+		if not _fits(CROUCH_H, ahead) and _fits(CRAWL_H, ahead):
+			_tight = true
+	elif _tight and _shape.height < CROUCH_H - 0.01 and _fits(CROUCH_H, Vector3.ZERO) \
+			and (wish.length() < 0.5 or _fits(CROUCH_H, wish.normalized() * 0.35)):
+		_tight = false
+	var target_h := _stance_height()
+	if target_h > _shape.height + 0.01 and test_move(global_transform, Vector3(0, target_h - _shape.height, 0)):
+		# Don't get up into something.
+		if target_h > CROUCH_H and _shape.height < CROUCH_H - 0.01 \
+				and not test_move(global_transform, Vector3(0, CROUCH_H - _shape.height, 0)):
+			target_h = CROUCH_H
+		else:
 			target_h = _shape.height
 	_shape.height = move_toward(_shape.height, target_h, delta * 3.5)
 	_col.position.y = _shape.height * 0.5
-	var target_eye := remap(_shape.height, CROUCH_H, STAND_H, EYE_CROUCH, EYE)
-	_eye = lerpf(_eye, target_eye, 1.0 - exp(-14.0 * delta))
+	crawling = _shape.height < (CRAWL_H + CROUCH_H) * 0.5
+	_eye = lerpf(_eye, _eye_for(_shape.height), 1.0 - exp(-14.0 * delta))
+
+
+func _stance_height() -> float:
+	if force_crawl or _tight:
+		return CRAWL_H
+	return CROUCH_H if crouching else STAND_H
+
+
+func _eye_for(h: float) -> float:
+	if h >= CROUCH_H:
+		return remap(h, CROUCH_H, STAND_H, EYE_CROUCH, EYE)
+	return remap(h, CRAWL_H, CROUCH_H, EYE_CRAWL, EYE_CROUCH)
+
+
+## Straight into the stance you should be in, no easing (after a teleport
+## into a duct, or continuing a game saved there).
+func snap_stance() -> void:
+	_shape.height = _stance_height()
+	_col.position.y = _shape.height * 0.5
+	crawling = _shape.height < (CRAWL_H + CROUCH_H) * 0.5
+	_eye = _eye_for(_shape.height)
+	head.position.y = _eye
+
+
+## 0 standing, 1 crouched, 2 crawling (for saves).
+func stance() -> int:
+	return 2 if crawling else (1 if crouching else 0)
+
+
+func set_stance(s: int) -> void:
+	crouching = s >= 1
+	_tight = s == 2
+	snap_stance()
+
+
+var _probe: CapsuleShape3D
+
+
+## Whether a body `h` tall (a little narrower than yours, its feet just off
+## the floor so standing on it doesn't count) fits at `offset` from here.
+func _fits(h: float, offset: Vector3) -> bool:
+	if _probe == null:
+		_probe = CapsuleShape3D.new()
+		_probe.radius = RADIUS - 0.04
+	_probe.height = h - 0.06
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = _probe
+	q.transform = Transform3D(Basis(), global_position + offset + Vector3(0, 0.06 + _probe.height * 0.5, 0))
+	q.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
 
 
 func _update_bob(delta: float, input: Vector2) -> void:
@@ -482,11 +612,17 @@ func _update_bob(delta: float, input: Vector2) -> void:
 	# brisk walk, 2.8 at a sprint), and the phase is accumulated so changing
 	# speed never makes the bob jump.
 	var step_len := clampf(0.45 + 0.27 * hspeed, 0.55, 1.8)
-	if on_floor and hspeed > 0.3:
+	# Prone (0..1, as far down as the body is): each elbow pull drags you
+	# about 0.3 m.
+	var prone := clampf(remap(_shape.height, CROUCH_H, CRAWL_H, 0.0, 1.0), 0.0, 1.0)
+	step_len = lerpf(step_len, 0.3, prone)
+	if on_floor and hspeed > (0.3 if prone < 0.5 else 0.15):
 		var prev := _step_phase
 		_step_phase += hspeed * delta / step_len * PI
 		if floori(prev / PI) != floori(_step_phase / PI):
 			var strength := clampf(hspeed / SPRINT, 0.35, 1.0) * (0.55 if crouching else 1.0)
+			if crawling:
+				strength = 0.3          # knees and elbows, not footfalls
 			footstep.emit(surface_at(), strength)
 	var head_bob: bool = Settings.get_value("graphics/head_bob")
 	var target_amt := clampf(hspeed / WALK, 0.0, 1.0) if on_floor and head_bob else 0.0
@@ -506,12 +642,25 @@ func _update_bob(delta: float, input: Vector2) -> void:
 	var by := lerpf(walk_y, run_y, _run_blend) * amt + breathe
 	# Weight shifts over the standing foot: sideways sway at half the rate.
 	var bx := sin(p) * lerpf(0.016, 0.024, _run_blend) * amt
-	head.position = Vector3(bx, _eye + by - _land_dip, 0.0)
+	var bz := 0.0
 	var target_roll := -input.x * 0.025 + sin(p) * lerpf(0.003, 0.007, _run_blend) * amt
+	var nod := -lerpf(w * 0.003, pow(w, 3.0) * 0.012, _run_blend) * amt - _land_dip * 0.15
+	if prone > 0.0:
+		# Elbow crawl: each pull heaves the shoulders up on one side and
+		# drags the body forward, so the view rolls left and right, rises and
+		# sinks a little, and lunges ahead on each pull.
+		var ca := clampf(hspeed / CRAWL, 0.0, 1.0) * (1.0 if on_floor and head_bob else 0.0) * prone
+		var pull := 0.5 - 0.5 * cos(2.0 * _step_phase)          # 0 at rest .. 1 mid-pull
+		bx = lerpf(bx, sin(_step_phase) * 0.045, ca)
+		by = lerpf(by, pull * 0.02 + breathe, prone)
+		bz = -pull * 0.05 * ca
+		target_roll = lerpf(target_roll, -input.x * 0.02 + sin(_step_phase) * 0.05 * ca, prone)
+		nod = lerpf(nod, -pull * 0.025 * ca, prone)
+	head.position = Vector3(bx, _eye + by - _land_dip, bz)
 	_roll = lerpf(_roll, target_roll, 1.0 - exp(-10.0 * delta))
 	camera.rotation.z = _roll
 	# A small nod on each landing, stronger when running.
-	camera.rotation.x = -lerpf(w * 0.003, pow(w, 3.0) * 0.012, _run_blend) * amt - _land_dip * 0.15
+	camera.rotation.x = nod
 
 
 func _update_flash_rig(delta: float) -> void:
@@ -560,7 +709,9 @@ const BOUNCE_ENERGY := 0.9
 ## What colour the surface at p is (for the bounce): the level's wall, floor
 ## or ceiling colour in the Backrooms, a neutral grey elsewhere.
 func _albedo_at(p: Vector3, n: Vector3) -> Color:
-	if gen == null or mall_mode:
+	if side_mode and side:
+		return side.albedo_at(p, n)
+	if gen == null or mall_mode or side_mode:
 		return Color(0.55, 0.53, 0.5)
 	var c := gen.cell_of(p - n * 0.1)
 	var b := gen.biome_at(c.x, c.y)

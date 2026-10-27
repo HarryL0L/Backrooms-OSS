@@ -235,7 +235,7 @@ func _draw() -> void:
 		var c := element_center(id)
 		var br := element_radius(id)
 		var active: bool = _btn_fingers.values().has(id) or (id == "sprint" and sprint_held) \
-				or (id == "crouch" and player != null and player.crouching) \
+				or (id == "crouch" and player != null and (player.crouching or player.crawling)) \
 				or (id == "flashlight" and player != null and player.flashlight_on)
 		draw_circle(c, br, Color(0.95, 0.85, 0.45, a * 0.5) if active else fill)
 		draw_arc(c, br, 0, TAU, 40, white, 2.0, true)

@@ -45,6 +45,11 @@ var viewer_floor := 0
 var viewer_field := false
 var viewer_mall := false
 var viewer_side := 0
+## The side level they're in ("" none; older games never send one), the
+## one the viewer is in, and that level (for its light and floors).
+var in_level := ""
+var viewer_level := ""
+var level: SideLevel = null
 
 
 func _ready() -> void:
@@ -117,19 +122,23 @@ func has_state() -> bool:
 
 
 ## Where the player looking at them is.
-func set_viewer(p_floor: int, p_field: bool, p_mall: bool, p_side: int) -> void:
+func set_viewer(p_floor: int, p_field: bool, p_mall: bool, p_side: int, p_level := "") -> void:
 	viewer_floor = p_floor
 	viewer_field = p_field
 	viewer_mall = p_mall
 	viewer_side = p_side
+	viewer_level = p_level
 
 
-## In the Field or the Mall rather than the Backrooms.
+## In the Field, the Mall or a side level rather than the Backrooms.
 func away() -> bool:
-	return in_field or in_mall
+	return in_field or in_mall or in_level != ""
 
 
 func place_name() -> String:
+	if in_level != "":
+		# "Level 2.1 - The Crawlspace" -> "L2.1"
+		return String(SideLevels.info(in_level).name).get_slice(" - ", 0).replace("Level ", "L").left(6)
 	if in_field:
 		return "FIELD"
 	if in_mall:
@@ -164,7 +173,7 @@ func _process(delta: float) -> void:
 		pa.y += (fa - fb) * WorldGen.FLOOR_H
 	var pos := pa.lerp(pb, k)
 	if pa.distance_to(pb) > 6.0 or bool(sa.get("fl", false)) != bool(sb.get("fl", false)) \
-			or bool(sa.get("ml", false)) != bool(sb.get("ml", false)):
+			or bool(sa.get("ml", false)) != bool(sb.get("ml", false)) or str(sa.get("sl", "")) != str(sb.get("sl", "")):
 		pos = pb                              # teleported: no streak
 	_last_pos = pos
 	global_position = pos
@@ -176,9 +185,12 @@ func _process(delta: float) -> void:
 	side_seed = int(sb.get("sd", 0))
 	floor_index = int(sb.get("fr", 0))
 	seated = bool(sb.get("s", false))
-	# Only where you are: the same floor of the Backrooms, or the same Field
-	# or Mall (the one behind the same door).
-	if in_field or in_mall or viewer_field or viewer_mall:
+	in_level = str(sb.get("sl", ""))
+	# Only where you are: the same floor of the Backrooms, or the same Field,
+	# Mall or side level (the one behind the same door).
+	if in_level != "" or viewer_level != "":
+		visible = in_level == viewer_level and side_seed == viewer_side
+	elif in_field or in_mall or viewer_field or viewer_mall:
 		visible = in_field == viewer_field and in_mall == viewer_mall and side_seed == viewer_side
 	else:
 		visible = floor_index == viewer_floor
@@ -229,7 +241,9 @@ func _process(delta: float) -> void:
 	if _light_t <= 0.0 and gen:
 		_light_t = 0.3
 		var c: Color
-		if in_mall:
+		if in_level != "" and level:
+			c = level.light_at(pos + Vector3.UP * 1.2)
+		elif in_mall:
 			c = Color(0.55, 0.53, 0.5)            # same as the mannequins there
 		elif in_field:
 			c = Color(0.32, 0.34, 0.38)           # sky light; the sun adds the rest
@@ -267,6 +281,9 @@ func _footstep() -> void:
 	if ambience == null or gen == null:
 		return
 	var surf := Player.SURF_GRASS if in_field else (Player.SURF_TILE if in_mall else Player.surface_for(gen, global_position))
+	if in_level != "" and level:
+		var p := global_position
+		surf = Player.SURF_WATER if level.water_level_at(p) > p.y + 0.1 else level.surface_at(p)
 	var st := ambience.step_stream(surf)
 	if st == null:
 		return
