@@ -58,16 +58,15 @@ func run(w: Walker, opts: Dictionary) -> void:
 	player._apply_rotation()
 	var eye := cam.global_position
 	w.visible = true
-	w.rotation.y = atan2(-dir.x, -dir.z)        # the body faces +Z: towards you
+	w.rotation = Vector3(-float(opts.get("rear", 0.0)), atan2(-dir.x, -dir.z), 0.0)   # faces +Z: you; rearing up
 	body.update(0.0)
-	var head_off := body.head_position() - w.global_position
 	var eyes: Array[MeshInstance3D] = []
 	if opts.get("eyes", true):
 		for i in 2:
 			var e := MeshInstance3D.new()
 			var sm := SphereMesh.new()
-			sm.radius = 0.014
-			sm.height = 0.02
+			sm.radius = 0.02
+			sm.height = 0.028
 			sm.radial_segments = 8
 			sm.rings = 4
 			e.mesh = sm
@@ -90,15 +89,17 @@ func run(w: Walker, opts: Dictionary) -> void:
 		var k := clampf(t / time, 0.0, 1.0)
 		var rush := 1.0 - pow(1.0 - minf(k * 1.6, 1.0), 3.0)     # rushes in, then holds there
 		var d := lerpf(from_d, to_d, rush)
-		w.global_position = eye + dir * d - head_off + Vector3.UP * 0.03 * sin(t * 40.0)
 		body.reach = rush
 		body.update(dt)
+		# Its head held right in the middle of your view, whatever the pose does.
+		var want := eye + dir * d + Vector3.UP * 0.03 * sin(t * 40.0)
+		w.global_position += want - body.head_position()
 		# The lights strobe on it.
 		var lit := 2.4 if fmod(t, 0.14) < 0.05 else 0.25
 		body.set_env_light(Color(lit, lit * 0.97, lit * 0.92))
 		var h := body.head_position()
 		for i in eyes.size():
-			eyes[i].global_position = h - dir * 0.1 + right * (0.036 if i == 0 else -0.036) - Vector3.UP * 0.01
+			eyes[i].global_position = h - dir * 0.15 * body.scale.y + right * (0.045 if i == 0 else -0.045) - Vector3.UP * 0.02
 		var shake := 0.06 * (1.0 - 0.5 * k)
 		cam.h_offset = randf_range(-1.0, 1.0) * shake
 		cam.v_offset = randf_range(-1.0, 1.0) * shake

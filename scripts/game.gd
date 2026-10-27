@@ -1272,7 +1272,7 @@ func _on_caught() -> void:
 	player.controls_enabled = false
 	player.set_physics_process(false)
 	if Jumpscare.enabled():
-		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 1.7, "to": 0.45, "time": 0.95, "cut": true})
+		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 2.2, "to": 0.78, "time": 1.0, "cut": true})
 		await get_tree().create_timer(1.2).timeout
 	else:
 		await get_tree().create_timer(0.5).timeout
@@ -1294,7 +1294,7 @@ func _on_crawler_lunge() -> void:
 	var had := player.controls_enabled
 	player.controls_enabled = false
 	player.set_physics_process(false)
-	await jumpscare.run(crawler, {"sound": "crawler_scream", "from": 1.1, "to": 0.32, "time": 0.6, "cut": false, "eyes": false})
+	await jumpscare.run(crawler, {"sound": "crawler_scream", "from": 1.3, "to": 0.55, "time": 0.65, "cut": false, "eyes": false, "rear": 1.0})
 	player.set_physics_process(true)
 	player.controls_enabled = had and state == State.PLAYING
 	crawler.finish_lunge()
