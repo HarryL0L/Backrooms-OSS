@@ -134,6 +134,6 @@ func _place() -> void:
 		l.global_position = e[1]
 		l.light_color = WorldGen.SKY_COLOR if sky else WorldGen.LIGHT_COLOR[b]
 		l.omni_range = WorldGen.LIGHT_RADIUS[b] * (1.2 if sky else 0.8)
-		var energy := 0.9 if sky else 0.35
+		var energy := 0.9 if sky else 0.35 * sqrt(WorldGen.LIGHT_REACH[b])
 		_base[slot] = energy if _forward_plus else energy * 0.12
 		_seeds[slot] = gen.light_seed(key.x, key.y) if e[3] == WorldGen.L_FLICKER else 0.0

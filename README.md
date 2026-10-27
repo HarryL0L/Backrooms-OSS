@@ -2,7 +2,7 @@
 
 An open source, infinite **Backrooms** exploration game for **Android** (and Linux/Windows), built with [Godot 4.7](https://godotengine.org).
 
-You stepped through a wall that wasn't there. The hum of fluorescent lights, old damp carpet, and rooms that never end. Walk from the **Lobby** into the echoing **Poolrooms** (where, somewhere off through the tiles, you can always hear people you never find), the damp warehouse of the **Habitable Zone**, the cramped **Pipe Dreams** tunnels and the pitch-black **Unlit Halls**, all part of one seamless, endless world with no loading screens.
+You stepped through a wall that wasn't there. The hum of fluorescent lights, old damp carpet, and rooms that never end. Walk from the **Lobby** into the echoing **Poolrooms** (where, somewhere off through the tiles, you can always hear people you never find), the damp, 6 m high warehouse of the **Habitable Zone**, the cramped **Pipe Dreams** tunnels and the pitch-black **Unlit Halls**, all part of one seamless, endless world with no loading screens.
 
 ![Main menu](docs/screenshots/menu.jpg)
 

@@ -37,12 +37,15 @@ const DOOR_H := [0.0, 0.0, 2.1, 3.1, 2.7, 3.95, 2.6]
 const WIN_Y0 := 0.45
 
 # Per-biome constants.
-const CEIL_H := [3.0, 4.8, 3.6, 2.7, 2.7, 2.6]
+const CEIL_H := [3.0, 4.8, 6.0, 2.7, 2.7, 2.6]
 const POOL_FLOOR := -0.8
 const WATER_Y := -0.16
 const LIGHT_COLOR := [Color(1.0, 0.97, 0.86), Color(1.0, 0.98, 0.94), Color(1.0, 0.91, 0.70), Color(1.0, 0.82, 0.58), Color(1.0, 0.88, 0.7), Color(0.86, 0.95, 1.0)]
 const LIGHT_POWER := [3.2, 3.4, 5.0, 2.0, 3.4, 3.4]
-const LIGHT_RADIUS := [7.5, 7.0, 10.5, 6.0, 7.0, 8.0]
+const LIGHT_RADIUS := [7.5, 7.0, 13.0, 6.0, 7.0, 8.0]
+## How much light reaches the floor, as well as the fittings' own glow: the
+## warehouse's high-bay lights hang 6 m up (light falls off with distance).
+const LIGHT_REACH := [1.0, 1.0, 2.3, 1.0, 1.0, 1.0]
 const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.09, 0.10, 0.10), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008), Color(0.012, 0.013, 0.014)]
 # Approximate colour of light after bouncing off the room surfaces.
 const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.72, 0.68, 0.56), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42), Color(0.62, 0.63, 0.62)]
@@ -462,7 +465,7 @@ func light_level_near(p: Vector3, radius := 2) -> float:
 			var s := light_state(gx, gz, b)
 			if s == L_ON or s == L_FLICKER:
 				var lp := Vector3((gx + 0.5) * CELL, CEIL_H[b], (gz + 0.5) * CELL)
-				total += LIGHT_POWER[b] / (1.0 + lp.distance_squared_to(p) * 0.3)
+				total += LIGHT_POWER[b] * LIGHT_REACH[b] / (1.0 + lp.distance_squared_to(p) * 0.3)
 	return total
 
 
@@ -481,7 +484,7 @@ func light_dir_near(p: Vector3, radius := 3) -> Vector3:
 			var s := light_state(gx, gz, b)
 			if s == L_ON or s == L_FLICKER:
 				var lp := Vector3((gx + 0.5) * CELL, CEIL_H[b], (gz + 0.5) * CELL)
-				var w: float = LIGHT_POWER[b] / (1.0 + lp.distance_squared_to(p) * 0.3)
+				var w: float = LIGHT_POWER[b] * LIGHT_REACH[b] / (1.0 + lp.distance_squared_to(p) * 0.3)
 				sum += (lp - p).normalized() * w
 				total += w
 	return sum / total if total > 0.0 else Vector3.UP * 0.3

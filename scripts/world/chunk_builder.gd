@@ -324,7 +324,7 @@ func _compute_lights() -> void:
 			elif s == WorldGen.L_ON or s == WorldGen.L_FLICKER:
 				light_at[i + j * W] = lpos.size()
 				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
-				lcol.push_back(WorldGen.LIGHT_COLOR[b] * WorldGen.LIGHT_POWER[b])
+				lcol.push_back(WorldGen.LIGHT_COLOR[b] * (WorldGen.LIGHT_POWER[b] * WorldGen.LIGHT_REACH[b]))
 				lrad.push_back(WorldGen.LIGHT_RADIUS[b])
 				lseed.push_back(gen.light_seed(rx0 + i, rz0 + j) if s == WorldGen.L_FLICKER else 0.0)
 
@@ -1263,11 +1263,12 @@ func _emit_crates(li: int, lj: int, xa: float, za: float, f: float, c: float) ->
 func _emit_rack(gx: int, gz: int, xa: float, za: float, f: float, c: float) -> void:
 	var x0 := xa + 0.65
 	var x1 := xa + 1.75
-	var top := minf(f + 3.0, c - 0.3)
+	# Warehouse racking: five levels, up to about 5 m under the 6 m roof.
+	var top := minf(f + 5.0, c - 0.6)
 	for u in [Vector2(x0, za + 0.03), Vector2(x1 - 0.08, za + 0.03), Vector2(x0, za + CELL - 0.11), Vector2(x1 - 0.08, za + CELL - 0.11)]:
 		_emit_box(MAT_RACK, Vector3(u.x, f, u.y), Vector3(u.x + 0.08, top, u.y + 0.08), f, c, true)
 	var levels := [f]
-	for y in [f + 1.0, f + 2.0, top - 0.05]:
+	for y in [f + 1.2, f + 2.4, f + 3.6, top - 0.05]:
 		if y + 0.4 > c:
 			continue
 		levels.append(y)
