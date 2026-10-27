@@ -30,6 +30,7 @@ var lining: LiningEntity
 var hall_figure: HallFigure
 var crawler: CrawlerEntity
 var attendant: AttendantEntity
+var jumpscare: Jumpscare
 var presence: LobbyPresence      # heard, never seen
 var stairs: Stairwells
 ## Which floor you're on (0 = where you started; below is negative).
@@ -155,6 +156,10 @@ func _ready() -> void:
 	_walker(crawler)
 	attendant = AttendantEntity.new()
 	attendant.caught.connect(_on_caught)
+	crawler.lunged.connect(_on_crawler_lunge)
+	jumpscare = Jumpscare.new()
+	jumpscare.player = player
+	add_child(jumpscare)
 	_walker(attendant)
 	presence = LobbyPresence.new()
 	presence.process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -213,6 +218,7 @@ func _build_ui() -> void:
 	root.theme = UITheme.make()
 	layer.add_child(root)
 	hud = HUD.new()
+	jumpscare.hud = hud
 	root.add_child(hud)
 	footage = FoundFootage.new()
 	footage.player = player
@@ -1265,8 +1271,12 @@ func _on_caught() -> void:
 	_transition = true
 	player.controls_enabled = false
 	player.set_physics_process(false)
-	await get_tree().create_timer(0.5).timeout
-	await hud.fade_to(1.0, 0.25)
+	if Jumpscare.enabled():
+		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 1.7, "to": 0.45, "time": 0.95, "cut": true})
+		await get_tree().create_timer(1.2).timeout
+	else:
+		await get_tree().create_timer(0.5).timeout
+		await hud.fade_to(1.0, 0.25)
 	ambience.enabled = false
 	attendant.reset()
 	if player.seated:
@@ -1277,6 +1287,17 @@ func _on_caught() -> void:
 	player.camera.v_offset = 0.0
 	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "Somewhere else.")
 	_return_somewhere_else(WorldGen.LOBBY)
+
+
+## The crawler's reached you: it comes up at your face, then it's gone.
+func _on_crawler_lunge() -> void:
+	var had := player.controls_enabled
+	player.controls_enabled = false
+	player.set_physics_process(false)
+	await jumpscare.run(crawler, {"sound": "crawler_scream", "from": 1.1, "to": 0.32, "time": 0.6, "cut": false, "eyes": false})
+	player.set_physics_process(true)
+	player.controls_enabled = had and state == State.PLAYING
+	crawler.finish_lunge()
 
 
 func _walker(w: Walker) -> void:

@@ -7,7 +7,10 @@ extends Walker
 ## shriek: you stagger (winded, the torch knocked out) and it's gone. It
 ## never kills you.
 
-enum { CREEP, FLEE, LUNGE }
+## It's on you (with jumpscares on, the game plays it, then finish_lunge()).
+signal lunged
+
+enum { CREEP, FLEE, LUNGE, SCARE }
 
 const REACH := 1.8
 
@@ -56,10 +59,14 @@ func _process(delta: float) -> void:
 				_say("crawler_hiss", -2.0, _rng.randf_range(0.95, 1.1))
 				_wander(6, 10, true)
 			elif d < REACH:
-				_state = LUNGE
 				_lunge_t = 0.0
 				_lunge_from = global_position
-				_say("crawler_scream", 4.0, _rng.randf_range(0.95, 1.08))
+				if Jumpscare.enabled():
+					_state = SCARE
+					lunged.emit()
+				else:
+					_state = LUNGE
+					_say("crawler_scream", 4.0, _rng.randf_range(0.95, 1.08))
 			elif seen:
 				# Caught in the corner of your eye: perfectly still.
 				body.pose_crawl(_phase, 0.0)
@@ -85,6 +92,8 @@ func _process(delta: float) -> void:
 			if (_flee_t > 0.7 and not seen) or _flee_t > 3.0:
 				_vanish()
 				return
+		SCARE:
+			return
 		LUNGE:
 			_lunge_t += delta
 			var k := clampf(_lunge_t / 0.22, 0.0, 1.0)
@@ -109,6 +118,12 @@ func _creep_at(p: Vector3, delta: float) -> void:
 		global_position += to / d * minf(speed * delta, d)
 		_face(to, 1.0 - exp(-8.0 * delta))
 	_stride(delta, speed)
+
+
+## After the jumpscare.
+func finish_lunge() -> void:
+	if present:
+		_hit()
 
 
 func _hit() -> void:

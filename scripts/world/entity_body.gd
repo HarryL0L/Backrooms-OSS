@@ -41,6 +41,8 @@ var skeleton: Skeleton3D
 var anim: AnimationPlayer
 var head_yaw := 0.0
 var stoop := 0.0
+## Arms up and reaching for you, 0..1 (the jumpscare).
+var reach := 0.0
 var _mats: Array[ShaderMaterial] = []
 var _clip := ""
 var _over := {}           # bone -> [rotation written, overlay applied]
@@ -145,6 +147,15 @@ static func _leg_gain(sk: Skeleton3D) -> float:
 	return gain
 
 
+## Where its head is (world), for the jumpscare.
+func head_position() -> Vector3:
+	if skeleton:
+		var b := skeleton.find_bone("head")
+		if b >= 0:
+			return skeleton.global_transform * (skeleton.get_bone_global_pose(b).origin + Vector3(0, 0.08, 0))
+	return global_position + Vector3.UP * 1.6 * scale.y
+
+
 ## Light level where it stands (see figure.gdshader).
 func set_env_light(c: Color) -> void:
 	for m in _mats:
@@ -192,6 +203,13 @@ func update(delta: float) -> void:
 	if stoop > 0.001:
 		_turn("spine_03", Vector3.RIGHT, stoop * 0.4)
 		_turn("neck_01", Vector3.RIGHT, stoop * 0.6)
+	if reach > 0.001:
+		for sd in [["l", 1.0], ["r", -1.0]]:
+			_turn("upperarm_" + sd[0], Vector3.RIGHT, -1.45 * reach)
+			_turn("upperarm_" + sd[0], Vector3.BACK, sd[1] * 0.25 * reach)
+			_turn("lowerarm_" + sd[0], Vector3.RIGHT, -0.35 * reach)
+		_turn("spine_03", Vector3.RIGHT, 0.25 * reach)
+		_turn("head", Vector3.RIGHT, -0.2 * reach)
 
 
 ## Rotates a bone about an axis given in the figure's own space (+Y up,

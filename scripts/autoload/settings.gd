@@ -81,6 +81,7 @@ func defaults() -> Dictionary:
 		"graphics/preset": 2 if is_mobile else 3,
 		"graphics/auto_quality": true,
 		"gameplay/entities": true,
+		"gameplay/jumpscares": true,
 		"graphics/ps1": false,
 		"graphics/photoreal": false,
 		"graphics/found_footage": 0,

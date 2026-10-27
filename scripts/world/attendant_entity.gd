@@ -327,8 +327,9 @@ func _catch() -> void:
 	_state = GRAB
 	set_process(false)
 	_heart.stop()
-	_say("tall_roar", 5.0, 0.9)
-	_shake(player.camera, 0.12, 1.0)
+	if not Jumpscare.enabled():
+		_say("tall_roar", 5.0, 0.9)
+		_shake(player.camera, 0.12, 1.0)
 	caught.emit()
 
 

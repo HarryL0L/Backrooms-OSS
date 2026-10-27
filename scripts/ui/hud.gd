@@ -11,6 +11,8 @@ var _subtitle: Label
 var _fps: Label
 var _stamina: ProgressBar
 var _fade: ColorRect
+var _scare: ColorRect
+var _scare_mat: ShaderMaterial
 var _loading: Control
 var _loading_label: Label
 var _story: Label
@@ -82,6 +84,15 @@ func _ready() -> void:
 	_story.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_story.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_story.modulate.a = 0.0
+	# Jumpscare overlay: a white flash and torn static (see scare()).
+	_scare = ColorRect.new()
+	_scare.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_scare.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_scare_mat = ShaderMaterial.new()
+	_scare_mat.shader = load("res://shaders/scare.gdshader")
+	_scare.material = _scare_mat
+	_scare.visible = false
+	add_child(_scare)
 	_fade = ColorRect.new()
 	_fade.color = Color.BLACK
 	_fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -152,6 +163,13 @@ func fade_to(alpha: float, time: float) -> void:
 	var tw := create_tween()
 	tw.tween_property(_fade, "color:a", alpha, time)
 	await tw.finished
+
+
+## Jumpscare overlay: flash 0..1 (white), noise 0..1 (static and tearing).
+func scare(flash: float, noise: float) -> void:
+	_scare.visible = flash > 0.001 or noise > 0.001
+	_scare_mat.set_shader_parameter("flash", flash)
+	_scare_mat.set_shader_parameter("noise", noise)
 
 
 func set_fade(alpha: float) -> void:

@@ -67,6 +67,10 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return car_dead()
 	if fn == "ding":
 		return ding()
+	if fn == "impact":
+		return impact()
+	if fn == "ring":
+		return ring()
 	if fn.begins_with("stalk_step"):
 		return stalk_step(int(fn.trim_prefix("stalk_step")))
 	push_error("AudioSynth.cached: unknown sound " + fn)
@@ -826,6 +830,36 @@ static func ding() -> AudioStreamWAV:
 				v += (sin(TAU * f * tt) + 0.3 * sin(TAU * f * 2.0 * tt) * exp(-tt * 6.0)) * exp(-tt * 3.2) * smoothstep(0.0, 0.004, tt)
 		s[i] = v
 	return to_wav(_normalize(s, 0.7))
+
+
+## A jumpscare's hit: a deep boom dropping away, with a crack of noise.
+static func impact() -> AudioStreamWAV:
+	var n := int(RATE * 1.4)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	var lp := _Svf.new(900.0, 0.4)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		ph = fposmod(ph + (58.0 * exp(-t * 2.2) + 26.0) / RATE, 1.0)
+		var boom := sin(TAU * ph) * exp(-t * 2.6) * smoothstep(0.0, 0.003, t)
+		lp.step(rng.randf_range(-1.0, 1.0))
+		var crack := lp.low * exp(-t * 18.0) * 2.2
+		s[i] = boom * 1.2 + crack
+	return to_wav(_normalize(s, 0.98))
+
+
+## The ringing in your ears after.
+static func ring() -> AudioStreamWAV:
+	var n := int(RATE * 3.0)
+	var s := PackedFloat32Array()
+	s.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		s[i] = (sin(TAU * 4100.0 * t) + 0.4 * sin(TAU * 4117.0 * t)) * exp(-t * 1.1) * smoothstep(0.0, 0.05, t)
+	return to_wav(_normalize(s, 0.25))
 
 
 static func heartbeat() -> AudioStreamWAV:
