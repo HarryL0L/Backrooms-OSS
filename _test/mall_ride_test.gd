@@ -10,6 +10,8 @@ var t := 0.0
 var log_t := 0.0
 var lift: MallLift
 var esc: MallEscalator
+var esc2: MallEscalator
+var which := 0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -44,8 +46,12 @@ func _process(delta):
 				for n in game.mall.get_children():
 					if n is MallLift:
 						lift = n
-					if n is MallEscalator and (esc == null or n.global_position.y < esc.global_position.y):
-						esc = n
+					if n is MallEscalator:
+						if esc == null or n.global_position.y < esc.global_position.y:
+							esc2 = esc if esc else esc2
+							esc = n
+						else:
+							esc2 = n
 				print("escalator at ", esc.global_position, " dir ", esc.global_basis.x, "; lift at ", lift.global_position, " door ", lift.global_basis.x)
 				# On the bottom landing of the up escalator, facing up it.
 				var p: Vector3 = esc.global_transform * Vector3(-0.7, 0.05, 0)
@@ -56,18 +62,37 @@ func _process(delta):
 			if log_t > 2.0:
 				log_t = 0.0
 				print("  escalator ride t %.0f at %s" % [t, _p()])
-			if t > 1.5 and t < 1.6:
-				_shot("escalator_foot")
 			if t > 9.0 and t < 9.1:
-				_shot("escalator_mid")
-			if t > 26.0:
-				print("after the escalator: height %.2f (level 1 is 5)" % _p().y)
-				_shot("escalator_top")
-				# To the lift on level 1, facing its doors.
-				var front: Vector3 = lift.global_transform * Vector3(2.0, 5.05, 0)
-				var d: Vector3 = -lift.global_basis.x
-				game.player.teleport(front, atan2(-d.x, -d.z), 0.0)
-				step = 4; t = 0
+				_shot("escalator_%d_mid" % which)
+			var e: MallEscalator = esc if which == 0 else esc2
+			var top_y := 5.0 * (which + 1)
+			if absf(_p().y - top_y) < 0.1 and e.to_local(game.player.global_position).x > MallEscalator.RUN + 0.3:
+				# At the top: step off, straight ahead, onto the gallery.
+				print("escalator %d: at the top after %.0f s, height %.2f" % [which, t, _p().y])
+				Input.action_press("move_forward")
+				step = 31; t = 0
+			elif t > 40.0:
+				print("escalator %d: stuck at %s" % [which, _p()])
+				step = 31; t = 0
+		31:
+			if t > 2.5:
+				Input.action_release("move_forward")
+				var e: MallEscalator = esc if which == 0 else esc2
+				var l := e.to_local(game.player.global_position)
+				print("escalator %d: walked off to %s, %.1f m past the end of the steps (height %.2f)" % [which, _p(), l.x - MallEscalator.RUN - MallEscalator.FLAT, _p().y])
+				_shot("escalator_%d_off" % which)
+				if which == 0:
+					which = 1
+					var p2: Vector3 = esc2.global_transform * Vector3(-0.7, 0.05, 0)
+					var d2: Vector3 = esc2.global_basis.x
+					game.player.teleport(p2, atan2(-d2.x, -d2.z), 0.1)
+					step = 3; t = 0
+				else:
+					# To the lift on level 1, facing its doors.
+					var front: Vector3 = lift.global_transform * Vector3(2.0, 5.05, 0)
+					var d: Vector3 = -lift.global_basis.x
+					game.player.teleport(front, atan2(-d.x, -d.z), 0.0)
+					step = 4; t = 0
 		4:
 			if t > 1.0:
 				print("lift: ", lift.use("call1", game.player))

@@ -445,16 +445,19 @@ def fountain_court():
         a = 2 * math.pi * k / 16
         b.box((5.5, 0.03, 0.004), (math.cos(a) * 6.3, math.sin(a) * 6.3, 0.002), "metal_frame", (0, 0, a))
     b.lathe([(7.4, 0.002), (7.5, 0.002)], (0, 0, 0), "metal_frame", 64)
-    # The escalators criss-cross the void, south: ground to level 1, north:
-    # level 1 to 2. The glass lift stands in its south-east corner.
+    # The escalators cross the void heading east, each running straight off
+    # its top onto a gallery: south, ground up to the east gallery on level
+    # 1; north, from the west gallery on level 1 up to level 2, where a
+    # walkway along the north side carries on to the galleries. The glass
+    # lift stands in the void's south-west corner.
     ESC_Y = V - 0.7
-    e0 = (0, -ESC_Y, -6.0, 1)
-    e1 = (1, ESC_Y, 6.0, -1)
-    LIFT = (6.8, -6.8)           # shaft 2 x 2, door facing south (-y)
+    e0 = (0, -ESC_Y, V - ESC_RUN, 1)
+    e1 = (1, ESC_Y, -V, 1)
+    LIFT = (-6.8, -6.8)          # shaft 2 x 2, door facing south (-y)
     lx0, lx1 = LIFT[0] - 1.0, LIFT[0] + 1.0
-    land0 = (e0[2] + ESC_RUN, e0[2] + ESC_RUN + ESC_FLAT + 0.35)       # level 1, south
-    land1 = (e1[2] - 0.1, e1[2] + ESC_FLAT + 0.35)                     # level 1, north (the foot)
-    land2 = (e1[2] - ESC_RUN - ESC_FLAT - 0.35, e1[2] - ESC_RUN)       # level 2, north
+    side = (ESC_Y - 0.7, V)                       # the escalators' width, by the gallery edge
+    walk = (e1[2] + ESC_RUN, V)                   # level 2 walkway, x
+    glass_end = walk[0] + ESC_FLAT + 0.4          # where the escalator's own glass stops
     # The galleries round the void, on levels 1 and 2.
     for k in range(1, STOREYS):
         floor_slab(s, x0, x1, y0, -V, k, (y0 - SHOP_D - 0.5, -V))
@@ -465,20 +468,23 @@ def fountain_court():
         fascia(s, -V, V, V + 0.07, k)
         fascia(s, -V, V, -V - 0.07, k, False)
         fascia(s, -V, V, V + 0.07, k, False)
-        south_gaps = [(lx0, lx1)] + ([land0] if k == 1 else [])
-        north_gaps = [land1] if k == 1 else [land2]
-        balustrade(s, -V, V, -V - 0.08, k, True, south_gaps)
-        balustrade(s, -V, V, V + 0.08, k, True, north_gaps)
-        balustrade(s, -V, V, -V - 0.08, k, False)
-        balustrade(s, -V, V, V + 0.08, k, False)
+        south = [(lx0, lx1)]
+        north = [] if k == 1 else [(walk[0] - 0.2, V)]
+        west = [side] if k == 1 else []
+        east = [(-side[1], -side[0])] if k == 1 else [side]
+        balustrade(s, -V, V, -V - 0.08, k, True, south)
+        balustrade(s, -V, V, V + 0.08, k, True, north)
+        balustrade(s, -V, V, -V - 0.08, k, False, west)
+        balustrade(s, -V, V, V + 0.08, k, False, east)
         # Where the concourse's void meets the court: the bridge's edges.
         for xe in (x0 - 0.08, x1 + 0.08):
             balustrade(s, -VOID, VOID, xe, k, False)
-        # Landings out over the void, and the lift's threshold.
+        # The lift's threshold.
         floor_slab(s, lx0, lx1, -V, -V + 0.2, k)
-    floor_slab(s, land0[0], land0[1], -V, -ESC_Y + 0.6, 1)
-    floor_slab(s, land1[0], land1[1], ESC_Y - 0.6, V, 1)
-    floor_slab(s, land2[0], land2[1], ESC_Y - 0.6, V, 2)
+    # Level 2: the walkway the north escalator arrives on.
+    floor_slab(s, walk[0], walk[1], side[0] - 0.1, V, 2)
+    fascia(s, walk[0], walk[1], side[0] - 0.17, 2)
+    balustrade(s, glass_end, walk[1], side[0] - 0.18, 2, True)
     escalator(s, *e0, rng)
     escalator(s, *e1, rng)
     s.spot("spot_lift", (LIFT[0], LIFT[1], 0), -math.pi / 2)

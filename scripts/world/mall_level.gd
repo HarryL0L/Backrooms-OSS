@@ -140,7 +140,7 @@ static func lit_material(mname: String, light: float) -> Material:
 		var g := StandardMaterial3D.new()
 		g.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		g.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		g.albedo_color = Color(0.62, 0.7, 0.68, 0.1)
+		g.albedo_color = Color(0.3, 0.36, 0.35, 0.06)
 		g.cull_mode = BaseMaterial3D.CULL_DISABLED
 		_mats[sec + "/" + mname] = g
 		return g

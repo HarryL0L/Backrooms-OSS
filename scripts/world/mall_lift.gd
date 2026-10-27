@@ -23,7 +23,7 @@ const NAMES := ["Ground floor", "Level 1", "Level 2"]
 
 enum { IDLE, OPENING, OPEN, CLOSING, MOVING }
 
-var light := 0.9
+var light := 0.5
 var _car: AnimatableBody3D
 var _car_y := 0.0
 var _at := 0                 # floor the car is at (or heading for)
@@ -97,16 +97,21 @@ func _build_shaft() -> void:
 		_box(shaft, Vector3(0.12, 0.12, 2.0 * HALF), Vector3(HALF + 0.02, y0 + DOOR_H + 0.06, 0), "metal_frame")
 		for zs in [-1.0, 1.0]:
 			_box(shaft, Vector3(0.04, DOOR_H, HALF - DOOR_W * 0.5), Vector3(HALF, y0 + DOOR_H * 0.5, zs * (DOOR_W * 0.5 + (HALF - DOOR_W * 0.5) * 0.5)), "metal_frame", true)
-		# Call button beside the doors.
-		_box(shaft, Vector3(0.03, 0.22, 0.12), Vector3(HALF + 0.03, y0 + 1.1, DOOR_W * 0.5 + 0.2), "metal_bright")
+		# Call button beside the doors: a steel plate, the button lit.
+		_box(shaft, Vector3(0.02, 0.18, 0.09), Vector3(HALF + 0.03, y0 + 1.1, DOOR_W * 0.5 + 0.2), "metal_bright")
+		_box(shaft, Vector3(0.02, 0.035, 0.035), Vector3(HALF + 0.045, y0 + 1.12, DOOR_W * 0.5 + 0.2), "light_panel")
 		var gates := []
 		for zs in [-1.0, 1.0]:
 			var g := AnimatableBody3D.new()
 			g.sync_to_physics = false
 			add_child(g)
 			g.position = Vector3(HALF + 0.05, y0, zs * DOOR_W * 0.25)
-			_box(g, Vector3(0.05, DOOR_H, DOOR_W * 0.5), Vector3(0, DOOR_H * 0.5, 0), "metal_bright", true)
-			_box(g, Vector3(0.06, DOOR_H - 0.4, DOOR_W * 0.5 - 0.12), Vector3(0, DOOR_H * 0.5, 0), "glass")
+			# A bronze-framed glass door leaf.
+			_box(g, Vector3(0.05, 0.12, DOOR_W * 0.5), Vector3(0, 0.06, 0), "metal_frame", true)
+			_box(g, Vector3(0.05, 0.12, DOOR_W * 0.5), Vector3(0, DOOR_H - 0.06, 0), "metal_frame")
+			for zz in [-1.0, 1.0]:
+				_box(g, Vector3(0.05, DOOR_H, 0.06), Vector3(0, DOOR_H * 0.5, zz * (DOOR_W * 0.25 - 0.03)), "metal_frame")
+			_box(g, Vector3(0.02, DOOR_H - 0.24, DOOR_W * 0.5 - 0.12), Vector3(0, DOOR_H * 0.5, 0), "glass", true)
 			gates.append(g)
 		_gates.append(gates)
 
@@ -122,9 +127,13 @@ func _build_car() -> void:
 		_box(_car, Vector3(2.0 * CAR, CAR_H, 0.04), Vector3(0, CAR_H * 0.5, zs * CAR), "glass", true)
 		_box(_car, Vector3(2.0 * CAR, 0.05, 0.05), Vector3(0, 0.95, zs * (CAR - 0.06)), "metal_bright")
 	# The button panel, inside by the doors.
-	_box(_car, Vector3(0.3, 0.9, 0.03), Vector3(CAR - 0.25, 1.25, -CAR + 0.04), "metal_frame")
+	_box(_car, Vector3(0.3, 0.9, 0.03), Vector3(CAR - 0.25, 1.25, -CAR + 0.04), "metal_bright")
 	for k in FLOORS:
-		_box(_car, Vector3(0.08, 0.08, 0.03), Vector3(CAR - 0.25, _button_h(k), -CAR + 0.06), "metal_bright")
+		_box(_car, Vector3(0.07, 0.07, 0.03), Vector3(CAR - 0.25, _button_h(k), -CAR + 0.06), "light_panel")
+	# Bronze corner posts on the car.
+	for x in [-CAR, CAR]:
+		for z in [-CAR, CAR]:
+			_box(_car, Vector3(0.06, CAR_H, 0.06), Vector3(x, CAR_H * 0.5, z), "metal_frame")
 
 
 func _button_h(k: int) -> float:
