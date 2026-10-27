@@ -1267,6 +1267,9 @@ func _on_noclipped() -> void:
 ## The Attendant got you: a jolt, the lights go, and you're somewhere else.
 func _on_caught() -> void:
 	if state != State.PLAYING or _transition or _away():
+		# Not now (mid-transition, paused): it let go of you; it mustn't
+		# stay frozen there, still counted as out, and never come back.
+		attendant.reset()
 		return
 	_transition = true
 	player.controls_enabled = false

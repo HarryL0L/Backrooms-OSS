@@ -1,6 +1,7 @@
 extends Node
 # Dev harness: lets the car park's tall one turn up on its own (no
-# placing) while you stand in the car park, and logs where it is.
+# placing) while you stand in the car park, and logs where it is. Then
+# it catches you mid-transition (the catch ignored): it must come back.
 var game
 var step := 0
 var t := 0.0
@@ -40,5 +41,18 @@ func _process(delta):
 			if log_t > 3.0:
 				log_t = 0.0
 				print("t %.0f allowed %s biome %d timer %.1f present %s state %s dist %s" % [t, a.allowed, a._player_biome() if a.gen else -1, a._timer, a.present, a._state, a._dist() if a.present else -1.0])
+			if a.present and step == 2:
+				print("spawned at t %.0f; caught mid-transition" % t)
+				game._transition = true
+				a._catch()
+				game._transition = false
+				print("after: present %s processing %s" % [a.present, a.is_processing()])
+				step = 3; t = 0
 			if t > 150.0:
-				get_tree().quit()
+				print("FAIL: never spawned"); get_tree().quit()
+		3:
+			var a: AttendantEntity = game.attendant
+			if a.present:
+				print("PASS: back after %.0f s" % t); get_tree().quit()
+			elif t > 150.0:
+				print("FAIL: never came back (timer %.1f processing %s)" % [a._timer, a.is_processing()]); get_tree().quit()

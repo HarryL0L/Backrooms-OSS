@@ -120,10 +120,10 @@ func _process(delta: float) -> void:
 				_wander(8, 14, true)
 			if (_unseen > 2.0 and d > 22.0) or _unseen > 25.0:
 				_despawn()
-				_timer = _rng.randf_range(60.0, 120.0)
+				_timer = _rng.randf_range(30.0, 60.0)
 	if _state == PATROL and _life > 240.0 and _unseen > 2.0 and d > 25.0:
 		_despawn()
-		_timer = _rng.randf_range(40.0, 90.0)
+		_timer = _rng.randf_range(25.0, 50.0)
 	_heartbeat(d)
 	if _state != PEER:
 		body.stoop = 0.0
