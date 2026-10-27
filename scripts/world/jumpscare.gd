@@ -1,7 +1,7 @@
 class_name Jumpscare
 extends Node
 ## The moment something gets you. You're turned to face it and it comes
-## the last metre at your face, arms up, two pale eyes open in the head;
+## the last metre at your face, arms up (optionally two pale eyes in the head);
 ## the lights strobe on it, the screen shakes and tears with static, a
 ## white flash, its scream right in your ears over a deep hit. Then (when
 ## it caught you) a hard cut to black and silence, and the ringing. Off
@@ -61,7 +61,7 @@ func run(w: Walker, opts: Dictionary) -> void:
 	w.rotation = Vector3(-float(opts.get("rear", 0.0)), atan2(-dir.x, -dir.z), 0.0)   # faces +Z: you; rearing up
 	body.update(0.0)
 	var eyes: Array[MeshInstance3D] = []
-	if opts.get("eyes", true):
+	if opts.get("eyes", false):
 		for i in 2:
 			var e := MeshInstance3D.new()
 			var sm := SphereMesh.new()

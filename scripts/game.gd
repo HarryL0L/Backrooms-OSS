@@ -1272,7 +1272,7 @@ func _on_caught() -> void:
 	player.controls_enabled = false
 	player.set_physics_process(false)
 	if Jumpscare.enabled():
-		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 2.2, "to": 0.78, "time": 1.0, "cut": true})
+		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 2.2, "to": 0.78, "time": 1.0, "cut": true, "eyes": false})
 		await get_tree().create_timer(1.2).timeout
 	else:
 		await get_tree().create_timer(0.5).timeout
