@@ -92,6 +92,7 @@ func defaults() -> Dictionary:
 		"graphics/water_reflections": 1 if is_mobile else 2,
 		"graphics/flashlight_shadows": not is_mobile,
 		"graphics/fov": 75.0,
+		"graphics/human_eye": true,
 		"graphics/head_bob": true,
 		"graphics/brightness": 1.0,
 		"graphics/show_fps": false,

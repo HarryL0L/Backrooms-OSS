@@ -1258,7 +1258,7 @@ func _on_noclipped() -> void:
 	ambience.enabled = false
 	await hud.story(["You leaned into the wall, and it gave.", "For a moment there was nothing on either side of you.", "Then the hum came back."], 2.0)
 	tear.queue_free()
-	player.camera.fov = Settings.get_value("graphics/fov")
+	player._apply_settings()
 	player.set_physics_process(true)
 	hud.show_level(WorldGen.BIOME_NAMES[WorldGen.LOBBY], "You noclipped. This isn't where you were.")
 	_return_somewhere_else(WorldGen.LOBBY)
@@ -1272,7 +1272,7 @@ func _on_caught() -> void:
 	player.controls_enabled = false
 	player.set_physics_process(false)
 	if Jumpscare.enabled():
-		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 2.2, "to": 0.78, "time": 1.0, "cut": true, "eyes": false})
+		await jumpscare.run(attendant, {"sound": "tall_roar", "from": 2.2, "to": 0.65, "time": 1.0, "cut": true, "eyes": false})
 		await get_tree().create_timer(1.2).timeout
 	else:
 		await get_tree().create_timer(0.5).timeout

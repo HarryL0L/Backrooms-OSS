@@ -128,8 +128,22 @@ func _ready() -> void:
 	Settings.changed.connect(_apply_settings)
 
 
+## Human eye camera: this many degrees across (whatever the screen's
+## shape), with shaders/eye_lens.gdshader taking the stretch off the edges.
+const HUMAN_FOV := 115.0
+
+
+static func human_eye() -> bool:
+	return bool(Settings.get_value("graphics/human_eye")) and not bool(Settings.get_value("graphics/ps1"))
+
+
 func _apply_settings() -> void:
-	camera.fov = Settings.get_value("graphics/fov")
+	if human_eye():
+		camera.keep_aspect = Camera3D.KEEP_WIDTH
+		camera.fov = HUMAN_FOV
+	else:
+		camera.keep_aspect = Camera3D.KEEP_HEIGHT
+		camera.fov = Settings.get_value("graphics/fov")
 	flashlight.shadow_enabled = Settings.get_value("graphics/flashlight_shadows")
 	# Without real-time lights the flashlight is computed in the world shaders.
 	shader_flashlight = not Settings.light_nodes()

@@ -5,6 +5,8 @@ extends Control
 
 var _post: ColorRect
 var _lens: ColorRect
+var _eye: ColorRect
+var _eye_mat: ShaderMaterial
 var _post_mat: ShaderMaterial
 var _title: Label
 var _subtitle: Label
@@ -35,14 +37,29 @@ func _ready() -> void:
 	var fx := CanvasLayer.new()
 	fx.layer = 1
 	add_child(fx)
-	fx.add_child(_lens)
+	# Human eye camera: the edges of the wide view pulled back in (first,
+	# so the lens effects and grain go on top).
+	_eye = ColorRect.new()
+	_eye.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_eye.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_eye_mat = ShaderMaterial.new()
+	_eye_mat.shader = load("res://shaders/eye_lens.gdshader")
+	_eye.material = _eye_mat
+	fx.add_child(_eye)
+	var fx2 := CanvasLayer.new()
+	fx2.layer = 2
+	add_child(fx2)
+	var copy := BackBufferCopy.new()          # the lens reads the eye pass's output
+	copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
+	fx2.add_child(copy)
+	fx2.add_child(_lens)
 	_post = ColorRect.new()
 	_post.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_post.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_post_mat = ShaderMaterial.new()
 	_post_mat.shader = load("res://shaders/post_overlay.gdshader")
 	_post.material = _post_mat
-	fx.add_child(_post)
+	fx2.add_child(_post)
 	_title = _label(40, HORIZONTAL_ALIGNMENT_CENTER)
 	_title.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	_title.offset_top = 90
@@ -140,6 +157,7 @@ func _apply_settings() -> void:
 	_post_mat.set_shader_parameter("grain", 0.0 if ps1 else 0.05)
 	_lens.visible = Settings.get_value("graphics/lens_fx") and not ps1 and not footage
 	_fps.visible = Settings.get_value("graphics/show_fps")
+	_eye.visible = Player.human_eye()
 
 
 ## What pressing Use would do, under the middle of the view ("" hides it).
@@ -206,6 +224,9 @@ func _process(delta: float) -> void:
 		_subtitle.modulate.a = a * 0.9
 	if _fps.visible:
 		_fps.text = "%d FPS" % Engine.get_frames_per_second()
+	if _eye.visible:
+		var vs := get_viewport_rect().size
+		_eye_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
 	if _post.visible:
 		_post_mat.set_shader_parameter("vignette", 0.42 + _vignette_boost)
 	if _loading.visible:

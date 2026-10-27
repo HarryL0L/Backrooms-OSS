@@ -103,7 +103,7 @@ func run(w: Walker, opts: Dictionary) -> void:
 		var shake := 0.06 * (1.0 - 0.5 * k)
 		cam.h_offset = randf_range(-1.0, 1.0) * shake
 		cam.v_offset = randf_range(-1.0, 1.0) * shake
-		cam.fov = lerpf(fov0, fov0 - 18.0, rush)
+		cam.fov = lerpf(fov0, fov0 * 0.72, rush)
 		hud.scare(maxf(0.0, 1.0 - t / 0.1) * 0.9, 0.3 + 0.6 * k)
 		await get_tree().process_frame
 	if cut:

@@ -54,5 +54,6 @@ func _process(_delta: float) -> void:
 	up.y = -up.y
 	_cam.global_transform = Transform3D(Basis.looking_at(fwd, up), Vector3(o.x, 2.0 * h - o.y, o.z))
 	_cam.fov = source.fov
+	_cam.keep_aspect = source.keep_aspect
 	_cam.near = source.near
 	_cam.far = source.far
