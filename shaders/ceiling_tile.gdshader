@@ -2,6 +2,7 @@ shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
+#include "res://shaders/pt_light.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -23,6 +24,10 @@ void vertex() {
 
 void fragment() {
 	vec3 v_light = lightmap_light(v_vlight, v_lm);
+	vec4 pt = pt_sample(v_wpos, CAMERA_POSITION_WORLD, SCREEN_UV);
+	if (pt.a > 0.0) {
+		v_light = pt.rgb;
+	}
 	vec2 uv = ps1_uv(UV) + vec2(0.0, 0.3);
 	vec2 g = uv / 0.6;
 	vec2 cell = floor(g);

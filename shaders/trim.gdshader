@@ -4,6 +4,7 @@ shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
+#include "res://shaders/pt_light.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform vec3 base_color : source_color = vec3(0.84, 0.82, 0.74);
@@ -27,5 +28,6 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = 0.55;
 	SPECULAR = 0.4;
-	EMISSION = col * v_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.3) + dither(FRAGCOORD.xy);
+	vec4 pt = pt_sample(v_wpos, CAMERA_POSITION_WORLD, SCREEN_UV);
+	EMISSION = col * (pt.a > 0.0 ? pt.rgb : v_light) + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.3) + dither(FRAGCOORD.xy);
 }

@@ -218,6 +218,13 @@ func _build_graphics() -> void:
 		_note(p, "Light from the flashlight and nearby fixtures bounces off walls and floors. Re-bakes around you as you walk (a short hitch). Heavy: for strong GPUs.")
 	else:
 		_note(p, "VoxelGI bounce light needs the Forward+ renderer (desktop builds). On phones, Photoreal bakes bounce light into the world instead.")
+	if PathTracer.supported():
+		_toggle(p, "Experimental: path traced lighting (the Lobby only)", "graphics/path_traced")
+		_option(p, "Path tracing quality", "graphics/pt_quality", ["Quarter res, 1 bounce", "Quarter res, 2 bounces",
+				"Half res, 1 bounce", "Half res, 2 bounces"])
+		_note(p, "Lights the Lobby with a small real-time path tracer instead of the baked lightmaps: soft fall-off from each light, bounce light on the ceiling, darker corners. Slightly soft and grainy when turning fast.")
+	else:
+		_note(p, "Path traced lighting needs the Vulkan renderer (Mobile or Forward+), not Compatibility.")
 
 
 func _build_audio() -> void:

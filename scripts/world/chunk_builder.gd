@@ -223,9 +223,45 @@ func build() -> Dictionary:
 		var b: Buf = bufs[m]
 		if b != null and b.v.size() > 0:
 			surfaces[m] = b.to_arrays()
-	var out := {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image()}
+	var out := {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image(),
+			"pt_cells": _pt_cells()}
 	if _dir_lm:
 		out["lightmap_dir"] = _lm_dir_image()
+	return out
+
+
+## The chunk's layout for the experimental path tracer (PathTracer): per
+## cell four 16-bit words, row by row (N x N, little endian):
+## flags (1 solid, 2 loaded, light state << 4, biome << 8), the west and north
+## edge kinds (west | north << 8), the half size in millimetres of the post
+## or pillar at the cell's north-west corner (0 none) and the seed of a
+## flickering light (0 steady).
+func _pt_cells() -> PackedByteArray:
+	var out := PackedByteArray()
+	out.resize(N * N * 8)
+	for j in N:
+		for i in N:
+			var li := M + i
+			var lj := M + j
+			var gx := rx0 + li
+			var gz := rz0 + lj
+			var b := bio(li, lj)
+			var s := gen.light_state(gx, gz, b)
+			var flags := 2 | (1 if solid[li + lj * W] == 1 else 0) | (s << 4) | (b << 8)
+			var size := gen.pillar_at(gx, gz, b)
+			var half := 0.0
+			if size > 0.0:
+				half = size * 0.5
+			elif size < 0.0:
+				half = -size * 0.42
+			elif edge_v(li, lj - 1) != 0 or edge_v(li, lj) != 0 or edge_h(li - 1, lj) != 0 or edge_h(li, lj) != 0:
+				half = T
+			var sd := int(gen.light_seed(gx, gz)) if s == WorldGen.L_FLICKER else 0
+			var o := (i + j * N) * 8
+			out.encode_u16(o, flags)
+			out.encode_u16(o + 2, edge_v(li, lj) | (edge_h(li, lj) << 8))
+			out.encode_u16(o + 4, roundi(half * 1000.0))
+			out.encode_u16(o + 6, sd)
 	return out
 
 

@@ -2,6 +2,7 @@ shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
+#include "res://shaders/pt_light.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -38,6 +39,10 @@ void vertex() {
 
 void fragment() {
 	vec3 v_light = lightmap_light(v_vlight, v_lm);
+	vec4 pt = pt_sample(v_wpos, CAMERA_POSITION_WORLD, SCREEN_UV);
+	if (pt.a > 0.0) {
+		v_light = pt.rgb;
+	}
 	vec2 uv = ps1_uv(UV);
 	float lin_k = 1.0;     // shading of The Lining's bulge (also applied to the flashlight)
 	if (lining_pos.w > 0.001) {
@@ -99,6 +104,6 @@ void fragment() {
 	vec3 nm = photo_nmap(uv, texture(noise_normal, uv * 1.3).rgb);
 	NORMAL_MAP = nm;
 	NORMAL_MAP_DEPTH = 0.3;
-	float bump = baked_bump(v_lm, nmap_normal(nm, 0.22, uv_frame(NORMAL, VERTEX, uv)), NORMAL, VIEW_MATRIX);
+	float bump = pt.a > 0.0 ? 1.0 : baked_bump(v_lm, nmap_normal(nm, 0.22, uv_frame(NORMAL, VERTEX, uv)), NORMAL, VIEW_MATRIX);
 	EMISSION = col * v_light * bump + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.15) * mix(1.0, lin_k, 0.75) + dither(FRAGCOORD.xy);
 }

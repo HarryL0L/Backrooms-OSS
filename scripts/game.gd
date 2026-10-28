@@ -36,6 +36,7 @@ var stairs: Stairwells
 ## Which floor you're on (0 = where you started; below is negative).
 var _floor := 0
 var retro: RetroView
+var path_tracer: PathTracer
 var net: Net
 var mp_menu: MultiplayerMenu
 var _remotes := {}               # peer id -> RemotePlayer
@@ -196,6 +197,9 @@ func _ready() -> void:
 	stairs.floor_step.connect(_on_floor_step)
 	add_child(stairs)
 	add_child(details)
+	path_tracer = PathTracer.new()
+	path_tracer.game = self
+	add_child(path_tracer)
 	if not (Settings.is_ultra and Settings.ultra_safe_level >= 2):
 		fixtures = FixtureLights.new()
 		fixtures.target = player
@@ -331,7 +335,7 @@ func _apply_settings() -> void:
 	_update_reflection()
 	env.tonemap_exposure = Settings.get_value("graphics/brightness")
 	var photoreal: bool = Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1")
-	EnvironmentFactory.photoreal_grade(env, photoreal)
+	EnvironmentFactory.photoreal_grade(env, photoreal or (path_tracer != null and path_tracer.active))
 	_photoreal = photoreal
 	footage.set_mode(0 if Settings.get_value("graphics/ps1") else int(Settings.get_value("graphics/found_footage")))
 	retro.lines = int(Settings.get_value("graphics/ps1_lines"))
@@ -973,6 +977,8 @@ func _process(delta: float) -> void:
 ## brightens in the dark and quickly settles when you step into bright light.
 func _eye_adaptation(delta: float) -> void:
 	var base: float = Settings.get_value("graphics/brightness")
+	if path_tracer.active:
+		base *= PathTracer.EXPOSURE
 	if not _photoreal:
 		_adapt = 1.0
 		env.tonemap_exposure = base
@@ -986,6 +992,12 @@ func _eye_adaptation(delta: float) -> void:
 	var rate := 0.35 if target > _adapt else 1.6
 	_adapt = move_toward(_adapt, target, delta * rate * absf(target - _adapt) + delta * 0.02)
 	env.tonemap_exposure = base * _adapt
+
+
+## The experimental path tracer switched on or off (PathTracer): its
+## Cycles-like grade (AgX, the Photoreal one) goes with it.
+func path_tracing_changed(on: bool) -> void:
+	EnvironmentFactory.photoreal_grade(env, on or _photoreal)
 
 
 func _track_biome() -> void:

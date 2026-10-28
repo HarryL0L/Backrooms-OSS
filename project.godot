@@ -110,6 +110,14 @@ lining_tex={
 "type": "sampler2D",
 "value": ""
 }
+pt_on={
+"type": "float",
+"value": 0.0
+}
+pt_light={
+"type": "sampler2D",
+"value": ""
+}
 level_light_0={
 "type": "vec4",
 "value": Vector4(1, 1, 1, 1)

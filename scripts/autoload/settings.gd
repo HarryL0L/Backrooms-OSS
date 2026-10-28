@@ -86,6 +86,8 @@ func defaults() -> Dictionary:
 		"graphics/photoreal": false,
 		"graphics/found_footage": 0,
 		"graphics/voxel_gi": false,
+		"graphics/path_traced": false,
+		"graphics/pt_quality": 0,
 		"net/name": "Player",
 		"net/number": 7,
 		"graphics/ps1_lines": 240,
