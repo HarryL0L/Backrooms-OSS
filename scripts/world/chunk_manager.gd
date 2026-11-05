@@ -36,8 +36,6 @@ var _vis_result := {}
 var _vis_t := 0.0
 var _vis_center := Vector2i(1 << 30, 0)
 var _vis_pending := {}
-## Bumped whenever a chunk is added or removed (PathTracer re-reads the layout).
-var layout_version := 0
 
 
 func _ready() -> void:
@@ -67,7 +65,6 @@ func swap_world(p_gen: WorldGen) -> void:
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
-	layout_version += 1
 	_stale.clear()
 	_wanted.clear()
 	_initial_done = false
@@ -86,7 +83,6 @@ func clear() -> void:
 	for c in _chunks.values():
 		c.queue_free()
 	_chunks.clear()
-	layout_version += 1
 	_stale.clear()
 	_wanted.clear()
 
@@ -110,15 +106,6 @@ func is_area_ready(p: Vector3, radius: int) -> bool:
 			if not _chunks.has(c + Vector2i(dx, dz)):
 				return false
 	return true
-
-
-## The path tracer's layout of a loaded chunk (ChunkBuilder._pt_cells), or
-## empty when it isn't loaded.
-func pt_cells(c: Vector2i) -> PackedByteArray:
-	var ch: Node3D = _chunks.get(c)
-	if ch == null or not is_instance_valid(ch):
-		return PackedByteArray()
-	return ch.get_meta("pt_cells", PackedByteArray())
 
 
 static func chunk_of(p: Vector3) -> Vector2i:
@@ -209,7 +196,6 @@ func _unload_far(center: Vector2i) -> void:
 			_chunks[k].queue_free()
 			_chunks.erase(k)
 			_stale.erase(k)
-			layout_version += 1
 	_mutex.lock()
 	for k in _results.keys():
 		if (k - center).length_squared() > limit:
@@ -283,8 +269,6 @@ func _make_chunk(data: Dictionary) -> Node3D:
 	var root := Node3D.new()
 	var c: Vector2i = data.coord
 	root.name = "Chunk_%d_%d" % [c.x, c.y]
-	root.set_meta("pt_cells", data.get("pt_cells", PackedByteArray()))
-	layout_version += 1
 	var mesh := ArrayMesh.new()
 	var surfaces: Dictionary = data.surfaces
 	var fmt := (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) \
