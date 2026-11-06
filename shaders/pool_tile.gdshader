@@ -92,7 +92,8 @@ void fragment() {
 	} else if (v_wnormal.y > 0.5) {
 		// Polished floor tiles mirror the lights above.
 		float fres = 0.04 + 0.5 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
-		emission_extra += ceiling_reflection(v_wpos, CAMERA_POSITION_WORLD, vec3(0.0, 1.0, 0.0), ceiling_y, 0, world_time) * fres * (1.0 - grout);
+		// (Realistic: wet glazed tiles mirror them more strongly.)
+		emission_extra += ceiling_reflection(v_wpos, CAMERA_POSITION_WORLD, vec3(0.0, 1.0, 0.0), ceiling_y, 0, world_time) * fres * (1.0 - grout) * (1.0 + 1.2 * realistic);
 	}
 	float bump = 1.0;
 	if (photoreal > 0.5) {

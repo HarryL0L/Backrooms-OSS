@@ -48,7 +48,8 @@ var camera: Camera3D
 var flash_rig: Node3D
 var flashlight: SpotLight3D
 var flash_fill: OmniLight3D
-## Photoreal: the flashlight's bounce light (see _update_bounce).
+## Realistic on a desktop: the flashlight's bounce light (see _update_bounce;
+## one more light on every lit surface is too much for a phone).
 var flash_bounce: OmniLight3D
 var bounce_on := false
 var _bounce_e := 0.0
@@ -179,7 +180,12 @@ func _apply_settings() -> void:
 	flashlight.shadow_enabled = Settings.get_value("graphics/flashlight_shadows")
 	# Without real-time lights the flashlight is computed in the world shaders.
 	shader_flashlight = not Settings.light_nodes()
-	bounce_on = Settings.light_nodes() and Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1")
+	bounce_on = Settings.light_nodes() and Settings.is_realistic() and not Settings.is_mobile
+	# Realistic: a real torch's beam, a hot centre fading into a wider,
+	# dimmer spill, instead of an evenly lit disc.
+	var real := Settings.is_realistic()
+	flashlight.spot_angle = 36.0 if real else 28.0
+	flashlight.spot_angle_attenuation = 0.45 if real else 0.9
 	set_flashlight(flashlight_on)
 
 

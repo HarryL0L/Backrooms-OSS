@@ -35,24 +35,105 @@ static func apply_ultra(e: Environment, ssr: bool, ssao: bool, ssil: bool, vol: 
 	e.volumetric_fog_ambient_inject = 0.0
 
 
-## Photoreal mode's grade: AgX tone mapping (a film-like response that keeps
-## highlight colour instead of clipping it), neutral contrast and saturation,
-## a gentler bloom. Off: the default stylised look.
-static func photoreal_grade(e: Environment, on: bool) -> void:
+## Realistic: what the camera does with each place's light, per biome
+## (Yellow Halls, Tiled Baths, Grey Floors, Unlit Halls, Pipeworks, Car
+## Park). White balance: a cheap camera lets the Lobby's yellow walls pull
+## everything warm (even the ceiling tiles look cream), while big, dim or
+## night spaces come out cool and blue-teal. Black: where the darkest tones
+## land (a little above black is the muddy, low-range look of a compact
+## camera; zero crushes the shadows like a phone at night). Exposure: no
+## auto-brightening in the dark, the dim places stay underexposed.
+const REAL_WHITE := [Color(1.0, 0.96, 0.84), Color(0.90, 0.97, 1.0), Color(0.94, 0.97, 1.0),
+		Color(0.82, 0.93, 1.0), Color(1.0, 0.96, 0.88), Color(0.84, 0.95, 1.0)]
+const REAL_BLACK := [Color(0.035, 0.03, 0.018), Color(0.0, 0.006, 0.01), Color(0.008, 0.009, 0.01),
+		Color(0.0, 0.004, 0.008), Color(0.01, 0.008, 0.006), Color(0.0, 0.005, 0.008)]
+const REAL_EXPOSURE := [1.3, 0.85, 0.85, 0.8, 0.9, 0.72]
+## The same for the night spaces outside the Backrooms (the Dead Mall, the
+## side levels): cool and underexposed, like the phone photo of an empty
+## mall at night.
+const NIGHT_WHITE := Color(0.78, 0.91, 1.0)
+const NIGHT_BLACK := Color(0.0, 0.004, 0.008)
+
+static var _luts := {}
+
+
+## The camera's tone curve and white balance as a colour correction ramp
+## (applied per channel after tone mapping: a lookup per pixel in the tone
+## mapping pass the image goes through anyway). Cached.
+static func camera_lut(white: Color, black: Color) -> Texture2D:
+	var key := str(white) + str(black)
+	if _luts.has(key):
+		return _luts[key]
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.1, 0.5, 1.0])
+	# A toe: the bottom tenth sinks towards `black` (shadows go muddy or
+	# crush), then the balance tints everything towards `white`.
+	g.colors = PackedColorArray([black, black.lerp(white * 0.06, 0.5), white * 0.5, white])
+	var t := GradientTexture1D.new()
+	t.gradient = g
+	t.width = 256
+	t.use_hdr = true        # float texels: 8-bit ones band visibly in the shadows
+	_luts[key] = t
+	return t
+
+
+## The Realistic preset's grade, like a phone or compact camera's own
+## processing: AgX tone mapping (bright tubes clip to white like a real
+## sensor instead of to a flat colour), slightly muted colour and a tight,
+## faint bloom (a real lens only blooms right around a tube). The bloom also
+## skips its widest blur levels, two passes fewer. Off: the default stylised
+## look. `biome`: whose camera balance and exposure (see REAL_WHITE).
+static func realistic_grade(e: Environment, on: bool, biome := 0) -> void:
 	if on:
 		e.tonemap_mode = Environment.TONE_MAPPER_AGX
-		e.tonemap_white = 12.0
-		e.adjustment_contrast = 1.04
-		e.adjustment_saturation = 1.0
-		e.glow_intensity = 0.32
-		e.glow_hdr_threshold = 1.35
+		e.tonemap_white = 8.0
+		e.adjustment_contrast = 1.0
+		e.adjustment_saturation = 0.85
+		e.adjustment_color_correction = camera_lut(REAL_WHITE[biome], REAL_BLACK[biome])
+		e.glow_intensity = 0.2
+		e.glow_bloom = 0.0
+		e.glow_hdr_threshold = 1.6
+		e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+		e.set_glow_level(1, 1.0)
+		e.set_glow_level(2, 0.4)
+		e.set_glow_level(3, 0.0)
+		e.set_glow_level(4, 0.0)
 	else:
 		e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 		e.tonemap_white = 6.0
 		e.adjustment_contrast = 1.06
 		e.adjustment_saturation = 0.92
+		e.adjustment_color_correction = null
 		e.glow_intensity = 0.55
+		e.glow_bloom = 0.03
 		e.glow_hdr_threshold = 1.1
+		e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+		e.set_glow_level(1, 1.0)
+		e.set_glow_level(2, 0.8)
+		e.set_glow_level(3, 0.6)
+		e.set_glow_level(4, 0.3)
+
+
+## The same camera for the other levels' own environments: call it last on
+## a finished Environment. `night` (the Dead Mall, side levels): the cool,
+## underexposed balance, exposure times `exposure`. Without it (the Field's
+## daylight) only the tone mapping, colour and bloom change.
+static func realistic_level(e: Environment, night := true, exposure := 0.7) -> void:
+	if not Settings.is_realistic():
+		return
+	e.tonemap_mode = Environment.TONE_MAPPER_AGX
+	e.tonemap_white = 8.0
+	e.adjustment_enabled = true
+	e.adjustment_contrast = minf(e.adjustment_contrast, 1.03)
+	e.adjustment_saturation *= 0.92
+	e.glow_intensity *= 0.8
+	e.glow_bloom = 0.0
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	for i in 7:
+		e.set_glow_level(i, [0.0, 1.0, 0.4, 0.0, 0.0, 0.0, 0.0][i])
+	if night:
+		e.adjustment_color_correction = camera_lut(NIGHT_WHITE, NIGHT_BLACK)
+		e.tonemap_exposure *= exposure
 
 
 static func make() -> Environment:

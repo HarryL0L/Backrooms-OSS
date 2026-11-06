@@ -22,6 +22,7 @@ var _story: Label
 var _prompt: Label
 var _title_t := 0.0
 var _vignette_boost := 0.0
+var _realistic := false
 
 
 func _ready() -> void:
@@ -155,10 +156,16 @@ func _apply_settings() -> void:
 	var footage: bool = int(Settings.get_value("graphics/found_footage")) > 0 and not ps1
 	_post.visible = Settings.get_value("graphics/film_grain") and not footage
 	# Full-resolution grain and lens warping would smear the PS1 pixels.
-	_post_mat.set_shader_parameter("grain", 0.0 if ps1 else 0.05)
+	# Realistic (film grain is off in its preset; if switched on): only a
+	# faint noise and a light vignette.
+	_realistic = Settings.is_realistic()
+	_post_mat.set_shader_parameter("grain", 0.0 if ps1 else (0.014 if _realistic else 0.05))
 	_lens.visible = Settings.get_value("graphics/lens_fx") and not ps1 and not footage
 	_fps.visible = Settings.get_value("graphics/show_fps")
 	_eye.visible = Player.human_eye()
+	# Realistic: the body cam's sensor noise in the dark (free: this pass
+	# reads the whole image anyway), instead of grain over everything.
+	_eye_mat.set_shader_parameter("noise", 0.06 if _realistic else 0.0)
 	# A full-screen copy costs a phone a whole extra pass: only when the lens
 	# needs the body cam's output.
 	_copy.visible = _eye.visible and _lens.visible
@@ -232,6 +239,6 @@ func _process(delta: float) -> void:
 		var vs := get_viewport_rect().size
 		_eye_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
 	if _post.visible:
-		_post_mat.set_shader_parameter("vignette", 0.42 + _vignette_boost)
+		_post_mat.set_shader_parameter("vignette", (0.12 if _realistic else 0.42) + _vignette_boost)
 	if _loading.visible:
 		_loading_label.modulate.a = 0.5 + 0.5 * sin(Time.get_ticks_msec() / 300.0)

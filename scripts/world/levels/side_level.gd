@@ -420,7 +420,7 @@ func set_light_group(i: int, color := Color.WHITE, intensity := 1.0) -> void:
 			Vector4(color.r, color.g, color.b, intensity))
 
 
-## A look that follows the graphics settings (Photoreal grade, bloom,
+## A look that follows the graphics settings (Realistic grade, bloom,
 ## brightness), like the Dead Mall's. opts: "background" (Color), "fog"
 ## (Color), "fog_density", "exposure", "glow" (strength), "saturation",
 ## "contrast". Tweak the result as you like.
@@ -432,9 +432,6 @@ func make_environment(opts := {}) -> Environment:
 	e.ambient_light_color = Color.BLACK
 	e.ambient_light_energy = 0.0
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	if Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1"):
-		e.tonemap_mode = Environment.TONE_MAPPER_AGX       # Photoreal grade
-		e.tonemap_white = 12.0
 	e.tonemap_exposure = float(opts.get("exposure", 1.3)) * float(Settings.get_value("graphics/brightness"))
 	e.fog_enabled = true
 	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
@@ -449,6 +446,7 @@ func make_environment(opts := {}) -> Environment:
 	e.adjustment_enabled = true
 	e.adjustment_contrast = opts.get("contrast", 1.05)
 	e.adjustment_saturation = opts.get("saturation", 0.9)
+	EnvironmentFactory.realistic_level(e, true, 0.85)
 	return e
 
 

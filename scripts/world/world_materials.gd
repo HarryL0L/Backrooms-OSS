@@ -7,6 +7,7 @@ var materials: Array[Material] = []
 var _noise_fine: NoiseTexture2D
 var _noise_blot: NoiseTexture2D
 var _noise_normal: NoiseTexture2D
+var _photos_loaded := false
 
 
 func _init() -> void:
@@ -40,18 +41,25 @@ func _init() -> void:
 	materials[ChunkBuilder.MAT_BLOCK_WALL] = _mat("concrete", {"kind": 7, "base_color": Color(0.5, 0.49, 0.46)})
 	# Warehouse pallet racking: safety-orange steel, chipped.
 	materials[ChunkBuilder.MAT_RACK] = _mat("metal", {"base_color": Color(0.92, 0.36, 0.0), "metal": 0.0, "rough": 0.6, "rust": 0.2})
-	# Photographed materials for Photoreal, if any are in assets/textures/.
-	# (metres per repeat: a real carpet / paper / tile sample is ~1-2 m.)
-	_photo([ChunkBuilder.MAT_CARPET], "carpet", 1.5)
+
+
+## Photographed materials from assets/textures/ (CC0, see LICENSE.md there),
+## used in the Realistic preset: they carry the real fibres, woodchip and
+## fissures; the shaders keep the game's own colours. Loaded the first time
+## Realistic is switched on, so the other presets don't hold them in memory.
+## (Metres per repeat: a real carpet / paper sample is ~1-2 m.)
+func _load_photos() -> void:
+	_photos_loaded = true
+	_photo([ChunkBuilder.MAT_CARPET], "carpet", 1.7)
 	_photo([ChunkBuilder.MAT_WALLPAPER], "wallpaper", 1.2)
-	_photo([ChunkBuilder.MAT_CEILING_TILE], "ceiling_tile", 1.2)
+	_photo([ChunkBuilder.MAT_CEILING_TILE], "ceiling_tile", 3.6)    # 6 x 6 tiles of 0.6 m
 	_photo([ChunkBuilder.MAT_CONC_WALL, ChunkBuilder.MAT_CONC_FLOOR, ChunkBuilder.MAT_CONC_CEIL], "concrete", 2.0)
 
 
 ## Optional photo textures: assets/textures/<surface>/albedo.(jpg|png|webp) and
-## normal.(...). Only used in the Photoreal preset; their average colour is
-## divided out, so a photo adds the real grain and wear but not its own tint.
-## Use only CC0 or your own photos.
+## normal.(...). Used in the Realistic preset; their average colour is
+## divided out, so a photo brings its real grain and relief at full strength
+## but not its own tint. Use only CC0 or your own photos.
 func _photo(mats: Array, surface: String, scale: float) -> void:
 	var albedo := _find_tex("res://assets/textures/%s/albedo" % surface)
 	if albedo == null:
@@ -73,7 +81,7 @@ func _photo(mats: Array, surface: String, scale: float) -> void:
 		sm.set_shader_parameter("photo_scale", scale)
 		sm.set_shader_parameter("photo_mean", Vector3(mean.r, mean.g, mean.b))
 		sm.set_shader_parameter("photo_on", 1.0)
-	print("Photoreal: using photo texture for ", surface)
+	print("Using photo texture for ", surface)
 
 
 static func _find_tex(base: String) -> Texture2D:
@@ -82,6 +90,31 @@ static func _find_tex(base: String) -> Texture2D:
 		if ResourceLoader.exists(path):
 			return load(path)
 	return null
+
+
+## Realistic preset: material values nearer real ones, per material:
+## {parameter: [default, Realistic]}. Only uniforms change (nothing extra
+## per pixel). The wallpaper is an aged cream-yellow rather than lime, the
+## carpet a duller tan, the ceiling tiles (lit only by bounce) a little
+## greyer, and the sun shafts a faint haze, not bright beams.
+const REALISTIC := {
+	ChunkBuilder.MAT_WALLPAPER: {"base_color": [Color(0.80, 0.79, 0.50), Color(0.80, 0.75, 0.50)],
+			"stripe_color": [Color(0.62, 0.68, 0.64), Color(0.66, 0.65, 0.56)]},
+	ChunkBuilder.MAT_CARPET: {"base_color": [Color(0.50, 0.46, 0.28), Color(0.48, 0.43, 0.29)]},
+	ChunkBuilder.MAT_CEILING_TILE: {"tile_color": [Color(0.84, 0.83, 0.74), Color(0.80, 0.79, 0.75)],
+			"bar_color": [Color(0.60, 0.58, 0.52), Color(0.58, 0.57, 0.54)]},
+	ChunkBuilder.MAT_SHAFT: {"strength": [0.22, 0.09]},
+}
+
+
+## Switches the materials between their default and Realistic values.
+func set_realistic(on: bool) -> void:
+	if on and not _photos_loaded:
+		_load_photos()
+	for m in REALISTIC:
+		var p: Dictionary = REALISTIC[m]
+		for k in p:
+			(materials[m] as ShaderMaterial).set_shader_parameter(k, p[k][1] if on else p[k][0])
 
 
 func set_world_seed(seed_value: int) -> void:

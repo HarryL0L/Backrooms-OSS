@@ -337,9 +337,6 @@ func _make_environment(clouds: Texture2D) -> Environment:
 	e.ambient_light_energy = 0.75
 	e.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	if Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1"):
-		e.tonemap_mode = Environment.TONE_MAPPER_AGX       # Photoreal grade
-		e.tonemap_white = 12.0
 	e.tonemap_exposure = 1.0
 	e.tonemap_white = 6.0
 	e.fog_enabled = true
@@ -356,6 +353,7 @@ func _make_environment(clouds: Texture2D) -> Environment:
 	e.adjustment_enabled = true
 	e.adjustment_contrast = 1.04
 	e.adjustment_saturation = 1.05
+	EnvironmentFactory.realistic_level(e, false)
 	return e
 
 

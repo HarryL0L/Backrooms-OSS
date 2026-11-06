@@ -1,19 +1,24 @@
 extends Node
 # Dev benchmark: time ChunkBuilder.build() for a block of chunks (single thread).
-# Run: godot --headless --path . res://_test/bench_build.tscn [-- small] [photoreal]
+# Run: godot --headless --path . res://_test/bench_build.tscn [-- small] [realistic] [no_gi] [no_detail] [lm=<scale>]
 # (a scene, so the autoloads the builder needs are there)
 
 func _ready() -> void:
-	# `-- photoreal`: the Photoreal bake (finer lightmaps, corner AO, trim,
-	# directional lightmap, bounce field).
-	# (Set both ways: the saved settings may have switched Photoreal on.)
-	var pr := OS.get_cmdline_user_args().has("photoreal")
+	# `-- realistic`: the Realistic bake (contrast, corner AO, trim, bounce
+	# field); `no_gi`, `no_detail`, `lm=0.5` change one part of it.
+	# (Set both ways: the saved settings may have switched Realistic on.)
+	var args := OS.get_cmdline_user_args()
+	var pr := args.has("realistic")
 	ChunkBuilder.lightmaps = true
-	ChunkBuilder.lm_scale = 0.5 if pr else 1.0
-	ChunkBuilder.photoreal_ao = pr
-	ChunkBuilder.detail = pr
-	ChunkBuilder.dir_lm = pr
-	ChunkBuilder.gi = pr
+	ChunkBuilder.lm_scale = 1.0
+	for a in args:
+		if a.begins_with("lm="):
+			ChunkBuilder.lm_scale = float(a.substr(3))
+	ChunkBuilder.wall_ao = pr
+	ChunkBuilder.contrast = pr
+	ChunkBuilder.detail = pr and not args.has("no_detail")
+	ChunkBuilder.dir_lm = false
+	ChunkBuilder.gi = pr and not args.has("no_gi")
 	var gen := WorldGen.new(12345)
 	var c0 := ChunkManager.chunk_of(gen.spawn_position())
 	var t := Time.get_ticks_usec()

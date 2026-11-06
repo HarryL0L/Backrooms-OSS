@@ -1,8 +1,9 @@
-# Photo textures (Photoreal preset)
+# Photo textures (Realistic preset)
 
-Optional. Put photographed materials here and the Photoreal preset uses them
-for the surface detail (the game keeps its own colours and patterns; the
-photo adds the real grain, fibres and wear):
+Photographed materials for the Realistic graphics preset (the other presets
+don't load them into their look). The game keeps its own colours and
+patterns; the photo brings the real grain, fibres and relief. The ones here
+and where they come from: see `LICENSE.md`. Supported files:
 
     carpet/albedo.jpg        carpet/normal.png
     wallpaper/albedo.jpg     wallpaper/normal.png

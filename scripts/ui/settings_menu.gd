@@ -178,6 +178,7 @@ func _build_graphics() -> void:
 		b.custom_minimum_size = Vector2(96, 48)
 		b.pressed.connect(func() -> void: Settings.apply_preset(i))
 		h.add_child(b)
+	_note(p, "Realistic: looks like real camera footage of the places (photographed materials, the camera's own colour and exposure, shiny floors, no lens effects) and costs a phone less than Medium.")
 	_toggle(p, "PS1 style (low-res pixels, wobbly vertices, dithered colour)", "graphics/ps1")
 	_slider(p, "PS1 resolution (lines)", "graphics/ps1_lines", 160, 480, 16, "%d")
 	_slider(p, "Render scale", "graphics/render_scale", 0.4, 1.0, 0.05, "%.2f")
@@ -217,7 +218,7 @@ func _build_graphics() -> void:
 		_toggle(p, "VoxelGI bounce light (real-time colour bleeding and indirect shadows)", "graphics/voxel_gi")
 		_note(p, "Light from the flashlight and nearby fixtures bounces off walls and floors. Re-bakes around you as you walk (a short hitch). Heavy: for strong GPUs.")
 	else:
-		_note(p, "VoxelGI bounce light needs the Forward+ renderer (desktop builds). On phones, Photoreal bakes bounce light into the world instead.")
+		_note(p, "VoxelGI bounce light needs the Forward+ renderer (desktop builds). On phones, the Realistic preset bakes bounce light into the world instead.")
 
 
 func _build_audio() -> void:

@@ -45,12 +45,13 @@ var _built_lightmaps := true
 var _built_rays := true
 var odd_doors: OddDoors
 var details: LobbyDetails
-var _photoreal := false
+var _realistic := false
 var footage: FoundFootage
 var vgi: VoxelGIRig             # experimental VoxelGI (Forward+ only)
 var _built_lm_scale := 1.0
 var _built_detail := false
-var _adapt := 1.0          # Photoreal eye adaptation (exposure multiplier)
+var _built_halos := true
+var _adapt := 1.0          # Realistic camera exposure (multiplier)
 var field: FieldLevel          # the Meadow, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
 var _in_mall := false
@@ -319,20 +320,17 @@ func _apply_settings() -> void:
 		fixtures.max_lights = FixtureLights.COUNT if on else 0
 		if fixtures.gen:
 			fixtures._place()
-	# The halos hide behind walls by reading the depth buffer, which comes out
-	# wrong with MSAA 2x on the Mobile renderer (glows show through walls in a
-	# band at eye level); 4x and the other modes are fine.
-	var halos: bool = Settings.get_value("graphics/halos") and not (int(Settings.get_value("graphics/aa")) == 1 and not Settings.is_ultra)
-	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if halos else 0.0)
+	# (Whether the halos are built at all: ChunkBuilder.halos, see Settings.)
+	mats.materials[ChunkBuilder.MAT_HALO].set_shader_parameter("strength", 0.07 if ChunkBuilder.halos else 0.0)
 	if Settings.is_ultra:
 		EnvironmentFactory.apply_ultra(env, Settings.get_value("graphics/ssr"), Settings.get_value("graphics/ssao"),
 				Settings.get_value("graphics/ssil"), Settings.get_value("graphics/volumetric_fog"))
 	reflection.scale = [0.0, 0.34, 0.5][clampi(Settings.get_value("graphics/water_reflections"), 0, 2)]
 	_update_reflection()
 	env.tonemap_exposure = Settings.get_value("graphics/brightness")
-	var photoreal: bool = Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1")
-	EnvironmentFactory.photoreal_grade(env, photoreal)
-	_photoreal = photoreal
+	_realistic = Settings.is_realistic()
+	EnvironmentFactory.realistic_grade(env, _realistic, maxi(_biome, 0))
+	mats.set_realistic(_realistic)
 	footage.set_mode(0 if Settings.get_value("graphics/ps1") else int(Settings.get_value("graphics/found_footage")))
 	retro.lines = int(Settings.get_value("graphics/ps1_lines"))
 	retro.set_active(Settings.get_value("graphics/ps1"))
@@ -340,11 +338,12 @@ func _apply_settings() -> void:
 	# Lighting mode changed (PS1 style or per-pixel lighting toggled): rebuild
 	# the loaded chunks in place.
 	if ChunkBuilder.lightmaps != _built_lightmaps or ChunkBuilder.god_rays != _built_rays or ChunkBuilder.lm_scale != _built_lm_scale \
-			or ChunkBuilder.detail != _built_detail:
+			or ChunkBuilder.detail != _built_detail or ChunkBuilder.halos != _built_halos:
 		_built_lightmaps = ChunkBuilder.lightmaps
 		_built_rays = ChunkBuilder.god_rays
 		_built_lm_scale = ChunkBuilder.lm_scale
 		_built_detail = ChunkBuilder.detail
+		_built_halos = ChunkBuilder.halos
 		chunks.rebuild()
 	_update_touch_visibility()
 
@@ -969,22 +968,18 @@ func _process(delta: float) -> void:
 		env.volumetric_fog_density = lerpf(env.volumetric_fog_density, EnvironmentFactory.VOL_DENSITY[maxi(_biome, 0)], k)
 
 
-## Photoreal: like eyes (or a camera's auto exposure), the image slowly
-## brightens in the dark and quickly settles when you step into bright light.
+## Realistic: the camera's exposure for the place you're in (see
+## EnvironmentFactory.REAL_EXPOSURE), eased over a second or so when it
+## changes. It never brightens the dark: dim places stay underexposed, like
+## a phone camera at night.
 func _eye_adaptation(delta: float) -> void:
 	var base: float = Settings.get_value("graphics/brightness")
-	if not _photoreal:
+	if not _realistic:
 		_adapt = 1.0
 		env.tonemap_exposure = base
 		return
-	var lum := gen.light_level_near(player.camera.global_position, 3) * 0.35
-	if player.in_stairwell:
-		lum = 0.45                 # the shaft has its own bulbs
-	if player.flashlight_on:
-		lum = maxf(lum, 0.35)
-	var target := clampf(pow(1.3 / maxf(lum, 0.05), 0.35), 0.85, 2.0)
-	var rate := 0.35 if target > _adapt else 1.6
-	_adapt = move_toward(_adapt, target, delta * rate * absf(target - _adapt) + delta * 0.02)
+	var target: float = EnvironmentFactory.REAL_EXPOSURE[maxi(_biome, 0)]
+	_adapt = move_toward(_adapt, target, delta * 0.6)
 	env.tonemap_exposure = base * _adapt
 
 
@@ -1010,6 +1005,11 @@ func _set_biome(b: int, announce: bool) -> void:
 	_biome_candidate = -1
 	_fog_color = EnvironmentFactory.FOG[b]
 	_fog_density = EnvironmentFactory.FOG_DENSITY[b]
+	if _realistic:
+		# The camera rebalances for the new light (its exposure follows in
+		# _eye_adaptation).
+		env.adjustment_color_correction = EnvironmentFactory.camera_lut(EnvironmentFactory.REAL_WHITE[b],
+				EnvironmentFactory.REAL_BLACK[b])
 	_update_reflection()
 	if announce and state == State.PLAYING:
 		hud.show_level(WorldGen.BIOME_NAMES[b], SUBTITLES[b])
@@ -1046,9 +1046,10 @@ func _perf_watch(delta: float) -> void:
 		return
 	_perf_drops += 1
 	_perf_wait = 10.0
-	Settings.apply_preset(preset - 1)
-	print("Auto quality: %.1f FPS, lowered to %s" % [fps, Settings.PRESET_NAMES[preset - 1]])
-	hud.show_level("Graphics lowered to " + Settings.PRESET_NAMES[preset - 1],
+	var lower := Settings.preset_below(preset)
+	Settings.apply_preset(lower)
+	print("Auto quality: %.1f FPS, lowered to %s" % [fps, Settings.PRESET_NAMES[lower]])
+	hud.show_level("Graphics lowered to " + Settings.PRESET_NAMES[lower],
 			"The game was running slowly (%d FPS). Settings > Graphics to change." % int(fps))
 
 

@@ -30,8 +30,13 @@ void fragment() {
 	float blot = texture(noise_blot, uv * 0.085).r;
 	vec3 col = base_color * (0.86 + 0.24 * n1) * (0.84 + 0.22 * n2) * (0.85 + 0.25 * loops) * photo_detail(uv);
 	// Damp, musty patches: darker, browner and slightly glossy.
-	float damp = smoothstep(0.62, 0.8, blot);
-	col = mix(col, col * vec3(0.66, 0.6, 0.46), damp * 0.6);
+	float damp = smoothstep(0.62 - 0.08 * realistic, 0.8, blot);
+	col = mix(col, col * vec3(0.66, 0.6, 0.46), damp * (0.6 + 0.25 * realistic));
+	// Realistic: broad darker trodden paths, and old stains ringed round
+	// the damp patches (from the noise read above).
+	float trod = smoothstep(0.4, 0.75, texture(noise_blot, uv * 0.035 + 0.17).r);
+	float spot = smoothstep(0.025, 0.0, abs(blot - 0.58));
+	col *= 1.0 - realistic * (0.2 * trod + 0.2 * spot);
 	float worn = smoothstep(0.35, 0.2, texture(noise_blot, uv * 0.21 + 0.5).r);
 	col = mix(col, col * vec3(1.08, 1.04, 0.95), worn * 0.4);
 	ALBEDO = col;

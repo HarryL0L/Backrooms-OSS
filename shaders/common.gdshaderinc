@@ -189,12 +189,19 @@ float dither(vec2 frag) {
 }
 
 // ---------------------------------------------------------------- Photoreal ---
-// Set from Settings: 1 in the Photoreal preset.
+// Heavy per-pixel material detail (parallax tiles and pavers, directional
+// lightmaps): 1 = on. No preset turns it on any more (it was the old
+// Photoreal preset, too heavy for phones; Realistic uses the photo textures
+// and the bake instead), so it stays 0 unless a test sets it.
 global uniform float photoreal;
+// Set from Settings: 1 in the Realistic preset. Turns on the photographed
+// materials (cheap: one more texture read where a photo is set) and the
+// stronger wear in the Lobby's shaders; nothing per pixel beyond that.
+global uniform float realistic;
 // Directional lightmap (Photoreal): rgb = where the baked light comes from
 // (world space, 0..1 encoded), a = 1 where there is a direction.
 uniform sampler2D lightmap_dir : hint_default_black, filter_linear, repeat_disable;
-// Optional photographed material (assets/textures/<surface>/), Photoreal only.
+// Optional photographed material (assets/textures/<surface>/): Realistic.
 uniform sampler2D photo_albedo : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D photo_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform float photo_on = 0.0;
@@ -203,14 +210,14 @@ uniform vec3 photo_mean = vec3(0.5);      // average colour, so it adds detail, 
 
 // Photo detail as a multiplier around 1 (keeps our colours, adds the real grain).
 vec3 photo_detail(vec2 uv) {
-	if (photo_on < 0.5 || photoreal < 0.5) {
+	if (photo_on < 0.5 || max(photoreal, realistic) < 0.5) {
 		return vec3(1.0);
 	}
 	return texture(photo_albedo, uv / photo_scale).rgb / max(photo_mean, vec3(0.05));
 }
 
 vec3 photo_nmap(vec2 uv, vec3 fallback) {
-	if (photo_on < 0.5 || photoreal < 0.5) {
+	if (photo_on < 0.5 || max(photoreal, realistic) < 0.5) {
 		return fallback;
 	}
 	return texture(photo_normal, uv / photo_scale).rgb;

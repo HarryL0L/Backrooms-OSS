@@ -79,6 +79,8 @@ void fragment() {
 	chev *= smoothstep(0.08, 0.14, cu) * smoothstep(0.92, 0.86, cu);
 	float pin = smoothstep(0.012, 0.0, abs(cu - 0.015)) + smoothstep(0.012, 0.0, abs(cu - 0.045));
 	float pattern = mix(clamp(chev * 0.8 + pin * 0.7, 0.0, 1.0), 0.18, smoothstep(0.15, 0.6, aa));
+	// Realistic: the print faded with age; the photographed paper shows.
+	pattern *= 1.0 - 0.45 * realistic;
 	vec3 col = mix(base_color, stripe_color, pattern) * photo_detail(uv);
 	float n = texture(noise_fine, uv * 1.7).r;
 	col *= 0.92 + 0.14 * n;
@@ -89,10 +91,15 @@ void fragment() {
 	float blot = texture(noise_blot, uv * vec2(0.12, 0.09)).r;
 	float low = smoothstep(1.3, 0.0, y);
 	float stain = smoothstep(0.6, 0.78, blot) * (low * 0.8 + 0.15);
-	col = mix(col, col * vec3(0.68, 0.62, 0.42), stain * 0.7);
+	col = mix(col, col * vec3(0.68, 0.62, 0.42), stain * (0.7 + 0.25 * realistic));
 	float tide = smoothstep(0.02, 0.0, abs(blot - 0.62)) * low;
 	col = mix(col, col * vec3(0.55, 0.48, 0.3), tide * 0.45);
 	col *= mix(0.82, 1.0, smoothstep(0.0, 0.15, y));
+	// Realistic: grime built up along the skirting, patchy, and the paper
+	// unevenly faded in broad blotches.
+	// (From the noise already read above: no extra texture reads.)
+	float scuff = smoothstep(0.55, 0.0, y) * (0.55 + 0.45 * n);
+	col *= 1.0 - realistic * (0.3 * scuff + 0.12 * smoothstep(0.3, 0.5, blot));
 	ALBEDO = col;
 	ROUGHNESS = 0.8;
 	SPECULAR = 0.3;

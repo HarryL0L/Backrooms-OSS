@@ -36,7 +36,9 @@ void fragment() {
 	float pits = texture(noise_fine, uv * 23.0 + h).r;
 	tile *= 1.0 - smoothstep(0.66, 0.78, pits) * 0.35;
 	// A few water-stained tiles.
-	if (h > 0.82) {
+	// Realistic: tiles yellowed unevenly, and more of them water-stained.
+	tile *= 1.0 - realistic * 0.12 * hash12(cell + 5.3);
+	if (h > 0.82 - 0.08 * realistic) {
 		float st = texture(noise_blot, uv * 0.35 + h * 3.0).r;
 		float s = smoothstep(0.42, 0.7, st);
 		tile = mix(tile, tile * vec3(0.72, 0.6, 0.38), s * 0.85);

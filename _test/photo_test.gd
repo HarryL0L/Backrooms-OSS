@@ -1,5 +1,5 @@
 extends Node
-# Dev harness: the same views at a preset (env PRESET, default 5 Photoreal):
+# Dev harness: the same views at a preset (env PRESET, default 5 Realistic):
 # a lit hall, a corner, the Tiled Baths, the Unlit Halls, the Dead Mall.
 var game
 var out := OS.get_user_data_dir() + "/photo"
@@ -85,7 +85,7 @@ func _process(delta):
 			var ready: bool = game._in_mall or game.chunks.is_area_ready(game.player.global_position, 1)
 			# Long enough for the eyes to adapt.
 			if OS.get_environment("NOGRADE") != "":
-				EnvironmentFactory.photoreal_grade(game.env, false)
+				EnvironmentFactory.realistic_grade(game.env, false)
 			if t > 9.0 and ready:
 				game.hud.set_fade(0.0)
 				game.hud._title_t = 0.0

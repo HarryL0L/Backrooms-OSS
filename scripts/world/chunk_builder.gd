@@ -21,19 +21,30 @@ static var lightmaps := true
 static var water_sub := 16
 ## Volumetric-looking sun shafts in the sun galleries (off in Potato).
 static var god_rays := true
-## Lightmap texel spacing multiplier (Photoreal: 0.5, twice as sharp).
+## Lightmap texel spacing multiplier (smaller is sharper, but slower to
+## bake and heavier; no preset changes it).
 static var lm_scale := 1.0
-## Photoreal: bake corner occlusion on walls too.
-static var photoreal_ao := false
-## Photoreal: trim geometry (skirting boards, door casings, the ceiling's
+## Realistic: bake corner occlusion on walls too.
+static var wall_ao := false
+## Realistic: trim geometry (skirting boards, door casings, the ceiling's
 ## T-bar grid, light fittings with a rim).
 static var detail := false
-## Photoreal: also bake which way the light comes from (directional
-## lightmap), so normal-mapped detail responds to the baked light.
+## Also bake which way the light comes from (directional lightmap), so
+## normal-mapped detail responds to the baked light. Only the shaders'
+## `photoreal` paths read it, which no preset turns on (too heavy per pixel
+## for phones), so it stays off.
 static var dir_lm := false
-## Photoreal: two-bounce radiosity on the cell grid (see _compute_gi) instead
+## Realistic: two-bounce radiosity on the cell grid (see _compute_gi) instead
 ## of the fake bounce term.
 static var gi := false
+## Realistic: a cheap camera's view of the light. Stronger falloff between
+## the lamps (bright under a troffer, darker halfway to the next), less
+## ambient fill and deeper contact shadows where walls meet floor and
+## ceiling and in corners. All baked, nothing at draw time.
+static var contrast := false
+## Glow quads around the light fixtures (light_halo.gdshader); off, none are
+## built, so nothing reads the depth buffer.
+static var halos := true
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
@@ -107,7 +118,9 @@ var _lightmaps: bool
 var _water_sub: int
 var _god_rays: bool
 var _lm_scale: float
-var _photoreal_ao: bool
+var _wall_ao: bool
+var _contrast: bool
+var _halos: bool
 var _detail: bool
 var _dir_lm: bool
 var _gi: bool
@@ -162,7 +175,9 @@ func _init(p_gen: WorldGen, p_coord: Vector2i) -> void:
 	_water_sub = water_sub
 	_god_rays = god_rays
 	_lm_scale = lm_scale
-	_photoreal_ao = photoreal_ao
+	_wall_ao = wall_ao
+	_contrast = contrast
+	_halos = halos
 	_detail = detail
 	_dir_lm = dir_lm
 	_gi = gi
@@ -421,6 +436,12 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		return Color(0.02, 0.02, 0.02, 0.0)
 	var b := bio(li, lj)
 	var amb: Color = WorldGen.AMBIENT[b]
+	var fall := 0.15
+	var gain := 1.0
+	if _contrast:
+		amb *= 0.4
+		fall = 0.42
+		gain = 1.45
 	var bt: Color = WorldGen.BOUNCE_TINT[b]
 	var r := amb.r
 	var g := amb.g
@@ -444,7 +465,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		var d := sqrt(d2) + 0.0001
 		var w := 1.0 - d / rad
 		w *= w
-		var att := w / (1.0 + d2 * 0.15)
+		var att := w / (1.0 + d2 * fall) * gain
 		if (not _face_on or _face_vis[k] == 2) and not _visible(lp.x / CELL - rx0, lp.z / CELL - rz0, lp.y, u, v, p.y):
 			continue
 		var ndl := (nrm.x * dx + nrm.y * dy + nrm.z * dz) / d
@@ -728,7 +749,7 @@ func _occl(d: float) -> float:
 	return 0.55 + 0.45 * smoothstep(0.0, 0.85, d - T)
 
 
-## Photoreal: inside corners of walls darken softly too (distance to the
+## Realistic: inside corners of walls darken softly too (distance to the
 ## walls at right angles to this one; its own wall is left out).
 func _ao_corner(p: Vector3, nrm: Vector3) -> float:
 	var u := p.x / CELL - rx0
@@ -749,7 +770,7 @@ func _ao_corner(p: Vector3, nrm: Vector3) -> float:
 				var e := edge_h(i + di, j + dj)
 				if e != 0:
 					dm = minf(dm, _seg_dist(v - (j + dj), u - (i + di), e))
-	return 0.62 + 0.38 * smoothstep(0.0, 0.7, dm - T)
+	return _deepen(0.62 + 0.38 * smoothstep(0.0, 0.7, dm - T))
 
 
 ## Contact shadow on floors / ceilings next to walls. Uses the true distance
@@ -773,7 +794,7 @@ func _ao_xz(p: Vector3) -> float:
 			var e := edge_h(i + di, j + dj)
 			if e != 0:
 				dzm = minf(dzm, _seg_dist(v - (j + dj), u - (i + di), e))
-	return _occl(dxm) * _occl(dzm)
+	return _deepen(_occl(dxm) * _occl(dzm))
 
 
 ## Distance (m) from a point to the solid parts of an edge. `across` is the
@@ -795,7 +816,12 @@ func _seg_dist(across: float, along: float, e: int) -> float:
 
 
 func _ao_y(y: float, f: float, c: float) -> float:
-	return (0.62 + 0.38 * smoothstep(0.0, 0.6, y - f)) * (0.8 + 0.2 * smoothstep(0.0, 0.45, c - y))
+	return _deepen((0.62 + 0.38 * smoothstep(0.0, 0.6, y - f)) * (0.8 + 0.2 * smoothstep(0.0, 0.45, c - y)))
+
+
+## Realistic (contrast): contact shadows twice as deep.
+func _deepen(ao: float) -> float:
+	return ao * ao if _contrast else ao
 
 
 # --------------------------------------------------------------- emitters ---
@@ -977,7 +1003,7 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					sp += _nudge(p)
 				var light := shade(sp, nrm)
 				var ao := _ao_xz(sp) if ao_mode == 1 else _ao_y(p.y, f, c)
-				if _photoreal_ao and ao_mode != 1 and absf(nrm.y) < 0.5:
+				if _wall_ao and ao_mode != 1 and absf(nrm.y) < 0.5:
 					ao *= _ao_corner(sp, nrm)
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
@@ -1574,7 +1600,7 @@ func _quad4(mat: int, a: Vector3, b2: Vector3, c2: Vector3, d: Vector3, nrm: Vec
 	_tri_quad(b, start, start + 1, start + 2, start + 3, (b2 - a).cross(d - a).dot(nrm) > 0.0)
 
 
-# ------------------------------------------------------- trim (Photoreal) ---
+# ------------------------------------------------------- trim (Realistic) ---
 
 ## A box-shaped trim piece against a wall face: its front and top (and the
 ## two ends). axis/face/sgn as in _vface; a0..a1 along the wall, y0..y1 up,
@@ -2037,6 +2063,8 @@ func _ball(centre: Vector3, r: float) -> void:
 
 ## Camera-facing glow quad (expanded in light_halo.gdshader).
 func _emit_halo(centre: Vector3, col: Color, sd: float, size: float) -> void:
+	if not _halos:
+		return
 	var hb := buf(MAT_HALO)
 	var st := hb.v.size()
 	for uv in [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]:

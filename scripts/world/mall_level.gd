@@ -69,6 +69,8 @@ func build(seed_value: int) -> void:
 		_prepare(inst, sec)
 		x += ln
 	length = x
+	if Settings.is_realistic():
+		_build_reflections()
 	_collect_spots()
 	_build_movers()
 	environment = _make_environment()
@@ -160,6 +162,73 @@ static func warm_materials() -> Array[Material]:
 	return out
 
 
+## Realistic: the polished floors mirror every ceiling light as a bright
+## spot or streak, as on a phone photo of a mall at night. No reflection
+## render (the Mobile renderer has no SSR and a probe would cost a phone a
+## cube map): the light panels are drawn once, from above, into a small map
+## (R = panel, G = its height above the ground floor), and the floor shader
+## follows the mirrored view ray up to them (two texture reads per floor
+## pixel).
+const REFL_TEXEL := 0.2              # metres per texel of the panel map
+var _refl_rect := Vector4.ZERO
+
+
+func _build_reflections() -> void:
+	var tris := PackedVector3Array()
+	for mi in find_children("*", "MeshInstance3D", true, false):
+		var m := mi as MeshInstance3D
+		for si in m.mesh.get_surface_count():
+			var src := m.mesh.surface_get_material(si)
+			if src == null or src.resource_name != "light_panel":
+				continue
+			var arr := m.mesh.surface_get_arrays(si)
+			var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+			var xf := m.global_transform
+			var n := idx.size() if idx.size() > 0 else vs.size()
+			for k in n:
+				tris.push_back(xf * vs[idx[k] if idx.size() > 0 else k])
+	if tris.is_empty():
+		return
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in tris:
+		lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.z))
+		hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.z))
+	lo -= Vector2.ONE
+	hi += Vector2.ONE
+	var w := ceili((hi.x - lo.x) / REFL_TEXEL)
+	var h := ceili((hi.y - lo.y) / REFL_TEXEL)
+	var img := Image.create(w, h, false, Image.FORMAT_RGF)
+	for t in range(0, tris.size() - 2, 3):
+		var a := tris[t]
+		var b := tris[t + 1]
+		var c := tris[t + 2]
+		# Only faces looking down (the lit side of a ceiling panel).
+		if (b - a).cross(c - a).y > -0.0001 and (c - a).cross(b - a).y > -0.0001:
+			continue
+		var x0 := clampi(floori((minf(a.x, minf(b.x, c.x)) - lo.x) / REFL_TEXEL), 0, w - 1)
+		var x1 := clampi(ceili((maxf(a.x, maxf(b.x, c.x)) - lo.x) / REFL_TEXEL), 0, w - 1)
+		var z0 := clampi(floori((minf(a.z, minf(b.z, c.z)) - lo.y) / REFL_TEXEL), 0, h - 1)
+		var z1 := clampi(ceili((maxf(a.z, maxf(b.z, c.z)) - lo.y) / REFL_TEXEL), 0, h - 1)
+		var y := (a.y + b.y + c.y) / 3.0 - MALL_Y
+		for zi in range(z0, z1 + 1):
+			for xi in range(x0, x1 + 1):
+				var q := Vector2(lo.x + (xi + 0.5) * REFL_TEXEL, lo.y + (zi + 0.5) * REFL_TEXEL)
+				if Geometry2D.point_is_inside_triangle(q, Vector2(a.x, a.z), Vector2(b.x, b.z), Vector2(c.x, c.z)):
+					var old := img.get_pixel(xi, zi)
+					# The lowest panel over a spot is the one a floor sees.
+					img.set_pixel(xi, zi, Color(1.0, y if old.r < 0.5 else minf(old.g, y), 0.0))
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	_refl_rect = Vector4(lo.x, lo.y, 1.0 / (w * REFL_TEXEL), 1.0 / (h * REFL_TEXEL))
+	for k in _mats:
+		var sm := _mats[k] as ShaderMaterial
+		if sm and sm.shader and sm.shader.resource_path.ends_with("mall.gdshader"):
+			sm.set_shader_parameter("refl_map", tex)
+			sm.set_shader_parameter("refl_rect", _refl_rect)
+
+
 func _collect_spots() -> void:
 	for n in find_children("spot_*", "Node3D", true, false):
 		var t := (n as Node3D).global_transform
@@ -231,9 +300,6 @@ func _make_environment() -> Environment:
 	e.ambient_light_color = Color.BLACK
 	e.ambient_light_energy = 0.0
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	if Settings.get_value("graphics/photoreal") and not Settings.get_value("graphics/ps1"):
-		e.tonemap_mode = Environment.TONE_MAPPER_AGX       # Photoreal grade
-		e.tonemap_white = 12.0
 	_base_exposure = 1.45 * float(Settings.get_value("graphics/brightness"))
 	e.tonemap_exposure = _base_exposure
 	e.fog_enabled = true
@@ -248,6 +314,7 @@ func _make_environment() -> Environment:
 	e.adjustment_enabled = true
 	e.adjustment_contrast = 1.05
 	e.adjustment_saturation = 0.85
+	EnvironmentFactory.realistic_level(e, true, 0.55)
 	return e
 
 

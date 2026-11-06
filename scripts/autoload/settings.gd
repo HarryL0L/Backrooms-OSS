@@ -83,7 +83,7 @@ func defaults() -> Dictionary:
 		"gameplay/entities": true,
 		"gameplay/jumpscares": true,
 		"graphics/ps1": false,
-		"graphics/photoreal": false,
+		"graphics/realistic": false,
 		"graphics/found_footage": 0,
 		"graphics/voxel_gi": false,
 		"net/name": "Player",
@@ -233,6 +233,12 @@ func load_settings() -> void:
 			var v: Variant = cf.get_value(parts[0], parts[1])
 			if typeof(v) == typeof(d[k]) or (typeof(d[k]) == TYPE_FLOAT and typeof(v) == TYPE_INT):
 				values[k] = v
+	# Saves from before Realistic had the Photoreal preset in its slot: move
+	# them onto Realistic (Photoreal's own values, full resolution and no
+	# FSR, would cost a phone far more).
+	if cf.has_section_key("graphics", "photoreal") and not cf.has_section_key("graphics", "realistic"):
+		if int(values["graphics/preset"]) == REALISTIC:
+			values.merge(preset_values(REALISTIC), true)
 	for a in ACTIONS:
 		if cf.has_section_key("keys", a):
 			var arr: Variant = cf.get_value("keys", a)
@@ -260,30 +266,48 @@ func save_settings() -> void:
 	cf.save(PATH)
 
 
-const PRESET_NAMES := ["Potato", "Low", "Medium", "High", "Max", "Photoreal"]
+const PRESET_NAMES := ["Potato", "Low", "Medium", "High", "Max", "Realistic"]
+const REALISTIC := 5
 const PRESETS := [
 	# Potato: for very weak phones. Everything optional is off, half-res render,
 	# per-vertex lighting (cheaper world generation), 30 FPS cap.
 	{"graphics/render_scale": 0.5, "graphics/fsr": false, "graphics/aa": 0, "graphics/view_distance": 2,
 		"graphics/water_reflections": 0, "graphics/water_ripples": false, "graphics/lens_fx": false,
 		"graphics/film_grain": false, "graphics/flashlight_shadows": false, "graphics/halos": false,
-		"graphics/bloom": false, "graphics/light_highlights": false, "graphics/lightmaps": false, "graphics/fps_cap": 0, "graphics/photoreal": false},
+		"graphics/bloom": false, "graphics/light_highlights": false, "graphics/lightmaps": false, "graphics/fps_cap": 0, "graphics/realistic": false},
 	{"graphics/render_scale": 0.6, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 0, "graphics/view_distance": 2, "graphics/water_reflections": 0,
-		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": false, "graphics/photoreal": false},
+		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": false, "graphics/realistic": false},
 	{"graphics/render_scale": 0.75, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 2, "graphics/view_distance": 3, "graphics/water_reflections": 1,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/photoreal": false},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": false, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/realistic": false},
 	{"graphics/render_scale": 0.9, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 2, "graphics/view_distance": 4, "graphics/water_reflections": 2,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/photoreal": false},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/realistic": false},
 	{"graphics/render_scale": 1.0, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
-		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/photoreal": false},
-	# Photoreal: our own rendering on top of Max, for strong phones and PCs
-	# (any renderer, no Forward+ needed): lightmaps baked twice as sharp, our
-	# screen-space ambient occlusion, eye adaptation, a neutral filmic grade
-	# and a clean image (no grain, lens fringing, PS1 or dither).
-	{"graphics/render_scale": 1.0, "graphics/fsr": false, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": false, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
-		"graphics/lens_fx": false, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true,
-		"graphics/ps1": false, "graphics/photoreal": true},
+		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/realistic": false},
+	# Realistic: our own look for phones, like real camera footage of the
+	# places: a cheap camera's exposure and white balance per place (warm in
+	# the Lobby, cool and underexposed in night spaces), photographed
+	# materials (assets/textures, CC0) with real wear, glossy floors that
+	# mirror the lights, and a contrasty bake (falloff between the lamps,
+	# contact shadows, bounce light, trim) done on the world threads. It
+	# costs a phone less than Medium: no screen effects for the realism, no
+	# lens fringing, halos or film grain (the body cam adds sensor noise in
+	# the dark only), MSAA 2x (nearly free on tile GPUs) instead of 4x. On a
+	# desktop it renders at full resolution with MSAA 4x (preset_values()).
+	{"graphics/render_scale": 0.75, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": false, "graphics/aa": 1, "graphics/view_distance": 3, "graphics/water_reflections": 1,
+		"graphics/lens_fx": false, "graphics/flashlight_shadows": false, "graphics/halos": false, "graphics/bloom": true, "graphics/light_highlights": true,
+		"graphics/ps1": false, "graphics/realistic": true},
 ]
+
+
+## Whether the Realistic look is on (its grade, bake and clean image).
+func is_realistic() -> bool:
+	return bool(get_value("graphics/realistic")) and not bool(get_value("graphics/ps1"))
+
+
+## The preset the frame-rate watchdog steps down to from preset `i`:
+## Realistic costs about what Medium does, so it falls to Low.
+func preset_below(i: int) -> int:
+	return 1 if i == REALISTIC else maxi(i - 1, 0)
 
 
 ## Whether light nodes (the flashlight's SpotLight3D, fixture highlights,
@@ -294,12 +318,20 @@ func light_nodes() -> bool:
 	return get_value("graphics/realtime_lights") and int(get_value("graphics/preset")) >= 2
 
 
-## Applies a whole quality preset (0 Potato .. 4 Max) at once.
+## The settings preset `i` sets on this device.
+func preset_values(i: int) -> Dictionary:
+	var p: Dictionary = PRESETS[i].duplicate()
+	if i == REALISTIC and not is_mobile:
+		# A desktop GPU can afford the full resolution and MSAA 4x.
+		p["graphics/render_scale"] = 1.0
+		p["graphics/aa"] = 2
+	return p
+
+
+## Applies a whole quality preset (0 Potato .. 4 Max, 5 Realistic) at once.
 func apply_preset(i: int) -> void:
 	i = clampi(i, 0, PRESETS.size() - 1)
-	var p: Dictionary = PRESETS[i]
-	for k in p:
-		values[k] = p[k]
+	values.merge(preset_values(i), true)
 	values["graphics/preset"] = i
 	apply()
 	save_settings()
@@ -327,14 +359,25 @@ func apply() -> void:
 	# god rays as flat banded polygons (cheap at its low resolution, so even
 	# on Potato).
 	var ps1: bool = get_value("graphics/ps1")
-	var photoreal: bool = get_value("graphics/photoreal") and not ps1
+	var realistic := is_realistic()
 	ChunkBuilder.lightmaps = get_value("graphics/lightmaps") and not ps1
-	ChunkBuilder.lm_scale = 0.5 if photoreal and ChunkBuilder.lightmaps else 1.0
-	ChunkBuilder.photoreal_ao = photoreal
-	ChunkBuilder.detail = photoreal
-	ChunkBuilder.dir_lm = photoreal and ChunkBuilder.lightmaps
-	ChunkBuilder.gi = photoreal and ChunkBuilder.lightmaps
-	RenderingServer.global_shader_parameter_set("photoreal", 1.0 if photoreal else 0.0)
+	# Realistic's finer bake: all of it happens on the world threads while a
+	# chunk generates, none of it at draw time (the directional lightmap,
+	# sharper lightmaps and parallax of the old Photoreal preset, which cost a
+	# phone every frame or slowed the world's generation, are not used).
+	ChunkBuilder.wall_ao = realistic
+	ChunkBuilder.contrast = realistic
+	ChunkBuilder.detail = realistic
+	ChunkBuilder.gi = realistic and ChunkBuilder.lightmaps
+	# The halos read the depth buffer, which costs a tile GPU an extra pass;
+	# off, they are not built at all. That read also comes out wrong with
+	# MSAA 2x on the Mobile renderer (glows show through walls in a band at
+	# eye level); 4x and the other modes are fine.
+	ChunkBuilder.halos = get_value("graphics/halos") and not ps1 \
+			and not (int(get_value("graphics/aa")) == 1 and not is_ultra)
+	# Realistic in the world shaders: the photographed materials (see
+	# WorldMaterials) and their wear.
+	RenderingServer.global_shader_parameter_set("realistic", 1.0 if realistic else 0.0)
 	ChunkBuilder.water_sub = 16 if get_value("graphics/preset") > 0 else 4
 	ChunkBuilder.god_rays = get_value("graphics/preset") > 0 or ps1
 	RenderingServer.global_shader_parameter_set("dark_lift", 0.18 if int(get_value("graphics/preset")) == 0 else 0.0)
