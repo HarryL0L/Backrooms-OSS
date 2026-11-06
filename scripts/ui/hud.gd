@@ -7,6 +7,7 @@ var _post: ColorRect
 var _lens: ColorRect
 var _eye: ColorRect
 var _eye_mat: ShaderMaterial
+var _copy: BackBufferCopy
 var _post_mat: ShaderMaterial
 var _title: Label
 var _subtitle: Label
@@ -49,9 +50,9 @@ func _ready() -> void:
 	var fx2 := CanvasLayer.new()
 	fx2.layer = 2
 	add_child(fx2)
-	var copy := BackBufferCopy.new()          # the lens reads the eye pass's output
-	copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
-	fx2.add_child(copy)
+	_copy = BackBufferCopy.new()          # the lens reads the eye pass's output
+	_copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
+	fx2.add_child(_copy)
 	fx2.add_child(_lens)
 	_post = ColorRect.new()
 	_post.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -158,6 +159,9 @@ func _apply_settings() -> void:
 	_lens.visible = Settings.get_value("graphics/lens_fx") and not ps1 and not footage
 	_fps.visible = Settings.get_value("graphics/show_fps")
 	_eye.visible = Player.human_eye()
+	# A full-screen copy costs a phone a whole extra pass: only when the lens
+	# needs the body cam's output.
+	_copy.visible = _eye.visible and _lens.visible
 
 
 ## What pressing Use would do, under the middle of the view ("" hides it).

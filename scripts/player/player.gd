@@ -154,9 +154,15 @@ func _ready() -> void:
 	Settings.changed.connect(_apply_settings)
 
 
-## Human eye camera: this many degrees across (whatever the screen's
-## shape), with shaders/eye_lens.gdshader taking the stretch off the edges.
-const HUMAN_FOV := 115.0
+## Body cam (Settings > Body cam): a chest-mounted wide-angle camera like
+## a police body camera (those record 120-160 degrees through a fisheye
+## lens). Rendered this many degrees across (whatever the screen's shape),
+## shaders/eye_lens.gdshader then bends it into the fisheye look.
+const HUMAN_FOV := 128.0
+## The camera sits on your chest, this far below your eyes (a 1.75 m person
+## wears one at about 1.35-1.45 m); lower in proportion when you crouch or
+## crawl.
+const BODYCAM_DROP := 0.24
 
 
 static func human_eye() -> bool:
@@ -556,9 +562,11 @@ func _stance_height() -> float:
 
 
 func _eye_for(h: float) -> float:
-	if h >= CROUCH_H:
-		return remap(h, CROUCH_H, STAND_H, EYE_CROUCH, EYE)
-	return remap(h, CRAWL_H, CROUCH_H, EYE_CRAWL, EYE_CROUCH)
+	var e := remap(h, CROUCH_H, STAND_H, EYE_CROUCH, EYE) if h >= CROUCH_H \
+			else remap(h, CRAWL_H, CROUCH_H, EYE_CRAWL, EYE_CROUCH)
+	if human_eye():
+		e -= BODYCAM_DROP * e / EYE
+	return e
 
 
 ## Straight into the stance you should be in, no easing (after a teleport
