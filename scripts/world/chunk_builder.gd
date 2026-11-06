@@ -887,7 +887,10 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 					t = Vector2(p.z, -p.y)
 				_:
 					t = Vector2(p.x, -p.y)
-			var vi := b.add(p, nrm, tan, t, Vector2(_seed, 0.0), light)
+			var wet := 0.0
+			if mat == MAT_POOL_TILE and nrm.y > 0.5 and p.y > WorldGen.WATER_Y:
+				wet = _wetness(p)
+			var vi := b.add(p, nrm, tan, t, Vector2(_seed, wet), light)
 			if lm_texel > 0.0:
 				# Face edges land on texel centres, so filtering never reads a neighbour.
 				b.set_lm(vi, Vector2(lm_at.x + 0.5 + us[iu] * (lm_n.x - 1), lm_at.y + 0.5 + vs[jv] * (lm_n.y - 1)))
@@ -896,6 +899,26 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 		for iu in nu - 1:
 			var a := start + iu + jv * nu
 			_tri_quad(b, a, a + 1, a + 1 + nu, a + nu, flip)
+
+
+## How wet the floor is round a pool (1 at the rim, 0 from ~1 m away): splashed
+## and dripped on, the tiles there are glossier. Goes in UV2.y (pool_tile).
+func _wetness(p: Vector3) -> float:
+	var ci := floori(p.x / CELL) - rx0
+	var cj := floori(p.z / CELL) - rz0
+	var best := 9.0
+	for dj in range(-1, 2):
+		for di in range(-1, 2):
+			var i := ci + di
+			var j := cj + dj
+			if i < 0 or j < 0 or i >= W or j >= W or pool[i + j * W] == 0:
+				continue
+			var x0 := (rx0 + i) * CELL
+			var z0 := (rz0 + j) * CELL
+			var dx := maxf(maxf(x0 - p.x, p.x - x0 - CELL), 0.0)
+			var dz := maxf(maxf(z0 - p.z, p.z - z0 - CELL), 0.0)
+			best = minf(best, sqrt(dx * dx + dz * dz))
+	return 1.0 - smoothstep(0.0, 1.1, best)
 
 
 ## Decides once per face which lights are hidden from all of it, visible from

@@ -122,7 +122,7 @@ vec3 ceiling_reflection(vec3 wpos, vec3 cam, vec3 n, float ceil_y, int mode, flo
 		if (((gx + gz) & 1) != 0 || rr < 0.03) {
 			return vec3(0.0);
 		}
-		half_size = vec2(0.55);
+		half_size = vec2(0.31);   // the 0.62 m panels (ChunkBuilder.PANEL_SIZE)
 		col = vec3(0.9, 0.97, 1.0) * 3.0;
 	} else {
 		if (((gx % 3 + 3) % 3) != 1 || ((gz % 3 + 3) % 3) != 1 || rr < 0.2) {

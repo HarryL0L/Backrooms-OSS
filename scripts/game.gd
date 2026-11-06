@@ -145,6 +145,7 @@ func _ready() -> void:
 	add_child(reflection)
 	ripples = WaterRipples.new()
 	ripples.material = mats.materials[ChunkBuilder.MAT_WATER]
+	ripples.floor_material = mats.materials[ChunkBuilder.MAT_POOL_TILE]
 	ripples.player = player
 	add_child(ripples)
 	lining = LiningEntity.new()

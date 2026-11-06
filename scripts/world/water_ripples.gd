@@ -14,6 +14,7 @@ const MAX_DROPS := 8
 const SIM_SHADER := preload("res://shaders/ripple_sim.gdshader")
 
 var material: ShaderMaterial       # the water material
+var floor_material: ShaderMaterial # the pool tiles (refraction and caustics follow the ripples)
 var player: Player
 var gen: WorldGen
 var active := false:
@@ -68,6 +69,8 @@ func _apply_active() -> void:
 		for vp in _vp:
 			vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		material.set_shader_parameter("ripple_on", 0.0)
+		if floor_material:
+			floor_material.set_shader_parameter("ripple_on", 0.0)
 
 
 ## Adds a disturbance at a world position (strength in metres of height).
@@ -116,9 +119,11 @@ func _process(delta: float) -> void:
 	_drops.clear()
 	_vp[n].render_target_update_mode = SubViewport.UPDATE_ONCE
 	_cur = n
-	material.set_shader_parameter("ripple_tex", _vp[n].get_texture())
-	material.set_shader_parameter("ripple_rect", Vector3(_origin.x, _origin.y, SIZE))
-	material.set_shader_parameter("ripple_on", 1.0)
+	for m2 in [material, floor_material]:
+		if m2:
+			m2.set_shader_parameter("ripple_tex", _vp[n].get_texture())
+			m2.set_shader_parameter("ripple_rect", Vector3(_origin.x, _origin.y, SIZE))
+			m2.set_shader_parameter("ripple_on", 1.0)
 
 
 func _feed(delta: float) -> void:

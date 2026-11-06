@@ -7,6 +7,7 @@ var materials: Array[Material] = []
 var _noise_fine: NoiseTexture2D
 var _noise_blot: NoiseTexture2D
 var _noise_normal: NoiseTexture2D
+var _noise_caustic: NoiseTexture2D
 var _photos_loaded := false
 
 
@@ -14,11 +15,13 @@ func _init() -> void:
 	_noise_fine = _noise(256, 0.035, 5, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, false, 1)
 	_noise_blot = _noise(256, 0.012, 4, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, false, 2)
 	_noise_normal = _noise(256, 0.05, 4, FastNoiseLite.TYPE_SIMPLEX_SMOOTH, true, 3)
+	_noise_caustic = _caustic_noise()
 	materials.resize(ChunkBuilder.MAT_COUNT)
 	materials[ChunkBuilder.MAT_WALLPAPER] = _mat("wallpaper")
 	materials[ChunkBuilder.MAT_CARPET] = _mat("carpet")
 	materials[ChunkBuilder.MAT_CEILING_TILE] = _mat("ceiling_tile")
 	materials[ChunkBuilder.MAT_POOL_TILE] = _mat("pool_tile")
+	materials[ChunkBuilder.MAT_POOL_TILE].set_shader_parameter("noise_caustic", _noise_caustic)
 	materials[ChunkBuilder.MAT_WATER] = _mat("water")
 	materials[ChunkBuilder.MAT_WATER].render_priority = 1
 	materials[ChunkBuilder.MAT_CONC_WALL] = _mat("concrete", {"kind": 0})
@@ -123,10 +126,33 @@ func set_world_seed(seed_value: int) -> void:
 
 
 func are_textures_ready() -> bool:
-	for t in [_noise_fine, _noise_blot, _noise_normal]:
+	for t in [_noise_fine, _noise_blot, _noise_normal, _noise_caustic]:
 		if t.get_image() == null:
 			return false
 	return true
+
+
+## Distance to the nearest cell edge (cellular noise, distance2 - distance):
+## near 0 along a net of lines, like the bright web light makes on a pool
+## bottom. 8 cells across the 256 px tile.
+static func _caustic_noise() -> NoiseTexture2D:
+	var n := FastNoiseLite.new()
+	n.noise_type = FastNoiseLite.TYPE_CELLULAR
+	n.frequency = 8.0 / 256.0
+	n.fractal_type = FastNoiseLite.FRACTAL_NONE
+	n.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
+	n.cellular_return_type = FastNoiseLite.RETURN_DISTANCE2_SUB
+	n.cellular_jitter = 0.9
+	n.seed = 1341
+	var t := NoiseTexture2D.new()
+	t.width = 256
+	t.height = 256
+	t.seamless = true
+	t.seamless_blend_skirt = 0.1
+	t.noise = n
+	t.generate_mipmaps = true
+	t.normalize = true
+	return t
 
 
 func _mat(shader_name: String, params := {}) -> ShaderMaterial:
