@@ -23,7 +23,7 @@ var _centre := Vector2i.ZERO    # a pool cell with pool all round it
 var _rim := Vector3.ZERO        # standing on the dry floor at the pool's edge
 var _rim_yaw := 0.0             # facing the pool centre
 
-const ALL := ["deep", "wading", "edge_down", "across", "wide", "dry"]
+const ALL := ["deep", "wading", "edge_down", "across", "wide", "dry", "gallery"]
 var views := []
 
 
@@ -158,6 +158,26 @@ func _go() -> void:
 			for i in 3:
 				await get_tree().physics_frame
 			_aim_longest()
+			t = 0.0
+		"gallery":
+			# Facing a sun gallery's tall frosted windows (they sit on the
+			# east-west grid lines every GALLERY_STEP cells) from two cells back.
+			var gc := Vector2i(1 << 30, 0)
+			for r in range(2, 500):
+				for k in 64:
+					var a := k * TAU / 64.0
+					var c: Vector2i = g.spawn_cell + Vector2i(int(cos(a) * r), int(sin(a) * r))
+					var line: int = c.y + 2
+					if posmod(line, WorldGen.GALLERY_STEP) == 0 and g.biome_at(c.x, c.y) == WorldGen.POOL \
+							and g.edge_kind(line, c.x, false, g.biome_at(c.x, line - 1), g.biome_at(c.x, line)) == WorldGen.E_WINDOW:
+						gc = c
+						break
+				if gc.x != 1 << 30:
+					break
+			print("window seen from ", gc)
+			game.player.teleport(_pos(gc, 0.05), PI, 0.18)
+			while not game.chunks.is_area_ready(game.player.global_position, 1):
+				await get_tree().process_frame
 			t = 0.0
 	game._biome = WorldGen.POOL
 	game._update_reflection()

@@ -3050,6 +3050,13 @@ func _emit_window(axis: int, plane: float, s0: float, o0: float, o1: float, side
 		# Frosted glass: blazing on the sunny side, softer from behind.
 		var lit: float = 1.0 if sd[0] == sun_side else 0.45
 		var lc := WorldGen.SUN_COLOR * (3.2 * lit)
+		if lucid:
+			# L.U.C.I.D.: the glass's real luminance, L = E * tau / pi: sunlit
+			# frosted glass passes about half the sun on (~16,000 cd/m2) and
+			# scatters about a third back the way it came (~9,500 cd/m2), so
+			# it glows from both sides, the brightest thing in the hall.
+			var tau: float = 0.5 if sd[0] == sun_side else 0.3
+			lc = Lucid.kelvin_rgb(Lucid.SUN_KELVIN, true) * (Lucid.SUN_LUX * tau / PI / Lucid.UNIT_NITS)
 		var emit := Color(lc.r, lc.g, lc.b, 0.0)
 		var pb := buf(MAT_LIGHT)
 		var st := pb.v.size()
