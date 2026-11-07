@@ -30,5 +30,5 @@ void fragment() {
 	}
 	vec3 wn = normalize((INV_VIEW_MATRIX * vec4(nv, 0.0)).xyz);
 	float shade = car_shade(wn, v_wpos.y);
-	ALBEDO = a * light * shade * 1.8 + a * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.1) + dither(FRAGCOORD.xy);
+	ALBEDO = a * light * shade * 1.8 * lucid_exposure.rgb + a * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.1) + dither(FRAGCOORD.xy);
 }

@@ -54,6 +54,28 @@ static var lucid := false
 ## Lucid: how far a fixture's light is gathered (m). Must stay within the
 ## chunk margin (M + 0.5 cells) so neighbouring chunks agree at the seams.
 const LUCID_RADIUS := 9.5
+## Lucid stage 2, relightable bake: each lightmapped face keeps up to SLOTS
+## switchable (flickering) lamps apart from the rest of its light. The
+## lightmap holds the light with every lamp on (rgb) and the share of slot 0
+## (alpha); the lightmap_seed texture holds the shares of slots 1 and 2
+## (RG8); the face's vertices carry the slots' lamp indices (CUSTOM0). A
+## lamp's share is its direct light plus its own bounce light, so the walls,
+## ceiling and carpet round a flickering lamp dim with it. Lamp index =
+## (gx & 127) + 128 (gz & 127), a texel of the lamp state texture
+## (ChunkManager, `lucid_lamps`).
+const SLOTS := 3
+const LAMP_GRID := 128
+## Lucid: the radiosity gathers patches exactly (subdivided form factors)
+## within GI_NEAR cells of a probe; the solid angle left over (open halls
+## going on beyond) is filled with the radiance of the outermost ring.
+const GI_NEAR := 3
+## Lucid: direct light from beyond the per-texel window (LUCID_RADIUS) as an
+## analytic tail: the local fixture density carried on to infinity in each
+## of TAIL_SECTORS directions that are open, per cell at two heights.
+const TAIL_SECTORS := 16
+## Diagnostics: lamp cells left out of the bake (as if dead), for checking
+## the runtime slots against an exact rebake (_test/lucid_shots.gd PROBE=1).
+static var kill_cells := []
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
@@ -151,6 +173,12 @@ var lcol := PackedColorArray()
 var lrad := PackedFloat32Array()
 var lseed := PackedFloat32Array()
 var lexp := PackedFloat32Array()      # Lucid: cos^m exponent of each light's distribution
+var lid := PackedInt32Array()         # Lucid: lamp state texel of a switchable light, -1 = steady
+var _swv_d := PackedFloat32Array()    # Lucid: per light, its direct part of the last shade() (r+g+b), switchable lights only
+var _swv_b := PackedFloat32Array()    # ... and its bounce part
+var _swl := PackedInt32Array()        # ... the lights set in them
+var _face_ids := Color()              # Lucid: the slot lamp indices of the face just baked
+var _fmap := PackedInt32Array()       # Lucid: light -> its place in the face being baked, -1 = none
 var _ind := Color()                   # Lucid: the bounce part of the last shade()
 var cand := []
 var cache := {}
@@ -208,14 +236,35 @@ func bio(i: int, j: int) -> int:
 
 func edge_v(lx: int, lz: int) -> int:
 	if lx < 0 or lx > W or lz < 0 or lz >= W:
-		return 0
+		return _edge_far(true, lx, lz)
 	return ev[lx + lz * (W + 1)]
 
 
 func edge_h(lx: int, lz: int) -> int:
 	if lx < 0 or lx >= W or lz < 0 or lz > W:
-		return 0
+		return _edge_far(false, lx, lz)
 	return eh[lx + lz * W]
+
+
+var _far_edges := {}
+
+## Edges outside the chunk's margin: open, except for Lucid, whose far
+## light traces (_compute_tail) look further: asked of WorldGen and cached.
+func _edge_far(vert: bool, lx: int, lz: int) -> int:
+	if not _lucid:
+		return 0
+	var key := Vector3i(lx, lz, 1 if vert else 0)
+	if _far_edges.has(key):
+		return _far_edges[key]
+	var gx := rx0 + lx
+	var gz := rz0 + lz
+	var e: int
+	if vert:
+		e = gen.edge_kind(gx, gz, true, gen.biome_at(gx - 1, gz), gen.biome_at(gx, gz))
+	else:
+		e = gen.edge_kind(gz, gx, false, gen.biome_at(gx, gz - 1), gen.biome_at(gx, gz))
+	_far_edges[key] = e
+	return e
 
 
 func fl(i: int, j: int) -> float:
@@ -258,6 +307,14 @@ func build() -> Dictionary:
 		out["lightmap_dir"] = _lm_dir_image()
 	if _lucid and _gi_ready:
 		out["probes"] = _interior_probes()
+		_light_grid(out)
+	if _lucid:
+		# The switchable lamps this chunk's light depends on: gx, gz, seed.
+		var lamps := PackedFloat32Array()
+		for k in lpos.size():
+			if lid[k] >= 0:
+				lamps.append_array([floorf(lpos[k].x / CELL), floorf(lpos[k].z / CELL), lseed[k]])
+		out["lamps"] = lamps
 	return out
 
 
@@ -276,11 +333,119 @@ func _interior_probes() -> PackedColorArray:
 	return out
 
 
+## Lucid: the probe grid for things that move (stage 2). Per chunk cell, two
+## points (GRID_Y above the floor: knee and head height), each an ambient
+## cube of all the light arriving there (+x -x +y -y +z -z, E / pi in engine
+## units): direct from the fixtures it can see, the far tail and the bounce.
+## Also the two switchable lamps that give it most, as a lamp index and
+## their share of each of the 12 values (`grid_slots`, 26 floats per cell),
+## and which sides of the cell are walled (`grid_walls`: 1 W, 2 E, 4 N, 8 S),
+## so sampling never blends through a wall (ChunkManager.light_cube).
+const GRID_Y := [0.5, 1.7]
+
+
+func _light_grid(out: Dictionary) -> void:
+	var grid := PackedColorArray()
+	grid.resize(N * N * 12)
+	var slots := PackedFloat32Array()
+	slots.resize(N * N * 26)
+	var walls := PackedByteArray()
+	walls.resize(N * N)
+	var floors := PackedFloat32Array()
+	floors.resize(N * N)
+	var zero := Color(0, 0, 0)
+	for j in N:
+		for i in N:
+			var li := M + i
+			var lj := M + j
+			var k := li + lj * W
+			var ci := i + j * N
+			walls[ci] = (1 if edge_v(li, lj) == WorldGen.E_WALL else 0) | (2 if edge_v(li + 1, lj) == WorldGen.E_WALL else 0) \
+					| (4 if edge_h(li, lj) == WorldGen.E_WALL else 0) | (8 if edge_h(li, lj + 1) == WorldGen.E_WALL else 0)
+			floors[ci] = fl(li, lj)
+			if solid[k] == 1:
+				continue
+			var lam := {}       # light -> 12 floats (r+g+b per value)
+			var tot := PackedFloat32Array()
+			tot.resize(12)
+			for lv in 2:
+				var p := Vector3((rx0 + li + 0.5) * CELL, fl(li, lj) + GRID_Y[lv], (rz0 + lj + 0.5) * CELL)
+				var cube := [zero, zero, zero, zero, zero, zero]
+				for l in _candidates(li, lj):
+					var d := lpos[l] - p
+					var d2 := d.length_squared()
+					var dd := sqrt(d2)
+					if dd >= lrad[l]:
+						continue
+					var m := lexp[l]
+					var cosr := d.y / dd
+					if m > 0.0 and cosr <= 0.0:
+						continue
+					if not _visible(lpos[l].x / CELL - rx0, lpos[l].z / CELL - rz0, lpos[l].y, li + 0.5, lj + 0.5, p.y):
+						continue
+					var e := (pow(cosr, m) if m > 0.0 else 1.0) / maxf(d2, 0.04) * (1.0 - smoothstep(lrad[l] * 0.75, lrad[l], dd))
+					var dn := d / dd
+					var w := [maxf(dn.x, 0.0), maxf(-dn.x, 0.0), maxf(dn.y, 0.0), maxf(-dn.y, 0.0), maxf(dn.z, 0.0), maxf(-dn.z, 0.0)]
+					var c := lcol[l] * e
+					var cs := c.r + c.g + c.b
+					for a in 6:
+						cube[a] += c * w[a]
+					if lid[l] >= 0:
+						if not lam.has(l):
+							var z := PackedFloat32Array()
+							z.resize(12)
+							lam[l] = z
+						var arr: PackedFloat32Array = lam[l]
+						for a in 6:
+							arr[lv * 6 + a] += cs * w[a]
+						lam[l] = arr
+				var tf := _lv_t(k, p.y, true)
+				var tb := _lv_t(k, p.y, false)
+				for a in 6:
+					var far := _far[k * 12 + a].lerp(_far[k * 12 + 6 + a], tf)
+					var bnc := _gi2[k * 12 + a].lerp(_gi2[k * 12 + 6 + a], tb)
+					cube[a] += far + bnc
+					grid[ci * 12 + lv * 6 + a] = cube[a]
+					tot[lv * 6 + a] = cube[a].r + cube[a].g + cube[a].b
+					# Each switchable lamp's own part of the bounce.
+					if _cell_sw[k] != null:
+						var grp := 0 if a == 2 else (1 if a == 3 else 2)
+						var bl := bnc.r + bnc.g + bnc.b
+						for l in _cell_sw[k]:
+							if not lam.has(l):
+								var z := PackedFloat32Array()
+								z.resize(12)
+								lam[l] = z
+							var arr: PackedFloat32Array = lam[l]
+							arr[lv * 6 + a] += bl * _cell_sw[k][l][grp]
+							lam[l] = arr
+			# The two lamps that give this cell the most light.
+			var order := lam.keys()
+			var sums := {}
+			for l in order:
+				var sm := 0.0
+				for x in lam[l]:
+					sm += x
+				sums[l] = sm
+			order.sort_custom(func(x, y) -> bool: return sums[x] > sums[y])
+			for q in mini(order.size(), 2):
+				var l: int = order[q]
+				var o := ci * 26 + q * 13
+				slots[o] = lid[l]
+				for a in 12:
+					slots[o + 1 + a] = clampf(lam[l][a] / tot[a], 0.0, 1.0) if tot[a] > 0.0 else 0.0
+	out["grid"] = grid
+	out["grid_slots"] = slots
+	out["grid_walls"] = walls
+	out["grid_floor"] = floors
+
+
 ## Diagnostics (Lucid): the illuminance the bake computes at world point
 ## `p` on a surface facing `nrm`, as {lux, direct, indirect} (lux, the
 ## luminance-weighted value). Builds the chunk's lights and radiosity, not
-## its geometry.
-static func probe(g: WorldGen, p: Vector3, nrm: Vector3) -> Dictionary:
+## its geometry. `off`: lamp cells switched off as the runtime does it
+## (their direct and bounce parts taken out, Lucid only).
+static func probe(g: WorldGen, p: Vector3, nrm: Vector3, off := []) -> Dictionary:
 	var cb := ChunkBuilder.new(g, ChunkManager.chunk_of(p))
 	cb._compute_layout()
 	cb._compute_lights()
@@ -288,8 +453,19 @@ static func probe(g: WorldGen, p: Vector3, nrm: Vector3) -> Dictionary:
 		cb._compute_gi()
 	var c := cb.shade(p + nrm * 0.02, nrm)
 	var ind := cb._ind if cb._lucid else Color(0, 0, 0)
-	var k := Lucid.engine_to_lux(1.0) if cb._lucid else 1.0
-	return {"lux": Lucid.lum(c) * k, "direct": (Lucid.lum(c) - Lucid.lum(ind)) * k, "indirect": Lucid.lum(ind) * k}
+	if cb._lucid and not off.is_empty():
+		for k in cb.lpos.size():
+			if cb.lid[k] >= 0 and off.has(Vector2i(floori(cb.lpos[k].x / CELL), floori(cb.lpos[k].z / CELL))):
+				var tl := c.r + c.g + c.b
+				var dl: float = cb._swv_d[k]
+				var bl: float = cb._swv_b[k]
+				if tl > 0.0:
+					c = c * (1.0 - (dl + bl) / tl)
+				var il := ind.r + ind.g + ind.b
+				if il > 0.0:
+					ind = ind * (1.0 - bl / il)
+	var ku := Lucid.engine_to_lux(1.0) if cb._lucid else 1.0
+	return {"lux": Lucid.lum(c) * ku, "direct": (Lucid.lum(c) - Lucid.lum(ind)) * ku, "indirect": Lucid.lum(ind) * ku}
 
 
 func _lm_alloc(w: int, h: int) -> Vector2i:
@@ -378,6 +554,8 @@ func _compute_lights() -> void:
 			light_at[i + j * W] = -1
 			var b := bio(i, j)
 			var s := gen.light_state(rx0 + i, rz0 + j, b)
+			if not kill_cells.is_empty() and kill_cells.has(Vector2i(rx0 + i, rz0 + j)):
+				s = WorldGen.L_DEAD
 			if s == WorldGen.L_SKY:
 				light_at[i + j * W] = lpos.size()
 				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
@@ -390,6 +568,7 @@ func _compute_lights() -> void:
 					lcol.push_back(WorldGen.SKY_COLOR * WorldGen.SKY_POWER)
 					lrad.push_back(WorldGen.SKY_RADIUS)
 				lseed.push_back(0.0)
+				lid.push_back(-1)
 			elif s == WorldGen.L_ON or s == WorldGen.L_FLICKER:
 				light_at[i + j * W] = lpos.size()
 				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
@@ -403,6 +582,14 @@ func _compute_lights() -> void:
 					lcol.push_back(WorldGen.LIGHT_COLOR[b] * (WorldGen.LIGHT_POWER[b] * WorldGen.LIGHT_REACH[b]))
 					lrad.push_back(WorldGen.LIGHT_RADIUS[b])
 				lseed.push_back(gen.light_seed(rx0 + i, rz0 + j) if s == WorldGen.L_FLICKER else 0.0)
+				lid.push_back(lamp_index(rx0 + i, rz0 + j) if _lucid and s == WorldGen.L_FLICKER else -1)
+	_swv_d.resize(lpos.size())
+	_swv_b.resize(lpos.size())
+
+
+## Lucid: a lamp's texel in the lamp state texture.
+static func lamp_index(gx: int, gz: int) -> int:
+	return (gx & (LAMP_GRID - 1)) + LAMP_GRID * (gz & (LAMP_GRID - 1))
 
 
 func _candidates(i: int, j: int) -> PackedInt32Array:
@@ -485,6 +672,50 @@ func _visible(ax: float, az: float, ay: float, bx: float, bz: float, by: float) 
 			cj += sj
 			tmz += tdz
 	return true
+
+
+## How far along the segment a to b (as _visible) the first wall or door
+## frame stops it, as a fraction (2.0: nothing does).
+func _block_t(ax: float, az: float, ay: float, bx: float, bz: float, by: float) -> float:
+	var ci := floori(ax)
+	var cj := floori(az)
+	var steps := absi(floori(bx) - ci) + absi(floori(bz) - cj)
+	var dx := bx - ax
+	var dz := bz - az
+	var si := 1 if dx > 0.0 else -1
+	var sj := 1 if dz > 0.0 else -1
+	var tmx := INF
+	var tdx := INF
+	var tmz := INF
+	var tdz := INF
+	if dx != 0.0:
+		tdx = absf(1.0 / dx)
+		tmx = (float(ci + (1 if si > 0 else 0)) - ax) / dx
+	if dz != 0.0:
+		tdz = absf(1.0 / dz)
+		tmz = (float(cj + (1 if sj > 0 else 0)) - az) / dz
+	for _s in steps:
+		var t := minf(tmx, tmz)
+		var e: int
+		var along: float
+		if tmx < tmz:
+			e = edge_v(ci + (1 if si > 0 else 0), cj)
+			along = az + dz * t - cj
+			ci += si
+			tmx += tdx
+		else:
+			e = edge_h(ci, cj + (1 if sj > 0 else 0))
+			along = ax + dx * t - ci
+			cj += sj
+			tmz += tdz
+		if e != 0:
+			if e == WorldGen.E_WALL:
+				return t
+			var y := ay + (by - ay) * t
+			if absf(along - 0.5) * CELL > WorldGen.DOOR_W[e] * 0.5 or y > WorldGen.DOOR_H[e] \
+					or (e == WorldGen.E_WINDOW and y < WorldGen.WIN_Y0):
+				return t
+	return 2.0
 
 
 ## Irradiance at a point. rgb = light, a = share coming from a flickering lamp
@@ -577,15 +808,23 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 
 ## Lucid: the same, in real units. Direct light from each fixture by the
 ## inverse square law and its cos^m distribution, E = I0 cos^m(te) cos(tr)
-## / d^2 (with a soft cut over the last quarter of LUCID_RADIUS), daylight
-## in lux, and the bounce from the radiosity. No ambient floor and no fake
-## bounce term. Returns E / pi in engine units; the bounce part is left in
-## `_ind` (contact occlusion applies to it only, see _ao_mix).
+## / d^2 (faded out over the last quarter of LUCID_RADIUS, where the far
+## tail of the probes takes over, see _compute_tail), daylight in lux, and
+## the bounce from the radiosity. No ambient floor and no fake bounce term.
+## Returns E / pi in engine units; the bounce part is left in `_ind`
+## (contact occlusion applies to it only, see _ao_mix), and each switchable
+## lamp's direct and bounce parts in `_swv_d` / `_swv_b` (listed in `_swl`).
+## Alpha: the share of
+## the strongest switchable lamp (direct + bounce), whose seed is `_seed`.
 func _shade_lucid(p: Vector3, nrm: Vector3) -> Color:
 	var li := floori(p.x / CELL) - rx0
 	var lj := floori(p.z / CELL) - rz0
 	_seed = 0.0
 	_ind = Color(0, 0, 0, 0)
+	for l in _swl:
+		_swv_d[l] = 0.0
+		_swv_b[l] = 0.0
+	_swl.resize(0)
 	if li < 0 or lj < 0 or li >= W or lj >= W:
 		return Color(0, 0, 0, 0)
 	var b := bio(li, lj)
@@ -595,8 +834,6 @@ func _shade_lucid(p: Vector3, nrm: Vector3) -> Color:
 	var u := p.x / CELL - rx0
 	var v := p.z / CELL - rz0
 	var tot := 0.0
-	var fl_amt := 0.0
-	var fl_best := 0.0
 	var dacc := Vector3.ZERO
 	for k in (_face_lights if _face_on else _candidates(li, lj)):
 		var lp := lpos[k]
@@ -626,11 +863,9 @@ func _shade_lucid(p: Vector3, nrm: Vector3) -> Color:
 		var lum := e * (c.r + c.g + c.b)
 		tot += lum
 		dacc += Vector3(dx, dy, dz) * (lum / d)
-		if lseed[k] > 0.0:
-			fl_amt += lum
-			if lum > fl_best:
-				fl_best = lum
-				_seed = lseed[k]
+		if lid[k] >= 0:
+			_swv_d[k] = lum
+			_swl.push_back(k)
 	if b == WorldGen.POOL and gen.gallery(rx0 + li, rz0 + lj):
 		# Daylight through the windows: diffuse skylight on everything, and
 		# the direct sun beam (Lucid.SUN_LUX on a surface facing it) where
@@ -648,14 +883,55 @@ func _shade_lucid(p: Vector3, nrm: Vector3) -> Color:
 		var dl := sky.r + sky.g + sky.b + sun.r + sun.g + sun.b
 		tot += dl
 		dacc += sd * (sun.r + sun.g + sun.b) + Vector3.UP * (sky.r + sky.g + sky.b)
+	if _tail_ready:
+		# The far fixtures (beyond the per-texel window), and the bounce,
+		# from the probes (or as set by _bake_face).
+		if not _fld_set:
+			_field(u, v, p.y, nrm)
+		var ft := _fld_far
+		r += ft.r
+		g += ft.g
+		bl += ft.b
+		tot += ft.r + ft.g + ft.b
+		dacc += Vector3.UP * (ft.r + ft.g + ft.b) * 0.3
 	if _gi_ready and not _direct_only:
-		_ind = _gi_sample(u, v, nrm)
+		_ind = _fld_ind
 		r += _ind.r
 		g += _ind.g
 		bl += _ind.b
-		tot += _ind.r + _ind.g + _ind.b
+		var il := _ind.r + _ind.g + _ind.b
+		tot += il
+		if _fld_set:
+			for x in _fld_fl.size():
+				var k := _fld_fl[x]
+				if _fld_sw[x] > 0.0:
+					if _swv_d[k] == 0.0:
+						_swl.push_back(k)
+					_swv_b[k] = _fld_sw[x]
+		elif il > 0.0:
+			# Each switchable lamp's own share of the bounce light here.
+			var grp := 0 if nrm.y > 0.5 else (1 if nrm.y < -0.5 else 2)
+			for q in 4:
+				var wq := _bw[q] * il
+				if wq <= 0.0:
+					continue
+				var cl: PackedInt32Array = _csw_l[_bk[q]]
+				if cl.is_empty():
+					continue
+				var cs: PackedFloat32Array = _csw_s[_bk[q]]
+				for x in cl.size():
+					var k := cl[x]
+					if _swv_d[k] == 0.0 and _swv_b[k] == 0.0:
+						_swl.push_back(k)
+					_swv_b[k] += wq * cs[x * 3 + grp]
 	_ldir = dacc
-	var share := fl_amt / tot if tot > 0.0 else 0.0
+	var best := 0.0
+	for k in _swl:
+		var l := _swv_d[k] + _swv_b[k]
+		if l > best:
+			best = l
+			_seed = lseed[k]
+	var share := best / tot if tot > 0.0 else 0.0
 	return Color(r, g, bl, share)
 
 
@@ -703,6 +979,9 @@ var _probe_y := PackedFloat32Array()  # W*W probe heights
 
 
 func _compute_gi() -> void:
+	if _lucid:
+		_compute_gi_lucid()
+		return
 	var ppos := PackedVector3Array()
 	var pnrm := PackedVector3Array()
 	var parea := PackedFloat32Array()
@@ -818,6 +1097,649 @@ func _compute_gi() -> void:
 		for k in _probe.size():
 			_probe[k] = first[k] + (_probe[k] - first[k]) * tail
 	_gi_ready = true
+
+
+# ------------------------------------------------ Lucid bounce (stage 2) ---
+# Probes at two heights per cell (LV_INSET above the floor and below the
+# ceiling) gather the patches within GI_NEAR cells with subdivided form
+# factors, so near patches are not underestimated; whatever part of the
+# hemisphere no patch covers (an open hall going on beyond the gather) is
+# filled from the outermost ring's floors and ceilings. Direct light from beyond
+# the per-texel window comes from an analytic tail per cell (_compute_tail).
+# Each switchable lamp's share of the first bounce is kept per cell, so its
+# bounce light can be switched with it.
+
+const LV_INSET := 0.4
+
+var _tail_ready := false
+var _far := PackedColorArray()        # W*W*12: far direct, ambient cubes at the floor and the ceiling
+var _gi2 := PackedColorArray()        # W*W*12: bounce, ambient cubes at the two probe levels
+var _cell_sw := []                    # per cell: {light: [up, down, side] share of the bounce} or null
+var _csw_l := []                      # the same per cell as PackedInt32Array lights ...
+var _csw_s := []                      # ... and PackedFloat32Array shares (3 per light)
+var _bk := PackedInt32Array([0, 0, 0, 0])      # the cells and weights of the last _blend2()
+var _bw := PackedFloat32Array([0, 0, 0, 0])
+static var _tail_cache := {}            # shared by the chunk threads, under _tail_mutex
+static var _tail_mutex := Mutex.new()
+
+
+## Ambient cube k (12 colours: two levels of +x -x +y -y +z -z) at height
+## fraction t between its levels, towards n.
+func _cube2(arr: PackedColorArray, k: int, t: float, n: Vector3) -> Color:
+	var o := k * 12
+	if absf(n.y) > 0.999:
+		var fy := 2 if n.y > 0.0 else 3
+		return arr[o + fy].lerp(arr[o + 6 + fy], t)
+	var ax := 0 if n.x > 0.0 else 1
+	var ay := 2 if n.y > 0.0 else 3
+	var az := 4 if n.z > 0.0 else 5
+	var lo := arr[o + ax] * (n.x * n.x) + arr[o + ay] * (n.y * n.y) + arr[o + az] * (n.z * n.z)
+	var hi := arr[o + 6 + ax] * (n.x * n.x) + arr[o + 6 + ay] * (n.y * n.y) + arr[o + 6 + az] * (n.z * n.z)
+	return lo.lerp(hi, t)
+
+
+## The height fraction of y between cell k's two levels: the floor and the
+## ceiling for the far tail (`far`), the probe levels for the bounce.
+func _lv_t(k: int, y: float, far: bool) -> float:
+	var f := floor_y[k]
+	var c := ceil_y[k]
+	var y0 := f if far else f + LV_INSET
+	var y1 := c if far else c - LV_INSET
+	return clampf((y - y0) / maxf(y1 - y0, 0.1), 0.0, 1.0)
+
+
+## The cells round local point (u, v in cells) whose two-level cubes are
+## blended there (this cell and its neighbours, never across a wall, as in
+## _gi_sample): left in _bk with normalised weights in _bw.
+func _blend_w(u: float, v: float) -> void:
+	var i := clampi(floori(u), 0, W - 1)
+	var j := clampi(floori(v), 0, W - 1)
+	var fu := u - i - 0.5
+	var fv := v - j - 0.5
+	var su := 1 if fu > 0.0 else -1
+	var sv := 1 if fv > 0.0 else -1
+	var i2 := clampi(i + su, 0, W - 1)
+	var j2 := clampi(j + sv, 0, W - 1)
+	# Which neighbours are open, per cell and quadrant (cached).
+	var ck := (i + j * W) * 4 + (1 if su > 0 else 0) + (2 if sv > 0 else 0)
+	var fl_ := _bopen[ck]
+	if fl_ == 0:
+		var open_u := i2 != i and solid[i2 + j * W] == 0 and edge_v(maxi(i, i2), j) != WorldGen.E_WALL
+		var open_v := j2 != j and solid[i + j2 * W] == 0 and edge_h(i, maxi(j, j2)) != WorldGen.E_WALL
+		var open_d := open_u and open_v and solid[i2 + j2 * W] == 0 \
+				and edge_h(i2, maxi(j, j2)) != WorldGen.E_WALL and edge_v(maxi(i, i2), j2) != WorldGen.E_WALL
+		fl_ = 8 | (1 if open_u else 0) | (2 if open_v else 0) | (4 if open_d else 0)
+		_bopen[ck] = fl_
+	var wu := absf(fu)
+	var wv := absf(fv)
+	_bk[0] = i + j * W
+	_bk[1] = i2 + j * W
+	_bk[2] = i + j2 * W
+	_bk[3] = i2 + j2 * W
+	var w0 := (1.0 - wu) * (1.0 - wv)
+	var w1 := wu * (1.0 - wv) if fl_ & 1 else 0.0
+	var w2 := (1.0 - wu) * wv if fl_ & 2 else 0.0
+	var w3 := wu * wv if fl_ & 4 else 0.0
+	var tw := w0 + w1 + w2 + w3
+	_bw[0] = w0 / tw
+	_bw[1] = w1 / tw
+	_bw[2] = w2 / tw
+	_bw[3] = w3 / tw
+
+
+var _bopen := PackedByteArray()
+const FIELD_STEP := 4
+var _fld_set := false
+var _fld_sw := PackedFloat32Array()
+var _fld_fl := PackedInt32Array()
+var _fld_far := Color()
+var _fld_ind := Color()
+
+## The far tail and the bounce at local point (u, v in cells), height y,
+## towards n, blended over the cells round it (_blend_w): left in _fld_far
+## and _fld_ind.
+func _field(u: float, v: float, y: float, n: Vector3) -> void:
+	if _bopen.size() != W * W * 4:
+		_bopen.resize(W * W * 4)
+	_blend_w(u, v)
+	var axis := -1
+	if absf(n.y) > 0.999:
+		axis = 2 if n.y > 0.0 else 3
+	elif absf(n.x) > 0.999:
+		axis = 0 if n.x > 0.0 else 1
+	elif absf(n.z) > 0.999:
+		axis = 4 if n.z > 0.0 else 5
+	var far := Color(0, 0, 0)
+	var ind := Color(0, 0, 0)
+	var gi := _gi_ready
+	for q in 4:
+		var w := _bw[q]
+		if w <= 0.0:
+			continue
+		var k := _bk[q]
+		var f := floor_y[k]
+		var h := ceil_y[k] - f
+		var tf := clampf((y - f) / maxf(h, 0.1), 0.0, 1.0)
+		var tb := clampf((y - f - LV_INSET) / maxf(h - 2.0 * LV_INSET, 0.1), 0.0, 1.0)
+		var o := k * 12
+		if axis >= 0:
+			far += _far[o + axis].lerp(_far[o + 6 + axis], tf) * w
+			if gi:
+				ind += _gi2[o + axis].lerp(_gi2[o + 6 + axis], tb) * w
+		else:
+			far += _cube2(_far, k, tf, n) * w
+			if gi:
+				ind += _cube2(_gi2, k, tb, n) * w
+	_fld_far = far
+	_fld_ind = ind
+
+
+## The far tail of a fixture grid at height h below it, per unit density
+## and unit angle: Vector2(U, H), the irradiance (per unit E / pi at 1 m) on
+## a surface facing up and facing the far fixtures horizontally, summed
+## over the fixtures the per-texel window leaves out (its complement).
+func _tail_int(m: float, h: float, rmax: float) -> Vector2:
+	var key := Vector3i(roundi(m * 100.0), roundi(h * 20.0), roundi(rmax))
+	_tail_mutex.lock()
+	var got: Variant = _tail_cache.get(key)
+	_tail_mutex.unlock()
+	if got != null:
+		return got
+	var hh := maxf(key.y / 20.0, 0.01)
+	var uu := 0.0
+	var ss := 0.0
+	var r0 := LUCID_RADIUS * 0.75
+	var r := sqrt(maxf(r0 * r0 - hh * hh, 0.0))
+	var dr := 0.1
+	while r < rmax:
+		dr = maxf(0.1, r * 0.02)
+		var d2 := r * r + hh * hh
+		var d := sqrt(d2)
+		var wc := smoothstep(LUCID_RADIUS * 0.75, LUCID_RADIUS, d)
+		if wc > 0.0:
+			var ce := hh / d
+			var e := wc * (pow(ce, m) if m > 0.0 else 1.0) / d2 * r * dr
+			uu += e * ce
+			ss += e * r / d
+		r += dr
+	_tail_mutex.lock()
+	_tail_cache[key] = Vector2(uu, ss)
+	_tail_mutex.unlock()
+	return Vector2(uu, ss)
+
+
+## Per cell, the direct light of the fixtures beyond the per-texel window:
+## the local fixture density (lit fixtures per m2 over the open cells in
+## the 9 x 9 cells around) carried on in each direction as far as it is
+## open (traced to TAIL_REACH: up to the first distance that is blocked, or
+## to infinity if none is), like a regular grid of fixtures, as ambient
+## cubes at the floor and at the ceiling.
+const TAIL_REACH := [7.6, 12.0, 20.0]
+
+func _compute_tail() -> void:
+	_far.resize(W * W * 12)
+	_far.fill(Color(0, 0, 0))
+	var dphi := TAU / TAIL_SECTORS
+	# How far each direction is open, traced from the cells round the chunk
+	# (the ones its surfaces and probes read); cells further out (patches
+	# only) take the nearest of those.
+	var ilo := M - 2
+	var ihi := M + N + 1
+	var reach_of := PackedFloat32Array()
+	reach_of.resize(W * W * TAIL_SECTORS)
+	for j in range(ilo, ihi + 1):
+		for i in range(ilo, ihi + 1):
+			if solid[i + j * W] == 1:
+				continue
+			var ay := minf(2.0, ce(i, j) - 0.2)
+			for s in TAIL_SECTORS:
+				var phi := (s + 0.5) * dphi
+				var cx := cos(phi)
+				var cz := sin(phi)
+				var far: float = TAIL_REACH[TAIL_REACH.size() - 1] / CELL
+				var bt: float = _block_t(i + 0.5, j + 0.5, ay, i + 0.5 + cx * far, j + 0.5 + cz * far, ay) * TAIL_REACH[TAIL_REACH.size() - 1]
+				var rmax := 120.0
+				for q in TAIL_REACH.size():
+					if bt < TAIL_REACH[q]:
+						rmax = 0.0 if q == 0 else (TAIL_REACH[q - 1] + TAIL_REACH[q]) * 0.5
+						break
+				reach_of[(i + j * W) * TAIL_SECTORS + s] = rmax
+	for j in W:
+		for i in W:
+			if solid[i + j * W] == 1:
+				continue
+			var ri := clampi(i, ilo, ihi)
+			var rj := clampi(j, ilo, ihi)
+			if solid[ri + rj * W] == 1:
+				ri = i
+				rj = j
+			var nl := 0
+			var nc := 0
+			var col := Color(0, 0, 0)
+			var mx := 0.0
+			for dj in range(-4, 5):
+				var jj := j + dj
+				if jj < 0 or jj >= W:
+					continue
+				for di in range(-4, 5):
+					var ii := i + di
+					if ii < 0 or ii >= W or solid[ii + jj * W] == 1:
+						continue
+					nc += 1
+					var l := light_at[ii + jj * W]
+					if l >= 0:
+						nl += 1
+						col += lcol[l]
+						mx += lexp[l]
+			if nl == 0:
+				continue
+			var rho := float(nl) / (nc * CELL * CELL)
+			col /= nl
+			mx /= nl
+			var f := fl(i, j)
+			var c := ce(i, j)
+			var o := (i + j * W) * 12
+			for s in TAIL_SECTORS:
+				var phi := (s + 0.5) * dphi
+				var cx := cos(phi)
+				var cz := sin(phi)
+				var rmax := reach_of[(ri + rj * W) * TAIL_SECTORS + s]
+				if rmax <= 0.0:
+					continue
+				for lv in 2:
+					var t := _tail_int(mx, (c - 0.03) - (f + 0.02 if lv == 0 else c - 0.02), rmax)
+					var up := col * (rho * dphi * t.x)
+					var side := col * (rho * dphi * t.y)
+					var b := o + lv * 6
+					_far[b + 2] += up
+					_far[b + (0 if cx > 0.0 else 1)] += side * absf(cx)
+					_far[b + (4 if cz > 0.0 else 5)] += side * absf(cz)
+	_tail_ready = true
+
+
+## Form factor weights (6: +x -x +y -y +z -z) of patch k seen from point pp:
+## the patch split into up to 4 x 4 parts when it is near.
+func _ff(pp: Vector3, c: Vector3, du: Vector3, dv: Vector3, n: Vector3, area: float, out: PackedFloat32Array) -> void:
+	out.fill(0.0)
+	var dist := maxf(pp.distance_to(c), 0.05)
+	var size := 2.0 * maxf(du.length(), dv.length())
+	var sub := clampi(ceili(size / dist), 1, 4)
+	if sub == 1:
+		var d := c - pp
+		var dn := d / dist
+		var cq := -n.dot(dn)
+		if cq > 0.0:
+			var w := area * cq / (PI * dist * dist + area)
+			out[0 if dn.x > 0.0 else 1] = absf(dn.x) * w
+			out[2 if dn.y > 0.0 else 3] = absf(dn.y) * w
+			out[4 if dn.z > 0.0 else 5] = absf(dn.z) * w
+		return
+	var da := area / (sub * sub)
+	for a in sub:
+		var fa := (a + 0.5) / sub * 2.0 - 1.0
+		for bb in sub:
+			var q := c + du * fa + dv * ((bb + 0.5) / sub * 2.0 - 1.0)
+			var d := q - pp
+			var d2 := d.length_squared()
+			var dn := d / sqrt(d2)
+			var cq := -n.dot(dn)
+			if cq <= 0.0:
+				continue
+			var w := da * cq / (PI * d2 + da)
+			if dn.x > 0.0: out[0] += dn.x * w
+			else: out[1] -= dn.x * w
+			if dn.y > 0.0: out[2] += dn.y * w
+			else: out[3] -= dn.y * w
+			if dn.z > 0.0: out[4] += dn.z * w
+			else: out[5] -= dn.z * w
+
+
+func _compute_gi_lucid() -> void:
+	_compute_tail()
+	var ppos := PackedVector3Array()
+	var pnrm := PackedVector3Array()
+	var pdu := PackedVector3Array()
+	var pdv := PackedVector3Array()
+	var parea := PackedFloat32Array()
+	var palb := PackedColorArray()
+	var pcell := PackedInt32Array()
+	var by_cell := []
+	by_cell.resize(W * W)
+	var plo := M - 1
+	var phi := M + N + 1
+	var lo := maxi(plo - GI_NEAR, 0)
+	var hi := mini(phi + GI_NEAR, W)
+	var hc := CELL * 0.5
+	for j in range(lo, hi):
+		for i in range(lo, hi):
+			if solid[i + j * W] == 1:
+				continue
+			var list := PackedInt32Array()
+			var b := bio(i, j)
+			var f := fl(i, j)
+			var c := ce(i, j)
+			var cx := (rx0 + i + 0.5) * CELL
+			var cz := (rz0 + j + 0.5) * CELL
+			list.push_back(ppos.size())
+			ppos.push_back(Vector3(cx, f + 0.02, cz)); pnrm.push_back(Vector3.UP); parea.push_back(CELL * CELL)
+			pdu.push_back(Vector3(hc, 0, 0)); pdv.push_back(Vector3(0, 0, hc))
+			palb.push_back(_alb(ALB_FLOOR, b, 1)); pcell.push_back(i + j * W)
+			list.push_back(ppos.size())
+			ppos.push_back(Vector3(cx, c - 0.02, cz)); pnrm.push_back(Vector3.DOWN); parea.push_back(CELL * CELL)
+			pdu.push_back(Vector3(hc, 0, 0)); pdv.push_back(Vector3(0, 0, hc))
+			palb.push_back(_alb(ALB_CEIL, b, 2)); pcell.push_back(i + j * W)
+			var h := c - f
+			for side in 4:
+				var e: int
+				var n: Vector3
+				match side:
+					0: e = edge_v(i, j); n = Vector3.RIGHT
+					1: e = edge_v(i + 1, j); n = Vector3.LEFT
+					2: e = edge_h(i, j); n = Vector3.BACK
+					_: e = edge_h(i, j + 1); n = Vector3.FORWARD
+				if e == WorldGen.E_OPEN:
+					continue
+				var area := CELL * h
+				if e != WorldGen.E_WALL:
+					area -= WorldGen.DOOR_W[e] * minf(WorldGen.DOOR_H[e], h)
+				if area <= 0.1:
+					continue
+				list.push_back(ppos.size())
+				ppos.push_back(Vector3(cx, f + h * 0.5, cz) - n * (hc - T)); pnrm.push_back(n); parea.push_back(area)
+				pdu.push_back(Vector3(absf(n.z), 0, absf(n.x)) * hc); pdv.push_back(Vector3(0, h * 0.5, 0))
+				palb.push_back(_alb(ALB_WALL, b, 0)); pcell.push_back(i + j * W)
+			by_cell[i + j * W] = list
+	# Direct light on each patch (with the far tail), and each switchable
+	# lamp's part of it.
+	var np := ppos.size()
+	var pe := PackedColorArray()
+	pe.resize(np)
+	var psw := []
+	psw.resize(np)
+	_direct_only = true
+	for k in np:
+		pe[k] = shade(ppos[k] + pnrm[k] * 0.05, pnrm[k])
+		if not _swl.is_empty():
+			var al := (palb[k].r + palb[k].g + palb[k].b) / 3.0
+			var d := {}
+			for l in _swl:
+				d[l] = _swv_d[l] * al
+			psw[k] = d
+	_direct_only = false
+	# Probes: two levels per cell; which patches each sees, with what weights.
+	var probes := PackedInt32Array()     # cell * 2 + level
+	var links := []
+	var cover := PackedFloat32Array()
+	var w6 := PackedFloat32Array()
+	w6.resize(6)
+	var seen := {}
+	for j in range(plo, phi):
+		for i in range(plo, phi):
+			if solid[i + j * W] == 1:
+				continue
+			var vis := {}
+			for qj in range(j - GI_NEAR, j + GI_NEAR + 1):
+				for qi in range(i - GI_NEAR, i + GI_NEAR + 1):
+					if qi < 0 or qj < 0 or qi >= W or qj >= W or by_cell[qi + qj * W] == null:
+						continue
+					var a := i + j * W
+					var b := qi + qj * W
+					var pair := mini(a, b) * W * W + maxi(a, b)
+					if not seen.has(pair):
+						seen[pair] = a == b or _visible(i + 0.5, j + 0.5, 1.2, qi + 0.5, qj + 0.5, 1.2)
+					if seen[pair]:
+						vis[qi + qj * W] = 1.0 if maxi(absi(qi - i), absi(qj - j)) == GI_NEAR else 0.0
+			for lv in 2:
+				var py := fl(i, j) + LV_INSET if lv == 0 else ce(i, j) - LV_INSET
+				var pp := Vector3((rx0 + i + 0.5) * CELL, py, (rz0 + j + 0.5) * CELL)
+				var lk := PackedFloat32Array()
+				var cv := PackedFloat32Array()      # covered: all, floors, ceilings (6 each)
+				cv.resize(18)
+				for qk in vis:
+					for k in by_cell[qk]:
+						_ff(pp, ppos[k], pdu[k], pdv[k], pnrm[k], parea[k], w6)
+						if w6[0] + w6[1] + w6[2] + w6[3] + w6[4] + w6[5] <= 0.0:
+							continue
+						var ty := 1 if pnrm[k].y > 0.5 else (2 if pnrm[k].y < -0.5 else 3)
+						lk.push_back(k)
+						lk.push_back(ty * vis[qk])
+						for a in 6:
+							lk.push_back(w6[a])
+							cv[a] += w6[a]
+							if ty < 3:
+								cv[ty * 6 + a] += w6[a]
+				probes.push_back((i + j * W) * 2 + lv)
+				links.push_back(lk)
+				cover.append_array(cv)
+	_gi2.resize(W * W * 12)
+	_gi2.fill(Color(0, 0, 0))
+	_cell_sw.resize(W * W)
+	# First bounce, with each lamp's share; then the patches lit by it too.
+	var pb := PackedColorArray()
+	pb.resize(np)
+	for k in np:
+		pb[k] = pe[k] * palb[k]
+	var sh1 := {}
+	_gather2(probes, links, cover, pb, psw, sh1)
+	_cell_sw = _shares(sh1, {}, 0.0)
+	var first := _gi2.duplicate()
+	# Second bounce: the patches lit by the first too, and each lamp's part
+	# of that (its own first bounce, by the shares just found).
+	var psw2 := []
+	psw2.resize(np)
+	for k in np:
+		var ck := pcell[k]
+		var t := 0.0 if pnrm[k].y > 0.5 else (1.0 if pnrm[k].y < -0.5 else 0.5)
+		var ind := _cube2(_gi2, ck, t, pnrm[k])
+		pb[k] = (pe[k] + ind) * palb[k]
+		var grp := 0 if pnrm[k].y > 0.5 else (1 if pnrm[k].y < -0.5 else 2)
+		var al := (palb[k].r + palb[k].g + palb[k].b) / 3.0
+		var il := (ind.r + ind.g + ind.b) * al
+		var d := {}
+		if psw[k] != null:
+			d = (psw[k] as Dictionary).duplicate()
+		if _cell_sw[ck] != null:
+			for l in _cell_sw[ck]:
+				d[l] = d.get(l, 0.0) + il * _cell_sw[ck][l][grp]
+		# (lamps giving a patch under 1 % of its light are left out)
+		var cut := (pb[k].r + pb[k].g + pb[k].b) * 0.01
+		for l in d.keys():
+			if d[l] < cut:
+				d.erase(l)
+		psw2[k] = d if not d.is_empty() else null
+	var sh2 := {}
+	_gather2(probes, links, cover, pb, psw2, sh2)
+	# Third bounce, then all further ones: each about the third times the
+	# ratio of third to second, per probe value (a floor lit through the
+	# ceiling gets its light in the second bounce and little in the third;
+	# one ratio for all, as in stage 1, over-lit such places).
+	var second := _gi2.duplicate()
+	for k in np:
+		var t := 0.0 if pnrm[k].y > 0.5 else (1.0 if pnrm[k].y < -0.5 else 0.5)
+		pb[k] = (pe[k] + _cube2(_gi2, pcell[k], t, pnrm[k])) * palb[k]
+	_gather2(probes, links, cover, pb, [], null)
+	for k in _gi2.size():
+		var b2 := second[k] - first[k]
+		var b3 := _gi2[k] - second[k]
+		var l2 := b2.r + b2.g + b2.b
+		var r := clampf((b3.r + b3.g + b3.b) / l2, 0.0, 0.8) if l2 > 1e-6 else 0.0
+		_gi2[k] = second[k] + b3 / (1.0 - r)
+	# Each lamp's share of it: its part of the first two bounces.
+	_cell_sw = _shares(sh1, sh2, 1.0)
+	_csw_l.resize(W * W)
+	_csw_s.resize(W * W)
+	for ck in W * W:
+		var ls := PackedInt32Array()
+		var ss := PackedFloat32Array()
+		if _cell_sw[ck] != null:
+			for l in _cell_sw[ck]:
+				# (a lamp giving a cell under 3 % of its bounce is left steady)
+				var sh: PackedFloat32Array = _cell_sw[ck][l]
+				if maxf(sh[0], maxf(sh[1], sh[2])) >= 0.03:
+					ls.push_back(l)
+					ss.append_array(sh)
+		_csw_l[ck] = ls
+		_csw_s[ck] = ss
+	# The stage 1 single-level probes (mid height), for light_probe().
+	_probe.resize(W * W * 6)
+	for k in W * W:
+		for a in 6:
+			_probe[k * 6 + a] = (_gi2[k * 12 + a] + _gi2[k * 12 + 6 + a]) * 0.5
+	_gi_ready = true
+
+
+## Per cell, each lamp's share of the bounce for surfaces facing up, down
+## and sideways ({light: [up, down, side]}), from the per-lamp sums of the
+## first gather (`a`) and the second (`b`, first + second bounce) carried on
+## as the series `tail` (b empty: the first bounce alone).
+func _shares(a: Dictionary, b: Dictionary, tail: float) -> Array:
+	var out := []
+	out.resize(W * W)
+	for ck in a:
+		var ta: PackedFloat32Array = a[ck]["_tot"]
+		var tb: PackedFloat32Array = b[ck]["_tot"] if b.has(ck) else ta
+		var tot := PackedFloat32Array()
+		tot.resize(12)
+		for x in 12:
+			tot[x] = ta[x] + (tb[x] - ta[x]) * tail
+		var lights := {}
+		for l in a[ck]:
+			lights[l] = true
+		if b.has(ck):
+			for l in b[ck]:
+				lights[l] = true
+		var d := {}
+		for l in lights:
+			if typeof(l) == TYPE_STRING:
+				continue
+			var z := PackedFloat32Array()
+			z.resize(12)
+			var la: PackedFloat32Array = a[ck].get(l, z)
+			var lb: PackedFloat32Array = b[ck].get(l, la) if b.has(ck) else la
+			var v := PackedFloat32Array()
+			v.resize(12)
+			for x in 12:
+				v[x] = la[x] + (lb[x] - la[x]) * tail
+			var up := v[2] / tot[2] if tot[2] > 0.0 else 0.0
+			var dn := v[9] / tot[9] if tot[9] > 0.0 else 0.0
+			var sd := 0.0
+			var st := 0.0
+			for x in [0, 1, 4, 5, 6, 7, 10, 11]:
+				sd += v[x]
+				st += tot[x]
+			d[l] = PackedFloat32Array([clampf(up, 0.0, 1.0), clampf(dn, 0.0, 1.0), clampf(sd / st if st > 0.0 else 0.0, 0.0, 1.0)])
+		out[ck] = d
+	return out
+
+
+## One gather of patch radiance `pb` into the two-level probes (_gi2), with
+## the uncovered solid angle filled from the outer ring. With `shares`, also
+## each switchable lamp's part (from `psw`, per patch {light: luminance}) per
+## cell: {light: 12 floats, "_tot": 12 floats}.
+func _gather2(probes: PackedInt32Array, links: Array, cover: PackedFloat32Array, pb: PackedColorArray, psw: Array, shares) -> void:
+	var zero := Color(0, 0, 0)
+	var per_lamp: bool = shares != null
+	for q in probes.size():
+		var lk: PackedFloat32Array = links[q]
+		var a0 := zero
+		var a1 := zero
+		var a2 := zero
+		var a3 := zero
+		var a4 := zero
+		var a5 := zero
+		# The outermost ring's floors and ceilings, per face: radiance x
+		# weight, and weight.
+		var of := [zero, zero, zero, zero, zero, zero]
+		var oc := [zero, zero, zero, zero, zero, zero]
+		var ow := PackedFloat32Array()
+		ow.resize(12)
+		var lam := {}
+		var t := 0
+		var n := lk.size()
+		while t < n:
+			var k := int(lk[t])
+			var c := pb[k]
+			var w0 := lk[t + 2]
+			var w1 := lk[t + 3]
+			var w2 := lk[t + 4]
+			var w3 := lk[t + 5]
+			var w4 := lk[t + 6]
+			var w5 := lk[t + 7]
+			a0 += c * w0
+			a1 += c * w1
+			a2 += c * w2
+			a3 += c * w3
+			a4 += c * w4
+			a5 += c * w5
+			var ty := int(lk[t + 1])
+			if ty == 1 or ty == 2:
+				var dst: Array = of if ty == 1 else oc
+				var wo := (ty - 1) * 6
+				for a in 6:
+					var w := lk[t + 2 + a]
+					if w > 0.0:
+						dst[a] += c * w
+						ow[wo + a] += w
+			if per_lamp and psw[k] != null:
+				var d: Dictionary = psw[k]
+				for l in d:
+					if not lam.has(l):
+						var z := PackedFloat32Array()
+						z.resize(18)
+						lam[l] = z
+					var arr: PackedFloat32Array = lam[l]
+					var v: float = d[l]
+					for a in 6:
+						arr[a] += v * lk[t + 2 + a]
+						if ty == 1 or ty == 2:
+							arr[ty * 6 + a] += v * lk[t + 2 + a]
+					lam[l] = arr
+			t += 8
+		var acc := [a0, a1, a2, a3, a4, a5]
+		var ck := probes[q] >> 1
+		var lv := probes[q] & 1
+		var o := ck * 12 + lv * 6
+		# The part of the hemisphere no patch covers: as much of it as an
+		# endless floor and ceiling would fill (half each for a face looking
+		# sideways, all for one looking at them) is filled with the outer
+		# ring's floor and ceiling radiance; never more than is missing.
+		var fill_f := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+		var fill_c := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+		for a in 6:
+			var miss := 1.0 - cover[q * 18 + a]
+			if miss > 0.0:
+				var inf_f := 1.0 if a == 3 else (0.0 if a == 2 else 0.5)
+				var inf_c := 1.0 if a == 2 else (0.0 if a == 3 else 0.5)
+				var mf := maxf(inf_f - cover[q * 18 + 6 + a], 0.0) if ow[a] > 0.0 else 0.0
+				var mc := maxf(inf_c - cover[q * 18 + 12 + a], 0.0) if ow[6 + a] > 0.0 else 0.0
+				var sc := minf(1.0, miss / (mf + mc)) if mf + mc > 0.0 else 0.0
+				if mf > 0.0:
+					fill_f[a] = mf * sc / ow[a]
+					acc[a] += of[a] * fill_f[a]
+				if mc > 0.0:
+					fill_c[a] = mc * sc / ow[6 + a]
+					acc[a] += oc[a] * fill_c[a]
+			_gi2[o + a] = acc[a]
+		if per_lamp:
+			if not shares.has(ck):
+				var z := PackedFloat32Array()
+				z.resize(12)
+				shares[ck] = {"_tot": z}
+			var sc: Dictionary = shares[ck]
+			var tot: PackedFloat32Array = sc["_tot"]
+			for a in 6:
+				tot[lv * 6 + a] += acc[a].r + acc[a].g + acc[a].b
+			sc["_tot"] = tot
+			for l in lam:
+				var arr: PackedFloat32Array = lam[l]
+				if not sc.has(l):
+					var z := PackedFloat32Array()
+					z.resize(12)
+					sc[l] = z
+				var dst: PackedFloat32Array = sc[l]
+				for a in 6:
+					dst[lv * 6 + a] += arr[a] + arr[6 + a] * fill_f[a] + arr[12 + a] * fill_c[a]
+				sc[l] = dst
 
 
 func _gather(links: Array, pb: PackedColorArray, plo: int, phi: int) -> void:
@@ -1040,6 +1962,8 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 			var light := Color(0, 0, 0, 0)
 			if lm_texel > 0.0:
 				_seed = face_seed
+				if _lucid:
+					light = _face_ids
 			else:
 				var sp := p + nrm * 0.05
 				if ao_mode == 1:
@@ -1160,6 +2084,74 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 	var dirs := PackedVector3Array()
 	if _dir_lm:
 		dirs.resize(n.x * n.y)
+	# Lucid: per texel, each switchable lamp's light (direct + bounce), for
+	# the face's candidate lamps (`fl`: those it can see, and those in the
+	# bounce of the cells it spans), kk floats per texel.
+	var fl := PackedInt32Array()
+	var swt := PackedFloat32Array()
+	var kk := 0
+	if _lucid:
+		if _fmap.size() != lpos.size():
+			_fmap.resize(lpos.size())
+			_fmap.fill(-1)
+		for l in _face_lights:
+			if lid[l] >= 0 and _fmap[l] < 0:
+				_fmap[l] = fl.size()
+				fl.push_back(l)
+		if _gi_ready:
+			var lo := Vector2i(floori(minf(p0.x, (p0 + du + dv).x) / CELL) - rx0 - 1, floori(minf(p0.z, (p0 + du + dv).z) / CELL) - rz0 - 1)
+			var hi := Vector2i(floori(maxf(p0.x, (p0 + du + dv).x) / CELL) - rx0 + 1, floori(maxf(p0.z, (p0 + du + dv).z) / CELL) - rz0 + 1)
+			for cj in range(maxi(lo.y, 0), mini(hi.y, W - 1) + 1):
+				for ci in range(maxi(lo.x, 0), mini(hi.x, W - 1) + 1):
+					for l in _csw_l[ci + cj * W]:
+						if _fmap[l] < 0:
+							_fmap[l] = fl.size()
+							fl.push_back(l)
+		kk = fl.size()
+		swt.resize(n.x * n.y * kk)
+	# Lucid: the far tail and the bounce (and each lamp's part of it) are
+	# smooth, so they are worked out every FIELD_STEP texels and
+	# interpolated in between.
+	var nodes_u := PackedInt32Array()
+	var nodes_v := PackedInt32Array()
+	var nfar := PackedColorArray()
+	var nind := PackedColorArray()
+	var nsw := PackedFloat32Array()
+	if _lucid and _tail_ready:
+		for t in range(0, n.x - 1, FIELD_STEP):
+			nodes_u.push_back(t)
+		nodes_u.push_back(n.x - 1)
+		for t in range(0, n.y - 1, FIELD_STEP):
+			nodes_v.push_back(t)
+		nodes_v.push_back(n.y - 1)
+		var nn := nodes_u.size() * nodes_v.size()
+		nfar.resize(nn)
+		nind.resize(nn)
+		nsw.resize(nn * kk)
+		var grp := 0 if nrm.y > 0.5 else (1 if nrm.y < -0.5 else 2)
+		for b in nodes_v.size():
+			for a in nodes_u.size():
+				var p := p0 + du * (float(nodes_u[a]) / (n.x - 1)) + dv * (float(nodes_v[b]) / (n.y - 1))
+				var sp := p + nrm * 0.05
+				if ao_mode == 1:
+					sp += _nudge(p)
+				var ni := a + b * nodes_u.size()
+				_field(sp.x / CELL - rx0, sp.z / CELL - rz0, sp.y, nrm)
+				nfar[ni] = _fld_far
+				nind[ni] = _fld_ind
+				var il := _fld_ind.r + _fld_ind.g + _fld_ind.b
+				for q in 4:
+					var wq := _bw[q] * il
+					if wq <= 0.0:
+						continue
+					var cl: PackedInt32Array = _csw_l[_bk[q]]
+					var cs: PackedFloat32Array = _csw_s[_bk[q]]
+					for x in cl.size():
+						var j := _fmap[cl[x]]
+						if j >= 0:
+							nsw[ni * kk + j] += wq * cs[x * 3 + grp]
+		_fld_sw.resize(kk)
+		_fld_fl = fl
 	# Pass 1: every other texel (plus the last row/column). Pass 2: texels in
 	# between are interpolated where their neighbours agree, shaded otherwise.
 	# Light is smooth almost everywhere, so this roughly halves the cost while
@@ -1195,6 +2187,9 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 						if _dir_lm:
 							dirs[k] = dirs[u0 + v0 * n.x] + dirs[u1 + v0 * n.x] + dirs[u0 + v1 * n.x] + dirs[u1 + v1 * n.x]
 						tseed[k] = maxf(maxf(tseed[u0 + v0 * n.x], tseed[u1 + v0 * n.x]), maxf(tseed[u0 + v1 * n.x], tseed[u1 + v1 * n.x]))
+						for x in kk:
+							swt[k * kk + x] = (swt[(u0 + v0 * n.x) * kk + x] + swt[(u1 + v0 * n.x) * kk + x]
+									+ swt[(u0 + v1 * n.x) * kk + x] + swt[(u1 + v1 * n.x) * kk + x]) * 0.25
 						if c00.a >= c11.a and c00.a >= c10.a and c00.a >= c01.a:
 							tseed[k] = tseed[u0 + v0 * n.x]
 						done[k] = 1
@@ -1205,24 +2200,69 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 				var sp := p + nrm * 0.05
 				if ao_mode == 1:
 					sp += _nudge(p)
+				if nfar.size() > 0:
+					# The field here, from the four nodes round this texel.
+					var a0 := mini(tu / FIELD_STEP, nodes_u.size() - 2)
+					var b0 := mini(tv / FIELD_STEP, nodes_v.size() - 2)
+					var fa := float(tu - nodes_u[a0]) / (nodes_u[a0 + 1] - nodes_u[a0])
+					var fb := float(tv - nodes_v[b0]) / (nodes_v[b0 + 1] - nodes_v[b0])
+					var nu := nodes_u.size()
+					var i00 := a0 + b0 * nu
+					var w00 := (1.0 - fa) * (1.0 - fb)
+					var w10 := fa * (1.0 - fb)
+					var w01 := (1.0 - fa) * fb
+					var w11 := fa * fb
+					_fld_far = nfar[i00] * w00 + nfar[i00 + 1] * w10 + nfar[i00 + nu] * w01 + nfar[i00 + nu + 1] * w11
+					_fld_ind = nind[i00] * w00 + nind[i00 + 1] * w10 + nind[i00 + nu] * w01 + nind[i00 + nu + 1] * w11
+					for x in kk:
+						_fld_sw[x] = nsw[i00 * kk + x] * w00 + nsw[(i00 + 1) * kk + x] * w10 \
+								+ nsw[(i00 + nu) * kk + x] * w01 + nsw[(i00 + nu + 1) * kk + x] * w11
+					_fld_set = true
 				var light := shade(sp, nrm)
+				_fld_set = false
 				var ao := _ao_xz(sp) if ao_mode == 1 else _ao_y(p.y, f, c)
 				if _wall_ao and ao_mode != 1 and absf(nrm.y) < 0.5:
 					ao *= _ao_corner(sp, nrm)
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
 				vals[k] = _ao_mix(light, ao)
+				if kk > 0:
+					for l in _swl:
+						var x := _fmap[l]
+						if x >= 0:
+							swt[k * kk + x] = _swv_d[l] + _swv_b[l] * ao
 				if _dir_lm:
 					dirs[k] = _ldir
 				tseed[k] = _seed
 				done[k] = 1
 	_face_on = false
+	# Lucid: the face's slots are the SLOTS switchable lamps that give it the
+	# most light; any others stay in the steady light.
+	var slot := PackedInt32Array()
+	if _lucid:
+		var totals := PackedFloat32Array()
+		totals.resize(kk)
+		for k in n.x * n.y:
+			for x in kk:
+				totals[x] += swt[k * kk + x]
+		var order := range(kk)
+		order.sort_custom(func(x, y) -> bool: return totals[x] > totals[y])
+		for q in mini(kk, SLOTS):
+			if totals[order[q]] > 0.0:
+				slot.push_back(order[q])
+		_face_ids = Color(0, 0, 0, 0)
+		for q in slot.size():
+			_face_ids[q] = lid[fl[slot[q]]]
+		for l in fl:
+			_fmap[l] = -1
 	var best := 0.0
 	var best_w := 0.0
 	for sd in seeds:
 		if seeds[sd] > best_w:
 			best_w = seeds[sd]
 			best = sd
+	if _lucid:
+		best = 0.0
 	for tv in n.y:
 		for tu in n.x:
 			var cl := vals[tu + tv * n.x]
@@ -1230,12 +2270,24 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 			lm_bytes.encode_half(o, cl.r)
 			lm_bytes.encode_half(o + 2, cl.g)
 			lm_bytes.encode_half(o + 4, cl.b)
-			lm_bytes.encode_half(o + 6, cl.a)
-			# The texel's own flickering lamp (0 = none), so neighbouring faces
-			# lit by the same lamp flicker together; the shader blends the
-			# darkening of neighbouring texels, so there are no hard edges.
-			var sd := tseed[tu + tv * n.x]
-			lm_seed_bytes.encode_u16(o / 4, clampi(int(sd), 0, 65535))
+			if _lucid:
+				# Slot shares: of the light with every lamp on, how much is
+				# each slot lamp's (alpha, and the two bytes of lightmap_seed).
+				var sh := [0.0, 0.0, 0.0]
+				var tl := cl.r + cl.g + cl.b
+				if tl > 0.0:
+					for q in slot.size():
+						sh[q] = clampf(swt[(tu + tv * n.x) * kk + slot[q]] / tl, 0.0, 1.0)
+				lm_bytes.encode_half(o + 6, sh[0])
+				lm_seed_bytes[o / 4] = clampi(roundi(sh[1] * 255.0), 0, 255)
+				lm_seed_bytes[o / 4 + 1] = clampi(roundi(sh[2] * 255.0), 0, 255)
+			else:
+				lm_bytes.encode_half(o + 6, cl.a)
+				# The texel's own flickering lamp (0 = none), so neighbouring faces
+				# lit by the same lamp flicker together; the shader blends the
+				# darkening of neighbouring texels, so there are no hard edges.
+				var sd := tseed[tu + tv * n.x]
+				lm_seed_bytes.encode_u16(o / 4, clampi(int(sd), 0, 65535))
 			if _dir_lm:
 				# Direction (0..255 per axis); alpha = how directional the
 				# light is (1: one lamp, 0: none, so the shader leaves it).

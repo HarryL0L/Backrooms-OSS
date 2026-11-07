@@ -197,6 +197,14 @@ func _update_light(delta: float, dim := 1.0) -> void:
 	if _light_t > 0.0 or body == null:
 		return
 	_light_t = 0.4
+	if ChunkBuilder.lucid and ChunkManager.current != null:
+		# L.U.C.I.D.: the probe grid at mid height, with the flickering
+		# lamps' current level (so updated often).
+		var cube := ChunkManager.current.light_cube(global_position + Vector3.UP * 1.1)
+		if cube.size() == 6:
+			_light_t = 0.08
+			body.set_env_cube(cube, dim)
+			return
 	var cl := _cell()
 	var bio := gen.biome_at(cl.x, cl.y)
 	var lv := gen.light_level_near(global_position + Vector3.UP * 1.2, 4)

@@ -19,7 +19,7 @@ textured rendering: one multiply per pixel for exposure, and no extra lights.
 
 ## Staged plan
 
-1. **Units, camera, albedo** (this stage, done)
+1. **Units, camera, albedo** (done)
    - Real light units, real fixture presets with sources, and Kelvin colour
      from the CIE locus.
    - A physical camera: EV100, phone-like metering and limits, auto white
@@ -27,14 +27,15 @@ textured rendering: one multiply per pixel for exposure, and no extra lights.
    - Measured albedos for the Lobby's surfaces.
    - The bake in lux, with radiosity carried to all bounces.
    - The ad-hoc compensations removed.
-2. **Relightable per-tile bake**
-   - Bake one transfer per light per tile, in lux per unit flux, so lights
-     can be switched, dimmed or flickered exactly without a rebake (today a
-     texel follows only its strongest flickering lamp).
-   - A 3D probe grid (spherical-harmonic L1 or ambient cube) for moving things
-     such as entities, props and the player's hands. This replaces the
-     analytic `WorldGen.lucid_light_near` estimate. The per-cell ambient cubes
-     added in stage 1 (`ChunkManager.light_probe`) are the seed of it.
+2. **Relightable bake, bounce accuracy, probe grid** (done, see below)
+   - Each lightmapped face keeps its three most important switchable lamps
+     apart (direct and bounce), so lamps flicker or die exactly without a
+     rebake, their bounce with them.
+   - Bounce gathered with subdivided form factors, the open part of the
+     hemisphere filled from the outer ring; the far fixtures as an analytic
+     tail.
+   - A probe grid (ambient cubes at two heights per cell, with occlusion and
+     the switchable lamps) lights entities, remote players, props and cars.
 3. **Sky, day/night, city scale**
    - Sky visibility (an ambient-occlusion "sky factor") baked per texel, so
      daylight through windows and openings is physical.
@@ -141,6 +142,193 @@ The bake and the shaders are on when `Settings` turns on Realistic with
 lightmaps (`ChunkBuilder.lucid = ChunkBuilder.gi`). The other presets are
 unchanged: `lucid_exposure` is (1, 1, 1, 0) and the legacy bake is used.
 
+## What stage 2 does
+
+### Relightable bake
+
+A lamp that flickers or dies takes its bounce light with it. Each
+lightmapped face keeps the `ChunkBuilder.SLOTS` = 3 switchable lamps that
+give it the most light apart from the rest:
+
+- `lightmap` (RGBA half): rgb = the light with every lamp on, a = the share
+  of slot 0 in it.
+- `lightmap_seed` (RG8, now filtered): the shares of slots 1 and 2. The
+  stage 1 seed texture had the same size, so a texel still costs 10 bytes.
+- The face's vertices carry the three slot lamps' indices in CUSTOM0 (unused
+  on lightmapped faces before).
+- A lamp's share is its direct light plus its own bounce light. In the
+  radiosity, each switchable lamp's part of the first bounce is followed per
+  probe and through the second bounce, and the further bounces are carried
+  on as the same geometric series as the total. The result is kept per cell
+  for surfaces facing up, down and sideways (`_cell_sw`).
+- Switchable lamps are the flickering ones (`WorldGen.L_FLICKER`). Steady
+  lamps, daylight and the far tail are in the steady light. A face lit by
+  more than three flickering lamps keeps the weakest ones steady.
+
+At runtime `ChunkManager` keeps the level of every switchable lamp of the
+loaded chunks (from `WorldGen.flicker`, or `set_lamp()`) in a 128 x 128 R8
+global texture, `lucid_lamps`, updated when the flicker clock ticks (14 Hz),
+16 KB. A lamp's texel is (gx & 127, gz & 127). The world shaders read the
+three slot levels in the vertex shader (`vertex_light()`, 3 texel fetches
+per vertex), and per pixel do one more filtered fetch and a dot product
+(`lightmap_light()`):
+`L = rgb x (1 - dot(shares, 1 - levels))`. The stage 1 path did up to eight
+fetches and four flicker hashes per pixel near a flickering lamp. The panel
+of a flickering lamp reads the same level (light_panel.gdshader), so the
+lens and the light it gives agree.
+
+Vertex-lit geometry (trim, pipes, props) keeps one slot: the share (direct +
+bounce) of its strongest flickering lamp with that lamp's seed, so its bounce
+follows too. It follows the flicker clock but not `set_lamp()`.
+
+### Bounce and far light
+
+- Probes at two heights per cell, `LV_INSET` = 0.4 m above the floor and
+  below the ceiling, so a ceiling takes the light the floor sends up from
+  3 m away, not from mid-height. Surfaces between blend the two.
+- The patches within `GI_NEAR` = 3 cells are gathered with subdivided form
+  factors (up to 4 x 4 parts when a patch is nearer than its size). The
+  stage 1 point-to-patch weight `A cos / (pi d^2 + A)` lost about 16 % of an
+  infinite plane, most of the 25 % shortfall.
+- The part of each probe's hemisphere that no gathered patch covers (an open
+  hall going on beyond 3 cells) is filled as far as an endless floor and
+  ceiling would fill it (half each for a face looking sideways, all of it
+  for one looking at them) with the radiance of the outermost ring's floors
+  and ceilings, and never by more than is missing. In a closed room nothing
+  is missing and nothing is added.
+- Three gathered bounces, then the rest as a geometric series per probe
+  value (third / second). One ratio for all, as in stage 1, over-lit floors
+  that get their bounce through the ceiling (second bounce, little third).
+- Direct light from beyond the per-texel window (faded out from 7.1 to
+  9.5 m) is an analytic tail: the local fixture density (lit fixtures per
+  m^2 over the open cells within 4 cells) carried on as a regular grid in
+  each of 16 directions, as far as a trace finds that direction open (cut
+  off at 7.6 / 12 / 20 m, or to infinity). It is integrated for the
+  fixture's cos^m distribution at the floor's and at the ceiling's height
+  below the fixtures, and blended in height on walls. It is the exact
+  complement of the per-texel window.
+
+### Probe grid for things that move
+
+`ChunkBuilder._light_grid()` bakes, per chunk cell, two probes at 0.5 m and
+1.7 m above the floor. Each is an ambient cube (+x -x +y -y +z -z) of all
+the light arriving there: direct light from the fixtures the probe can see
+(visibility traced like the lightmaps), the far tail and the bounce. Each
+probe also keeps its two strongest switchable lamps and their share of each
+of its 12 values, and the cell keeps its walls.
+`ChunkManager.light_cube(p)` blends the four cells round p (never through a
+wall) and the two heights, with the lamps at their current level.
+`EntityBody.set_env_cube()` / `HazmatModel.set_env_cube()` pass it to the
+figure and hazmat shaders as two mat3 (`env_pos`, `env_neg`), evaluated per
+pixel with the world normal (`env_cube_light()`, three selects and three
+multiply-adds). Walkers (the Attendant, the crawler) update it every 0.08 s,
+remote players every 0.1 s. The Lobby's bins and buckets and the car park's
+cars are lit from the grid once their chunk is shown (`LobbyDetails._relight`).
+The car shaders now follow the camera's exposure.
+
+## API (stage 2)
+
+- `ChunkBuilder.SLOTS`, `LAMP_GRID`, `lamp_index(gx, gz)`, `GI_NEAR`,
+  `LV_INSET`, `TAIL_SECTORS`, `TAIL_REACH`, `FIELD_STEP` (the far tail and
+  the bounce are worked out every 4 texels and interpolated), `GRID_Y`.
+- `ChunkBuilder.probe(g, p, n, off := [])`: `off` = lamp cells switched off
+  the way the runtime does it. `ChunkBuilder.kill_cells`: lamp cells left
+  out of the bake (for checking against an exact rebake).
+- Chunk build output (Lucid): `grid`, `grid_slots`, `grid_walls`,
+  `grid_floor`, `lamps` (gx, gz, seed of each switchable lamp).
+- `ChunkManager.current`, `light_cube(p)`, `cube_light(cube, n)`,
+  `set_lamp(cell, level)` (a negative level clears it), `lamp_level(idx)`.
+  `light_probe(p, n)` still gives the bounce alone (for the meter).
+- Shaders (common.gdshaderinc): `lucid_lamps`, `lamp_level(idx)`,
+  `vertex_light(custom0, custom1, seed, t)` (replaces `baked_light()` in the
+  lightmapped materials' vertex shaders), `env_cube_light(pos, neg, n)`.
+
+## Validation (stage 2)
+
+`_test/lucid_shots.tscn` with `PROBE=1` (seed 1234, the spawn hall). The
+expectation is computed in the test on the built level, independently of
+the bake: direct light summed over every lit fixture within 30 m that the
+point can see (physics rays against the walls), and the bounce by a Monte
+Carlo gather (160 cosine-weighted rays, each hit's albedo times its direct
+light plus its own bounce from 6 more rays, further bounces as a series).
+
+| Point | Expected direct | Stage 1 direct | Stage 2 direct | Expected bounce (MC) | Stage 1 bounce | Stage 2 bounce |
+|---|---|---|---|---|---|---|
+| Floor under a troffer | 450 | 418 | 453 | 38 | 26 | 30 |
+| Floor between rows | 346 | 315 | 346 | 38 | 23 | 31 |
+| Floor between fixtures along a row | 441 | 412 | 452 | 36 | 28 | 26 |
+| Desk (0.75 m) under a troffer | 547 | 530 | 555 | 36 | 26 | 30 |
+| Vertical at eye height | 71 | 50 | 75 | 45 | 14 | 39 |
+| Ceiling between rows | 0 | 0 | 0 | 43 | 29 | 56 |
+| Hall wall at 1.5 m | 288 | 280 | 300 | 85 | 98 | 109 |
+
+Direct light is now within 0 to 4 % of the visible-fixture sum (stage 1:
+4 to 30 % low). The bounce error went from a mean of 39 % (mostly low) to
+21 % (floors low, ceiling and walls high). The ceiling now gets more light
+than the carpet sends it alone (0.10 x 385 = 39 lux), from the walls.
+
+A flickering lamp's share (the lamp beside a wall of the Lobby, `LAMP`
+lines): with the lamp off as the runtime slots give it, against an exact
+rebake with the lamp left out (`kill_cells`):
+
+| Point | On | Off, slots | Off, exact rebake | Off, stage 1 model (bounce stays) |
+|---|---|---|---|---|
+| Wall beside the lamp | 377 (direct 283, bounce 94) | 115 (57, 57) | 128 (58, 69) | 152 (58, 94) |
+| Floor 2 cells away | 495 (371, 124) | 475 (358, 117) | 472 (358, 114) | 482 (358, 124) |
+| Ceiling 1 cell away | 94 (0, 94) | 83 (0, 83) | 82 (0, 82) | 94: no change |
+
+The lamp's own bounce is 25 of the wall's 94 lux of bounce (exact rebake);
+the slots take out 37, so they over-attribute a little right beside the
+lamp, and are within 1-3 lux further away. In stage 1 the bounce stayed on. On screen
+(`flicker_on` / `flicker_off`, the flicker clock pinned to two moments with
+the lamp on and off), the ceiling round the lamp dims to 0.78-0.85 of its
+lit value and the walls further off to 0.88-0.96. In stage 1 they stayed at
+1.00.
+
+Cost (lavapipe, 1280 x 720, relative only):
+
+- Bake: 449 / 527 ms/chunk at HEAD, 568 / 601 ms/chunk now (two runs on a
+  noisy machine: 1.14 to 1.27x), single thread,
+  `_test/bench_build.tscn -- realistic`. The bounce field went from 27 to
+  about 105 ms (two probe levels, subdivided links, three gathers with the
+  per-lamp shares, the far tail); the texels about 15 % more.
+- Memory per chunk: the lightmaps are unchanged at 10 bytes per texel
+  (about 208 KB for the average 20 800 texels). Added on the CPU: the probe
+  grid, about 19 KB (12 KB of cubes, 6.5 KB of slots). Once: the lamp state
+  texture, 16 KB.
+- Frames: draw calls unchanged (210-472 per view). Mean frame time over 60
+  frames: Lobby views 122.8 ms before, 120.9 ms after; all 13 views 130.8 /
+  136.7 ms (the chunk threads share lavapipe's CPU, so the slower bake shows
+  in the car park views). Per pixel the Lobby's surfaces do one more
+  filtered fetch and a dot product, and no flicker hashes.
+
+The presets other than Realistic render the same (the legacy bake and the
+shaders' non-Lucid paths are unchanged; checked with `realistic_shots`
+`PRESET=3`).
+
+## Known limits of stage 2
+
+- Only flickering lamps are switchable. A steady lamp that should die at
+  runtime has to be baked as switchable (in `_compute_lights`, `lid`).
+  Three slots per face: a face lit by four or more flickering lamps keeps
+  the weakest steady.
+- Vertex-lit geometry keeps one slot and follows the flicker clock, not
+  `set_lamp()`.
+- A lamp's share of the bounce is kept per cell for three directions and is
+  a little too concentrated round the lamp (the further bounces spread
+  wider).
+- The far tail assumes the local fixture grid goes on, as a fan widening
+  with distance. In a straight corridor it adds a little too much (a few
+  lux).
+- The bounce fill assumes an open hall's floor and ceiling go on. The Monte
+  Carlo check shows floors about 20 % low and ceilings and walls about 30 %
+  high in the spawn hall.
+- The probe grid has a cube per cell at two heights. A figure takes one
+  blended cube for its whole body (at 1.1 m). Hall figures, the lining,
+  jumpscares, signs and the player's own hands still use the old estimates.
+- Cars take the grid's luminance, not its colour (their shader's `light`
+  is a scalar).
+
 ## Units and reference data
 
 ### Fixtures (`Lucid.FIXTURES`)
@@ -241,6 +429,8 @@ under a 0.74 ceiling: 1 / (1 - ρ_floor ρ_ceiling) = 1.08. The total of
 440-555 lux is an EN 12464-1 office level.
 
 ## Known limits of stage 1
+
+(The first three are fixed in stage 2.)
 
 - The radiosity gathers 2 cells around each probe and samples patches at
   cell centres. Open halls lose some far horizon light, so walls and ceiling

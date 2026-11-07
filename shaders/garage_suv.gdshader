@@ -47,6 +47,7 @@ void fragment() {
 		col = base + env * gloss * f;
 	}
 	col += cabin_light(v_car, a);
+	col *= lucid_exposure.rgb;
 	col += a * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, kind == 1 || kind == 2 ? 0.85 : gloss);
 	ALBEDO = col + dither(FRAGCOORD.xy);
 }

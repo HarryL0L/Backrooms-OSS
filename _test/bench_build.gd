@@ -38,5 +38,21 @@ func _ready() -> void:
 			if d.has("lightmap") and d.lightmap != null:
 				texels += d.lightmap.get_width() * d.lightmap.get_height()
 	var ms := (Time.get_ticks_usec() - t) / 1000.0
+	if args.has("phases"):
+		# `phases`: how long the lights and the bounce field take on their own.
+		var t_l := 0
+		var t_g := 0
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var b := ChunkBuilder.new(gen, c0 + Vector2i(dx, dz))
+				var t0 := Time.get_ticks_usec()
+				b._compute_layout()
+				b._compute_lights()
+				var t1 := Time.get_ticks_usec()
+				if b._gi:
+					b._compute_gi()
+				t_l += t1 - t0
+				t_g += Time.get_ticks_usec() - t1
+		print("phases: layout+lights %.1f ms/chunk, bounce field %.1f ms/chunk" % [t_l / 1000.0 / n, t_g / 1000.0 / n])
 	print("chunks=%d  avg %.1f ms/chunk  avg verts %d  avg lightmap texels %d" % [n, ms / n, verts / n, texels / n])
 	get_tree().quit()

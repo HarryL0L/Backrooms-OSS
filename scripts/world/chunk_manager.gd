@@ -36,10 +36,34 @@ var _vis_result := {}
 var _vis_t := 0.0
 var _vis_center := Vector2i(1 << 30, 0)
 var _vis_pending := {}
+## L.U.C.I.D. (stage 2): the state of every switchable lamp the loaded
+## chunks' light depends on, in the global shader texture `lucid_lamps`
+## (LAMP_GRID^2, R8, 1 = as baked, 0 = off; ChunkBuilder.lamp_index). The
+## lightmaps keep each lamp's light (direct and bounce) apart, so the
+## shaders scale it by this. Updated when the flicker clock ticks (14 Hz)
+## or a lamp is overridden (set_lamp).
+var _lamps := {}             # lamp index -> [cell, seed]
+var _lamps_dirty := true
+var _lamp_level := {}        # lamp index -> current level (0..1)
+var _lamp_bytes := PackedByteArray()
+var _lamp_img: Image
+var _lamp_tex: ImageTexture
+var _lamp_tick := -1
+var _overrides := {}         # cell -> level
+## The manager the game uses (for things that light themselves from the
+## probe grid: light_cube()).
+static var current: ChunkManager
 
 
 func _ready() -> void:
 	_max_tasks = clampi(OS.get_processor_count() - 1, 1, 6)
+	current = self
+	var n := ChunkBuilder.LAMP_GRID
+	_lamp_bytes.resize(n * n)
+	_lamp_bytes.fill(255)
+	_lamp_img = Image.create_from_data(n, n, false, Image.FORMAT_R8, _lamp_bytes)
+	_lamp_tex = ImageTexture.create_from_image(_lamp_img)
+	RenderingServer.global_shader_parameter_set("lucid_lamps", _lamp_tex)
 
 
 func setup(p_gen: WorldGen, p_mats: WorldMaterials) -> void:
@@ -72,6 +96,7 @@ func swap_world(p_gen: WorldGen) -> void:
 
 
 func clear() -> void:
+	_lamps_dirty = true
 	_generation += 1
 	_wait_vis()
 	for id in _tasks.values():
@@ -124,6 +149,8 @@ func _process(_delta: float) -> void:
 	_schedule()
 	_upload(center)
 	_update_visibility(center, _delta)
+	if ChunkBuilder.lucid:
+		_update_lamps()
 	if not _initial_done and is_area_ready(target.global_position, 1):
 		_initial_done = true
 		initial_area_ready.emit()
@@ -196,6 +223,7 @@ func _unload_far(center: Vector2i) -> void:
 			_chunks[k].queue_free()
 			_chunks.erase(k)
 			_stale.erase(k)
+			_lamps_dirty = true
 	_mutex.lock()
 	for k in _results.keys():
 		if (k - center).length_squared() > limit:
@@ -310,8 +338,175 @@ func _make_chunk(data: Dictionary) -> Node3D:
 		root.add_child(body)
 	if data.has("probes"):
 		root.set_meta("probes", data.probes)
+	if data.has("grid"):
+		root.set_meta("grid", data.grid)
+		root.set_meta("grid_slots", data.grid_slots)
+		root.set_meta("grid_walls", data.grid_walls)
+		root.set_meta("grid_floor", data.grid_floor)
+	if data.has("lamps"):
+		root.set_meta("lamps", data.lamps)
+		_lamps_dirty = true
 	add_child(root)
 	return root
+
+
+# ---------------------------------------------------------- Lucid lamps ---
+
+## Switches a lamp (by its cell) to `level` (0 = dead, 1 = as baked) until
+## cleared with a negative level. Only switchable (flickering) lamps have
+## their light kept apart in the bake; for them it replaces the flicker.
+func set_lamp(cell: Vector2i, level: float) -> void:
+	if level < 0.0:
+		_overrides.erase(cell)
+	else:
+		_overrides[cell] = level
+	_lamp_tick = -1
+
+
+## The level of switchable lamp `idx` (ChunkBuilder.lamp_index) right now.
+func lamp_level(idx: int) -> float:
+	return _lamp_level.get(idx, 1.0)
+
+
+func _update_lamps() -> void:
+	if _lamps_dirty:
+		_lamps_dirty = false
+		var old := _lamps
+		_lamps = {}
+		for ch in _chunks.values():
+			if not ch.has_meta("lamps"):
+				continue
+			var l: PackedFloat32Array = ch.get_meta("lamps")
+			for i in range(0, l.size(), 3):
+				var cell := Vector2i(int(l[i]), int(l[i + 1]))
+				_lamps[ChunkBuilder.lamp_index(cell.x, cell.y)] = [cell, l[i + 2]]
+		# Texels no longer used go back to "as baked".
+		for idx in old:
+			if not _lamps.has(idx):
+				_lamp_bytes[idx] = 255
+				_lamp_level.erase(idx)
+		_lamp_tick = -1
+	var t := Ambience.world_time()
+	var tick := int(floor(t * 14.0))
+	if tick == _lamp_tick:
+		return
+	_lamp_tick = tick
+	for idx in _lamps:
+		var e: Array = _lamps[idx]
+		var v: float = _overrides[e[0]] if _overrides.has(e[0]) else WorldGen.flicker(e[1], t)
+		_lamp_level[idx] = v
+		_lamp_bytes[idx] = clampi(roundi(v * 255.0), 0, 255)
+	_lamp_img.set_data(ChunkBuilder.LAMP_GRID, ChunkBuilder.LAMP_GRID, false, Image.FORMAT_R8, _lamp_bytes)
+	_lamp_tex.update(_lamp_img)
+
+
+# ------------------------------------------------------ Lucid probe grid ---
+
+## L.U.C.I.D.: the light arriving at point p from the six axis directions
+## (+x -x +y -y +z -z: an ambient cube, E / pi in engine units, so a
+## surface of albedo a facing n shows a x sum(n_i^2 cube_i)), from the
+## probe grid the chunks bake (ChunkBuilder._light_grid): direct light from
+## the fixtures each probe can see, the far tail and the bounce, with the
+## switchable lamps at their current level. Blended between the four cells
+## round p (never through a wall) and the two probe heights. Empty where no
+## chunk with a grid is loaded.
+func light_cube(p: Vector3) -> PackedColorArray:
+	var out := PackedColorArray()
+	var cw := WorldGen.CELL
+	var c0 := Vector2i(floori(p.x / cw), floori(p.z / cw))
+	var fu := p.x / cw - c0.x - 0.5
+	var fv := p.z / cw - c0.y - 0.5
+	var c1 := c0 + Vector2i(1 if fu > 0.0 else -1, 0)
+	var c2 := c0 + Vector2i(0, 1 if fv > 0.0 else -1)
+	var c3 := Vector2i(c1.x, c2.y)
+	var wu := absf(fu)
+	var wv := absf(fv)
+	var walls0 := _grid_walls(c0)
+	if walls0 < 0:
+		return out
+	# Neighbours behind a wall (or not loaded) are left out.
+	var open_u := _open(c0, c1, walls0)
+	var open_v := _open(c0, c2, walls0)
+	var open_d := open_u and open_v and _open(c1, c3, _grid_walls(c1)) and _open(c2, c3, _grid_walls(c2))
+	var cells := [c0, c1, c2, c3]
+	var ws := [(1.0 - wu) * (1.0 - wv), wu * (1.0 - wv) if open_u else 0.0, (1.0 - wu) * wv if open_v else 0.0, wu * wv if open_d else 0.0]
+	out.resize(6)
+	out.fill(Color(0, 0, 0))
+	var tw := 0.0
+	for q in 4:
+		var w: float = ws[q]
+		if w <= 0.0:
+			continue
+		var cube := _grid_cube(cells[q], p.y)
+		if cube.is_empty():
+			continue
+		for a in 6:
+			out[a] += cube[a] * w
+		tw += w
+	if tw <= 0.0:
+		return PackedColorArray()
+	for a in 6:
+		out[a] = out[a] / tw
+	return out
+
+
+## The probe cube of world cell c at height y (above the cell's floor, the
+## two probe heights blended), with the slot lamps at their level.
+func _grid_cube(c: Vector2i, y: float) -> PackedColorArray:
+	var ck := Vector2i(floori(float(c.x) / WorldGen.CHUNK), floori(float(c.y) / WorldGen.CHUNK))
+	var ch: Node3D = _chunks.get(ck)
+	if ch == null or not ch.has_meta("grid"):
+		return PackedColorArray()
+	var grid: PackedColorArray = ch.get_meta("grid")
+	var slots: PackedFloat32Array = ch.get_meta("grid_slots")
+	var ci := (c.x - ck.x * WorldGen.CHUNK) + (c.y - ck.y * WorldGen.CHUNK) * WorldGen.CHUNK
+	var f: float = (ch.get_meta("grid_floor") as PackedFloat32Array)[ci]
+	var gy: Array = ChunkBuilder.GRID_Y
+	var t := clampf((y - f - gy[0]) / (gy[1] - gy[0]), 0.0, 1.0)
+	var dims := PackedFloat32Array()
+	dims.resize(12)
+	for q in 2:
+		var o := ci * 26 + q * 13
+		var lvl := lamp_level(int(slots[o]))
+		if lvl < 1.0:
+			for a in 12:
+				dims[a] += slots[o + 1 + a] * (1.0 - lvl)
+	var out := PackedColorArray()
+	out.resize(6)
+	for a in 6:
+		var lo := grid[ci * 12 + a] * (1.0 - dims[a])
+		var hi := grid[ci * 12 + 6 + a] * (1.0 - dims[6 + a])
+		out[a] = lo.lerp(hi, t)
+	return out
+
+
+## Walls round world cell c (ChunkBuilder grid_walls bits), -1 if unknown.
+func _grid_walls(c: Vector2i) -> int:
+	var ck := Vector2i(floori(float(c.x) / WorldGen.CHUNK), floori(float(c.y) / WorldGen.CHUNK))
+	var ch: Node3D = _chunks.get(ck)
+	if ch == null or not ch.has_meta("grid_walls"):
+		return -1
+	var w: PackedByteArray = ch.get_meta("grid_walls")
+	return w[(c.x - ck.x * WorldGen.CHUNK) + (c.y - ck.y * WorldGen.CHUNK) * WorldGen.CHUNK]
+
+
+## Whether light may be blended from neighbouring cell b into cell a.
+func _open(a: Vector2i, b: Vector2i, walls_a: int) -> bool:
+	if walls_a < 0 or _grid_walls(b) < 0:
+		return false
+	var d := b - a
+	var bit := 1 if d.x < 0 else (2 if d.x > 0 else (4 if d.y < 0 else 8))
+	return walls_a & bit == 0
+
+
+## The ambient cube `cube` (light_cube) seen by a surface facing n.
+static func cube_light(cube: PackedColorArray, n: Vector3) -> Color:
+	if cube.size() < 6:
+		return Color(0, 0, 0)
+	var c := cube[0 if n.x > 0.0 else 1] * (n.x * n.x)
+	c += cube[2 if n.y > 0.0 else 3] * (n.y * n.y)
+	c += cube[4 if n.z > 0.0 else 5] * (n.z * n.z)
+	return c
 
 
 ## L.U.C.I.D.: light arriving at point p from direction n (the baked ambient

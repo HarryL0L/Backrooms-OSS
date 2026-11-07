@@ -83,6 +83,20 @@ func set_env_light(c: Color) -> void:
 	for mi in find_children("*", "MeshInstance3D", true, false):
 		if (mi as MeshInstance3D).material_override is ShaderMaterial:
 			UniqueParams.set_param(mi, &"env_light", c)
+			UniqueParams.set_param(mi, &"env_pos", Basis(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO))
+			UniqueParams.set_param(mi, &"env_neg", Basis(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO))
+
+
+## L.U.C.I.D.: the light where they stand as an ambient cube from the probe
+## grid (ChunkManager.light_cube), see EntityBody.set_env_cube.
+func set_env_cube(cube: PackedColorArray) -> void:
+	var cp := Basis(Vector3(cube[0].r, cube[0].g, cube[0].b), Vector3(cube[2].r, cube[2].g, cube[2].b), Vector3(cube[4].r, cube[4].g, cube[4].b))
+	var cn := Basis(Vector3(cube[1].r, cube[1].g, cube[1].b), Vector3(cube[3].r, cube[3].g, cube[3].b), Vector3(cube[5].r, cube[5].g, cube[5].b))
+	for mi in find_children("*", "MeshInstance3D", true, false):
+		if (mi as MeshInstance3D).material_override is ShaderMaterial:
+			UniqueParams.set_param(mi, &"env_light", Color(0, 0, 0))
+			UniqueParams.set_param(mi, &"env_pos", cp)
+			UniqueParams.set_param(mi, &"env_neg", cn)
 
 
 func set_tag(t: String) -> void:

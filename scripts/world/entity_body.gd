@@ -160,6 +160,24 @@ func head_position() -> Vector3:
 func set_env_light(c: Color) -> void:
 	for m in _mats:
 		m.set_shader_parameter("env_light", Vector3(c.r, c.g, c.b))
+		m.set_shader_parameter("env_pos", Basis(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO))
+		m.set_shader_parameter("env_neg", Basis(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO))
+
+
+## L.U.C.I.D.: the light where it stands from the probe grid, an ambient
+## cube (ChunkManager.light_cube), so it is lit from the side the light
+## comes from, and dark where walls hide the fixtures.
+func set_env_cube(cube: PackedColorArray, dim := 1.0) -> void:
+	var cp := Basis(_v3(cube[0]) * dim, _v3(cube[2]) * dim, _v3(cube[4]) * dim)
+	var cn := Basis(_v3(cube[1]) * dim, _v3(cube[3]) * dim, _v3(cube[5]) * dim)
+	for m in _mats:
+		m.set_shader_parameter("env_light", Vector3.ZERO)
+		m.set_shader_parameter("env_pos", cp)
+		m.set_shader_parameter("env_neg", cn)
+
+
+static func _v3(c: Color) -> Vector3:
+	return Vector3(c.r, c.g, c.b)
 
 
 ## Plays a clip, timed so the feet keep pace with `speed` m/s.

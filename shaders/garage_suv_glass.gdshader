@@ -21,6 +21,6 @@ void fragment() {
 	float f = fresnel(wn, v);
 	vec3 env = garage_env(v_wpos, reflect(-v, wn));
 	vec3 tint = vec3(0.02, 0.025, 0.025) * light;
-	ALBEDO = tint + env * mix(0.12, 1.0, f) + flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.95) * 0.15;
+	ALBEDO = (tint + env * mix(0.12, 1.0, f)) * lucid_exposure.rgb + flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 0.95) * 0.15;
 	ALPHA = clamp(0.55 + f * 0.45, 0.0, 1.0);
 }

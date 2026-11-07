@@ -9,7 +9,12 @@ varying float v_on;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_emit = CUSTOM0.rgb * flicker(UV2.x, world_time) * lucid_exposure.rgb;
+	// (L.U.C.I.D.: a flickering lamp follows its level in lucid_lamps, as
+	// its light in the lightmaps does.)
+	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	ivec2 cell = ivec2(floor(wp.xz / 2.4));
+	float lv = lucid_exposure.a > 0.5 && UV2.x > 0.5 ? lamp_level(float((cell.x & 127) + 128 * (cell.y & 127))) : flicker(UV2.x, world_time);
+	v_emit = CUSTOM0.rgb * lv * lucid_exposure.rgb;
 	v_on = UV2.y;
 	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }

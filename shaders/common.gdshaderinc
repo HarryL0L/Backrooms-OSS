@@ -50,8 +50,32 @@ vec3 baked_light(vec4 custom0, float seed, float t) {
 
 uniform sampler2D lightmap : hint_default_black, filter_linear, repeat_disable;
 // Per texel: the seed of the flickering lamp its flicker share follows
-// (16 bits in RG8, 0 = none).
-uniform sampler2D lightmap_seed : hint_default_black, filter_nearest, repeat_disable;
+// (16 bits in RG8, 0 = none; read with texelFetch). L.U.C.I.D.: the shares
+// of slot lamps 1 and 2 (RG8, filtered).
+uniform sampler2D lightmap_seed : hint_default_black, filter_linear, repeat_disable;
+
+// L.U.C.I.D. stage 2: the level of every switchable lamp (ChunkManager:
+// R8, 1 = as baked, 0 = off), at texel (index & 127, index >> 7).
+global uniform sampler2D lucid_lamps : filter_nearest;
+
+float lamp_level(float idx) {
+	int i = int(idx + 0.5);
+	return texelFetch(lucid_lamps, ivec2(i & 127, i >> 7), 0).r;
+}
+
+// The vertex part of the baked light. Without a lightmap: the vertex's own
+// light (baked_light). On a lightmapped face under L.U.C.I.D.: how far each
+// of its three slot lamps (CUSTOM0.rgb = their indices) has dropped, 1 -
+// level, which lightmap_light() takes as its `vertex_light`.
+vec3 vertex_light(vec4 custom0, vec2 custom1, float seed, float t) {
+	if (custom1.x >= 0.0) {
+		if (lucid_exposure.a > 0.5) {
+			return vec3(1.0) - vec3(lamp_level(custom0.r), lamp_level(custom0.g), lamp_level(custom0.b));
+		}
+		return vec3(0.0);
+	}
+	return baked_light(custom0, seed, t);
+}
 
 // How much a lightmap texel is dimmed right now: its flicker share times how
 // far its own lamp has dropped.
@@ -66,7 +90,8 @@ float lm_dim(ivec2 i, ivec2 sz) {
 	return seed < 0.5 ? 0.0 : share * (1.0 - flicker(seed, world_time));
 }
 
-// lm = (texel x, texel y, unused). Each texel dims with its own lamp, and the
+// lm = (texel x, texel y, unused). L.U.C.I.D.: vertex_light = the slot
+// lamps' drop (vertex_light()). Otherwise each texel dims with its own lamp, and the
 // dimming of the four nearest texels is blended, so light from a flickering
 // lamp fades smoothly across every face it reaches.
 vec3 lightmap_light(vec3 vertex_light, vec3 lm) {
@@ -76,6 +101,12 @@ vec3 lightmap_light(vec3 vertex_light, vec3 lm) {
 	ivec2 sz = textureSize(lightmap, 0);
 	vec4 s = texture(lightmap, lm.xy / vec2(sz));
 	s.rgb *= lucid_exposure.rgb;
+	if (lucid_exposure.a > 0.5) {
+		// The light with every lamp on, less each slot lamp's share times
+		// how far it has dropped (vertex_light).
+		vec2 s12 = texture(lightmap_seed, lm.xy / vec2(sz)).rg;
+		return s.rgb * max(1.0 - dot(vec3(s.a, s12), vertex_light), 0.0);
+	}
 	if (s.a < 0.002) {
 		return s.rgb;
 	}
@@ -199,6 +230,14 @@ vec3 flashlight(vec3 wpos, vec3 n, vec3 cam, float gloss) {
 		return lucid_flash.rgb * lucid_exposure.rgb * cone * win * win / max(d * d, 0.01) * (ndl + spec * ndl);
 	}
 	return vec3(1.0, 0.93, 0.80) * 5.0 * cone * att * (ndl + spec * ndl);
+}
+
+// L.U.C.I.D. probe grid (ChunkManager.light_cube): the light arriving at a
+// moving object from +x +y +z (the columns of `pos`) and -x -y -z (`neg`),
+// E / pi in engine units, seen by a surface facing n (world space).
+vec3 env_cube_light(mat3 pos, mat3 neg, vec3 n) {
+	vec3 n2 = n * n;
+	return (n.x > 0.0 ? pos[0] : neg[0]) * n2.x + (n.y > 0.0 ? pos[1] : neg[1]) * n2.y + (n.z > 0.0 ? pos[2] : neg[2]) * n2.z;
 }
 
 float dither(vec2 frag) {

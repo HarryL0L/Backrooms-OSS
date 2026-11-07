@@ -258,6 +258,13 @@ func _process(delta: float) -> void:
 			var floor_v := 0.09 if bio == WorldGen.DARK else 0.16
 			var tint: Color = WorldGen.BOUNCE_TINT[bio].lerp(Color.WHITE, 0.5)
 			c = tint * clampf(lv * 0.4, floor_v, 1.1) + WorldGen.AMBIENT[bio] * 2.0
+			if ChunkBuilder.lucid and ChunkManager.current != null:
+				# L.U.C.I.D.: the probe grid (with the lamps' flicker).
+				var cube := ChunkManager.current.light_cube(pos + Vector3.UP * 1.1)
+				if cube.size() == 6:
+					model.set_env_cube(cube)
+					_light_t = 0.1
+					return
 		model.set_env_light(c)
 
 

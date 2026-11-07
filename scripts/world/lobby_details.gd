@@ -157,6 +157,37 @@ func _show_parts() -> void:
 		# Shown with its chunk: once the rooms are built, and not while the
 		# chunk is culled as out of sight.
 		(e[1] as Node3D).visible = chunks == null or chunks.is_shown(e[0])
+		if (e[1] as Node3D).visible and ChunkBuilder.lucid and (e[1] as Node3D).has_meta("relight"):
+			_relight(e[1])
+
+
+## L.U.C.I.D.: once its chunk's probe grid is there, the bins, buckets and
+## cars of a part take their light from it (ChunkManager.light_cube): from
+## above for the top, from the sides for the rest, at the level of the
+## flickering lamps when it is built.
+func _relight(part: Node3D) -> void:
+	var list: Array = part.get_meta("relight")
+	for i in range(list.size() - 1, -1, -1):
+		var e: Array = list[i]
+		var cube := chunks.light_cube(e[2] + Vector3.UP * 0.6)
+		if cube.size() < 6:
+			continue
+		var up := ChunkManager.cube_light(cube, Vector3.UP)
+		var side := (cube[0] + cube[1] + cube[4] + cube[5]) * 0.25
+		var lum := Lucid.lum(cube[0]) + Lucid.lum(cube[1]) + Lucid.lum(cube[2]) + Lucid.lum(cube[3]) + Lucid.lum(cube[4]) + Lucid.lum(cube[5])
+		var dir := Vector3(Lucid.lum(cube[0]) - Lucid.lum(cube[1]), Lucid.lum(cube[2]) - Lucid.lum(cube[3]), Lucid.lum(cube[4]) - Lucid.lum(cube[5])) / maxf(lum, 1e-5)
+		match e[0]:
+			"mm":
+				(e[1] as MultiMesh).set_instance_color(e[3], (e[4] as Color) * (up * 0.5 + side * 0.5))
+			"car":
+				UniqueParams.set_param(e[1], &"light", Lucid.lum(up) / 1.8)
+				UniqueParams.set_param(e[1], &"light_dir", dir * 2.0)
+			"suv":
+				(e[1] as ParkedCar)._set_all("light", Lucid.lum(up) / 1.8)
+				(e[1] as ParkedCar)._set_all("light_dir", dir * 2.0)
+		list.remove_at(i)
+	if list.is_empty():
+		part.remove_meta("relight")
 
 
 # --------------------------------------------------------------- placing ---
@@ -555,6 +586,7 @@ func _build_car(root: Node3D, body: StaticBody3D, e: Array) -> void:
 	if e[1] == SUV:
 		var pc := ParkedCar.new()
 		pc.setup(light, e[7], e[8], ldir)
+		_relight_add(root, ["suv", pc, e[0]])
 		# The model is long along X.
 		pc.transform = xf * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
 		root.add_child(pc)
@@ -568,6 +600,7 @@ func _build_car(root: Node3D, body: StaticBody3D, e: Array) -> void:
 				mi.set_surface_override_material(i, _car_material(mi.mesh.surface_get_material(i)))
 			UniqueParams.set_param(mi, &"light", light)
 			UniqueParams.set_param(mi, &"light_dir", ldir)
+			_relight_add(root, ["car", mi, e[0]])
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_car_shadow(root, xf, ldir)
 	var cs := CollisionShape3D.new()
@@ -622,6 +655,15 @@ static func _car_material(src: Material) -> ShaderMaterial:
 	return m
 
 
+## (Lucid: things to light from the probe grid once it is there, _relight.)
+func _relight_add(root: Node3D, e: Array) -> void:
+	if not ChunkBuilder.lucid:
+		return
+	if not root.has_meta("relight"):
+		root.set_meta("relight", [])
+	(root.get_meta("relight") as Array).append(e)
+
+
 func _build_props(root: Node3D, props: Array) -> void:
 	var meshes := [_cyl(0.21, 0.18, 0.62), _cyl(0.15, 0.12, 0.3)]
 	var tints := [Color(0.42, 0.44, 0.43), Color(0.86, 0.85, 0.8)]
@@ -650,6 +692,7 @@ func _build_props(root: Node3D, props: Array) -> void:
 				var b := Basis.from_euler(tilt) * Basis(Vector3.UP, e[3])
 				mm.set_instance_transform(i, Transform3D(b, e[0] + b * (Vector3.UP * h * 0.5)))
 			mm.set_instance_color(i, tints[kind] * lv)
+			_relight_add(root, ["mm", mm, e[0], i, tints[kind]])
 			mm.set_instance_custom_data(i, Color(h * 0.5, 0, 0, 0))
 			var cs := CollisionShape3D.new()
 			var sh := CylinderShape3D.new()

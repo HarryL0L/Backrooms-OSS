@@ -14,6 +14,9 @@ uniform float roughness = 0.45;
 uniform float specular_amt = 0.5;
 uniform float wrinkles = 0.0;          // 0 = smooth rubber
 uniform vec3 env_light = vec3(0.0);
+// L.U.C.I.D.: the probe grid's ambient cube where they stand (env_cube_light).
+uniform mat3 env_pos = mat3(0.0);
+uniform mat3 env_neg = mat3(0.0);
 
 varying vec3 v_wpos;
 varying vec3 v_wnormal;
@@ -50,5 +53,6 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = roughness;
 	SPECULAR = specular_amt;
-	EMISSION = col * env_light + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 1.0 - roughness);
+	vec3 wn = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	EMISSION = col * env_light + col * env_cube_light(env_pos, env_neg, wn) * lucid_exposure.rgb + col * flashlight(v_wpos, wn, CAMERA_POSITION_WORLD, 1.0 - roughness);
 }

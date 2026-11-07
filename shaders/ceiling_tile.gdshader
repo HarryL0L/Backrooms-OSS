@@ -14,7 +14,7 @@ varying vec3 v_wpos;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_vlight = baked_light(CUSTOM0, UV2.x, world_time);
+	v_vlight = vertex_light(CUSTOM0, CUSTOM1.xy, UV2.x, world_time);
 	v_lm = vec3(CUSTOM1.xy, flicker(UV2.x, world_time));
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));

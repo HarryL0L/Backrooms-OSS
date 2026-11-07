@@ -14,6 +14,9 @@ uniform vec4 tint : source_color = vec4(1.0);
 uniform float roughness = 0.7;
 uniform float alpha_cut = 0.0;     // > 0 for hair, lashes
 uniform vec3 env_light = vec3(0.0);
+// L.U.C.I.D.: the probe grid's ambient cube where it stands (env_cube_light).
+uniform mat3 env_pos = mat3(0.0);
+uniform mat3 env_neg = mat3(0.0);
 
 varying vec3 v_wpos;
 
@@ -32,5 +35,5 @@ void fragment() {
 	ROUGHNESS = roughness;
 	SPECULAR = 0.3;
 	vec3 n = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
-	EMISSION = col * env_light * lucid_exposure.rgb + col * flashlight(v_wpos, n, CAMERA_POSITION_WORLD, 1.0 - roughness);
+	EMISSION = col * (env_light + env_cube_light(env_pos, env_neg, n)) * lucid_exposure.rgb + col * flashlight(v_wpos, n, CAMERA_POSITION_WORLD, 1.0 - roughness);
 }
