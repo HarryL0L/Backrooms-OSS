@@ -61,7 +61,7 @@ var _lens_na := Lucid.fixture_rgb(Lucid.FIXTURES.sodium_hps_150w) * (Lucid.face_
 ## box's walls are the building lines; where the street runs on, its end
 ## is far off (the street seen down its length is far away).
 const PROBES := [[Vector3(48, 1.7, 28), Vector3(45, 0, 10), Vector3(51, 23, 46)],
-		[Vector3(30, 24.2, 25), Vector3(15, 22.5, 10), Vector3(45, 60, 40)],
+		[Vector3(30, LAYOUT.A_ROOF + 1.7, 25), Vector3(15, LAYOUT.A_ROOF, 10), Vector3(45, 60, 40)],
 		[Vector3(0, 1.7, 0), Vector3(-15, 0, -10), Vector3(15, 30, 10)],
 		[Vector3(0, 1.7, -35), Vector3(-15, 0, -400), Vector3(15, 30, -10)],
 		[Vector3(0, 1.7, 35), Vector3(-15, 0, 10), Vector3(15, 30, 400)],
@@ -106,6 +106,18 @@ var _aps: Array[AudioStreamPlayer3D] = []
 var _buzz: AudioStreamPlayer3D
 var _siren_t := 40.0
 var _baked := false
+## Scale reference (QA only): grey 1.75 m people where proportions are
+## judged, in debug builds with QA_FIGURES=1 in the environment (never in
+## the shipped level). Level space (y: on what), facing (yaw, degrees; 0
+## north, 90 west).
+const QA_SPOTS := {"lamp_av": [Vector3(10.7, 0.15, 18.3), 200.0], "lamp_st": [Vector3(25.6, 0.15, 7.3), 160.0],
+		"door": [Vector3(14.55, 0.15, 33.6), 270.0], "shop": [Vector3(14.0, 0.15, 27.5), 90.0],
+		"landing": [Vector3(46.6, 7.8, 13.0), 300.0], "corner": [Vector3(11.0, 0.15, 9.0), 150.0],
+		"cross_av": [Vector3(4.0, 0.0, 8.1), 90.0], "cross_st": [Vector3(12.1, 0.0, 3.0), 0.0],
+		"parapet": [Vector3(20.0, 21.0, 10.75), 180.0], "bulkhead": [Vector3(33.4, 21.0, 34.4), 120.0],
+		"shelter": [Vector3(-12.2, 0.15, -34.0), 270.0], "alley": [Vector3(48.5, 0.15, 24.0), 20.0],
+		"hydrant": [Vector3(10.9, 0.15, 21.4), 250.0]}
+var _qa_bodies: Array[EntityBody] = []
 
 
 func build(p_seed: int) -> void:
@@ -140,6 +152,7 @@ func build(p_seed: int) -> void:
 	fall_kill = 7.0
 	environment = _environment()
 	_build_audio()
+	_qa_figures()
 	var roof: Transform3D = lay.spots.roof_door
 	add_exit(Transform3D(roof.basis, city.to_global(roof.origin)), "none", "", {"label": "Go back down the stairs"})
 	var door: Transform3D = lay.spots.street_door
@@ -205,6 +218,7 @@ func _materials() -> void:
 			_sp(sm, "shop_band", d.get("shop", 0.0))
 			_sp(sm, "win_top", d.get("top", 1000.0))
 			_sp(sm, "win_mask", d.get("win_mask", Vector4.ZERO))
+			_sp(sm, "shop_mask", d.get("shop_mask", Vector2.ZERO))
 			_window_params(sm, st_a, st_b)
 		mats[name] = sm
 		_kit_mats.append(sm)
@@ -593,6 +607,8 @@ func _update(delta: float) -> void:
 	var b: Dictionary = Lucid.STATES[STATE_B]
 	_failing_lamp(delta)
 	_signals()
+	if not _qa_bodies.is_empty():
+		_qa_light()
 	# The camera: meter, white balance, then everything that follows it.
 	if player != null and player.camera != null:
 		_meter(delta)
@@ -1010,6 +1026,33 @@ func _physics_process(delta: float) -> void:
 
 # --------------------------------------------------------------------- shots ---
 
+static func _qa() -> bool:
+	return OS.is_debug_build() and OS.get_environment("QA_FIGURES") == "1"
+
+
+## The entity rig at a person's proportions (the crawler's mesh in its
+## rest pose, unstretched: 1.68 m, scaled to 1.75 m), grey, lit by the
+## probes (brighter than real, to be seen).
+func _qa_figures() -> void:
+	if not _qa():
+		return
+	for q in QA_SPOTS.values():
+		var b := EntityBody.new()
+		b.who = "crawler"
+		b.tint = Color(0.55, 0.55, 0.55)
+		b.scale = Vector3.ONE * (1.75 / 1.681)
+		city.add_child(b)
+		b.position = q[0]
+		b.rotation.y = deg_to_rad(q[1]) + PI
+		_qa_bodies.append(b)
+
+
+func _qa_light() -> void:
+	for b in _qa_bodies:
+		var c := light_at(b.global_position + Vector3.UP * 1.2)
+		b.set_env_light(Color(maxf(c.r, 0.04), maxf(c.g, 0.04), maxf(c.b, 0.04)) * 1.5)
+
+
 func _view(at: Vector3, yaw_deg: float, pitch_deg := 0.0) -> Transform3D:
 	var b := Basis(Vector3.UP, deg_to_rad(yaw_deg)) * Basis(Vector3.RIGHT, deg_to_rad(pitch_deg))
 	return Transform3D(b, at + Vector3(0.0, LEVEL_Y, 0.0))
@@ -1017,13 +1060,15 @@ func _view(at: Vector3, yaw_deg: float, pitch_deg := 0.0) -> Transform3D:
 
 ## Yaw 0 looks north (-Z), 90 west, 180 south, 270 east.
 func shots() -> Array:
+	var roof: float = LAYOUT.A_ROOF
+	var sy: Array = LAYOUT.STAIR_Y
 	return [
 		{"name": "arrival", "transform": arrival(), "wait": 3.0},
-		{"name": "roof_edge", "transform": _view(Vector3(15.9, 22.5, 10.9), 45.0, -22.0), "wait": 4.0},
-		{"name": "roof_skyline", "transform": _view(Vector3(20.0, 22.5, 20.0), 70.0, 4.0), "wait": 4.0},
-		{"name": "roof_north", "transform": _view(Vector3(25.0, 22.5, 12.0), 5.0, 2.0), "wait": 4.0},
-		{"name": "roof_tank", "transform": _view(Vector3(31.0, 22.5, 24.0), 220.0, 8.0), "wait": 4.0},
-		{"name": "stair", "transform": _view(Vector3(46.9, 11.7, 13.0), 20.0, -10.0), "wait": 4.0},
+		{"name": "roof_edge", "transform": _view(Vector3(15.9, roof, 10.9), 45.0, -22.0), "wait": 4.0},
+		{"name": "roof_skyline", "transform": _view(Vector3(20.0, roof, 20.0), 70.0, 4.0), "wait": 4.0},
+		{"name": "roof_north", "transform": _view(Vector3(25.0, roof, 12.0), 5.0, 2.0), "wait": 4.0},
+		{"name": "roof_tank", "transform": _view(Vector3(31.0, roof, 24.0), 220.0, 8.0), "wait": 4.0},
+		{"name": "stair", "transform": _view(Vector3(46.9, sy[3], 13.0), 20.0, -10.0), "wait": 4.0},
 		{"name": "alley", "transform": _view(Vector3(48.0, 0.15, 30.0), 10.0, 3.0), "wait": 4.0},
 		{"name": "street_corner", "transform": _view(Vector3(12.0, 0.15, 12.0), 0.0, 4.0), "wait": 4.0},
 		{"name": "avenue_south", "transform": _view(Vector3(3.0, 0.0, -20.0), 180.0, 2.0), "wait": 4.0},
@@ -1032,24 +1077,43 @@ func shots() -> Array:
 		{"name": "failing_lamp", "transform": _view(Vector3(40.0, 0.15, 8.5), 280.0, 12.0), "wait": 4.0},
 		# QA close-ups: the bulkhead, the parapet's corner, the fire stair
 		# from its top, middle and bottom, the sky overhead, windows.
-		{"name": "qa_bulkhead", "transform": _view(Vector3(31.0, 22.5, 31.0), 300.0, 5.0), "wait": 3.0},
-		{"name": "qa_door", "transform": _view(Vector3(32.6, 22.5, 33.4), 270.0, 20.0), "wait": 3.0},
-		{"name": "qa_parapet", "transform": _view(Vector3(43.6, 22.5, 11.4), 330.0, -8.0), "wait": 3.0},
-		{"name": "qa_stair_top", "transform": _view(Vector3(46.3, 22.5, 13.0), 180.0, -55.0), "wait": 3.0},
-		{"name": "qa_stair_top2", "transform": _view(Vector3(44.0, 22.5, 12.8), 250.0, -35.0), "wait": 3.0},
-		{"name": "qa_stair_mid_up", "transform": _view(Vector3(46.9, 11.7, 13.0), 160.0, 55.0), "wait": 3.0},
-		{"name": "qa_stair_mid_dn", "transform": _view(Vector3(46.9, 11.7, 13.0), 180.0, -45.0), "wait": 3.0},
-		{"name": "qa_stair_win", "transform": _view(Vector3(46.0, 9.82, 15.4), 95.0, 5.0), "wait": 3.0},
+		{"name": "qa_bulkhead", "transform": _view(Vector3(31.0, roof, 31.0), 300.0, 5.0), "wait": 3.0},
+		{"name": "qa_door", "transform": _view(Vector3(32.6, roof, 33.4), 270.0, 20.0), "wait": 3.0},
+		{"name": "qa_parapet", "transform": _view(Vector3(43.6, roof, 11.4), 330.0, -8.0), "wait": 3.0},
+		{"name": "qa_stair_top", "transform": _view(Vector3(46.3, roof, 13.0), 180.0, -55.0), "wait": 3.0},
+		{"name": "qa_stair_top2", "transform": _view(Vector3(44.0, roof, 12.8), 250.0, -35.0), "wait": 3.0},
+		{"name": "qa_stair_mid_up", "transform": _view(Vector3(46.9, sy[3], 13.0), 160.0, 55.0), "wait": 3.0},
+		{"name": "qa_stair_mid_dn", "transform": _view(Vector3(46.9, sy[3], 13.0), 180.0, -45.0), "wait": 3.0},
+		{"name": "qa_stair_win", "transform": _view(Vector3(46.0, sy[2] + 2.35, 15.4), 95.0, 5.0), "wait": 3.0},
 		{"name": "qa_stair_bot_up", "transform": _view(Vector3(49.0, 0.15, 16.0), 0.0, 60.0), "wait": 3.0},
 		{"name": "qa_stair_side", "transform": _view(Vector3(50.5, 0.15, 24.0), 20.0, 25.0), "wait": 3.0},
 		{"name": "qa_sky_up", "transform": _view(Vector3(5.0, 0.15, 5.0), 0.0, 89.0), "wait": 3.0},
-		{"name": "qa_sky_up2", "transform": _view(Vector3(25.0, 22.5, 25.0), 300.0, 70.0), "wait": 3.0},
+		{"name": "qa_sky_up2", "transform": _view(Vector3(25.0, roof, 25.0), 300.0, 70.0), "wait": 3.0},
 		{"name": "qa_sky_arms", "transform": _view(Vector3(2.0, 0.0, 9.0), 90.0, 80.0), "wait": 3.0},
 		{"name": "qa_win_shop", "transform": _view(Vector3(13.0, 0.15, 24.0), 270.0, 5.0), "wait": 3.0},
-		{"name": "qa_win_B", "transform": _view(Vector3(47.5, 8.1, 16.4), 270.0, 10.0), "wait": 3.0},
+		{"name": "qa_win_B", "transform": _view(Vector3(47.5, sy[2], 16.4), 270.0, 10.0), "wait": 3.0},
 		{"name": "qa_win_D1", "transform": _view(Vector3(20.0, 0.15, -8.5), 0.0, 25.0), "wait": 3.0},
 		{"name": "qa_backdrop", "transform": _view(Vector3(85.0, 0.15, 9.0), 270.0, 12.0), "wait": 3.0},
-	]
+	] + (_scale_shots() if _qa() else [])
+
+
+## Scale reference views (QA_FIGURES=1): each figure from a person's
+## standing spot nearby (feet), looking at its chest.
+func _scale_shots() -> Array:
+	var views := {"lamp_av": Vector3(13.0, 0.15, 27.0), "lamp_st": Vector3(34.0, 0.15, 8.6), "door": Vector3(11.2, 0.15, 29.0),
+			"shop": Vector3(10.5, 0.15, 23.5), "landing": Vector3(50.0, 0.15, 6.0), "corner": Vector3(2.0, 0.0, 18.0),
+			"cross_av": Vector3(-6.0, 0.0, 14.0), "cross_st": Vector3(20.0, 0.15, -6.5), "parapet": Vector3(24.0, 21.0, 15.0),
+			"bulkhead": Vector3(28.0, 21.0, 31.0), "shelter": Vector3(-10.5, 0.15, -25.0), "alley": Vector3(48.5, 0.15, 31.0),
+			"hydrant": Vector3(14.0, 0.15, 25.0)}
+	var out := []
+	for k in views:
+		var at: Vector3 = views[k]
+		var t: Vector3 = QA_SPOTS[k][0] + Vector3(0, 1.2, 0)
+		var d := t - (at + Vector3(0, 1.62, 0))
+		var yaw := rad_to_deg(atan2(-d.x, -d.z))
+		var pitch := rad_to_deg(atan2(d.y, Vector2(d.x, d.z).length()))
+		out.append({"name": "scale_" + k, "transform": _view(at, yaw, pitch), "wait": 3.0})
+	return out
 
 
 ## The harness's film: out of the roof door, to the parapet over the
@@ -1060,11 +1124,14 @@ func film() -> void:
 	player.teleport(t.origin, _yaw_of(t))
 	await get_tree().create_timer(2.0).timeout
 	var o := Vector3(0.0, LEVEL_Y, 0.0)
-	await _ride([o + Vector3(28, 24.1, 30), o + Vector3(20, 24.1, 20), o + Vector3(17, 24.1, 13)], deg_to_rad(55.0), 7.0, -0.35)
-	await _ride([o + Vector3(17.2, 24.1, 13.2)], deg_to_rad(100.0), 3.0, 0.05)
-	await _ride([o + Vector3(30, 24.1, 15), o + Vector3(43, 24.1, 13.1), o + Vector3(46.0, 24.1, 13.0)], deg_to_rad(250.0), 6.0, -0.1)
-	await _ride([o + Vector3(46.9, 24.1, 13.4), o + Vector3(46.9, 22.4, 16.4), o + Vector3(46.3, 22.4, 17.2),
-			o + Vector3(45.7, 22.4, 16.4), o + Vector3(45.7, 20.6, 13.8)], deg_to_rad(10.0), 8.0, -0.2)
+	var roof: float = LAYOUT.A_ROOF + 1.6
+	var sy: Array = LAYOUT.STAIR_Y
+	var half: float = (sy[5] + sy[6]) * 0.5 + 1.7
+	await _ride([o + Vector3(28, roof, 30), o + Vector3(20, roof, 20), o + Vector3(17, roof, 13)], deg_to_rad(55.0), 7.0, -0.35)
+	await _ride([o + Vector3(17.2, roof, 13.2)], deg_to_rad(100.0), 3.0, 0.05)
+	await _ride([o + Vector3(30, roof, 15), o + Vector3(43, roof, 13.1), o + Vector3(46.0, roof, 13.0)], deg_to_rad(250.0), 6.0, -0.1)
+	await _ride([o + Vector3(46.9, roof, 13.4), o + Vector3(46.9, half, 16.4), o + Vector3(46.3, half, 17.2),
+			o + Vector3(45.7, half, 16.4), o + Vector3(45.7, sy[5] + 1.7, 13.8)], deg_to_rad(10.0), 8.0, -0.2)
 	await _ride([o + Vector3(30, 1.75, 8.0), o + Vector3(10, 1.75, 4.0), o + Vector3(0, 1.75, 0)], deg_to_rad(90.0), 9.0, 0.05)
 	await _ride([o + Vector3(0, 1.75, -0.5)], deg_to_rad(180.0), 4.0, 0.08)
 	await _ride([o + Vector3(0, 1.75, -1.0)], deg_to_rad(330.0), 4.0, 0.15)

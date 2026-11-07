@@ -478,7 +478,10 @@ the level script's static `force_blend = 1.0`) shows dusk.
   state's far field: sky on roofs and walls, the lamp rows' vertical
   illuminance on the lower floors (worked out from the real lamp rows:
   `_facade_light`), the moon on the faces turned to it.
-- Windows (`lucid_windows.gdshaderinc`): a grid of storeys and bays, lit
+- Windows (`lucid_windows.gdshaderinc`): a grid of storeys and bays (the
+  openings sized in metres: homes 1.2 x 1.5 m on 0.9 m sills, masonry 1.1
+  m wide up to 2.0 m tall, curtain wall vision glass from the floor to a
+  2.9 m ceiling; SPEC.md's audit), lit
   by hash with real luminances (25 cd/m2 office floors, 12 homes, 40 for a
   closed shop's night lights, Lucid.FIXTURES), with frames, sills and sash
   bars and a room behind the glass (a ceiling lamp, furniture against the

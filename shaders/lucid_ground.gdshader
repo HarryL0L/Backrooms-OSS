@@ -65,7 +65,9 @@ void fragment() {
 		e += e_spill;
 	}
 	if (road) {
-		alb = mix(alb, vec3(0.55, 0.54, 0.5), lucid_road_paint(p, w));
+		float py;
+		float pw = lucid_road_paint(p, w, py);
+		alb = mix(mix(alb, vec3(0.55, 0.54, 0.5), pw), vec3(0.50, 0.36, 0.07), py);
 	}
 	float n = lucid_hash(floor(p * 0.5));
 	alb *= 0.85 + 0.3 * n * smoothstep(1.0, 0.2, w);

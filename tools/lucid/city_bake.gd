@@ -59,7 +59,7 @@ func _ready() -> void:
 	# Probe grids: the crossing at 1.2 m over the street, A's roof.
 	var t2 := Time.get_ticks_msec()
 	var grids := []
-	for g in [[Rect2(-90, -66, 180, 132), 4.0, 0.0, 1.2], [Rect2(15, 10, 30, 30), 3.0, 22.5, 1.2]]:
+	for g in [[Rect2(-90, -66, 180, 132), 4.0, 0.0, 1.2], [Rect2(15, 10, 30, 30), 3.0, lay.A_ROOF, 1.2]]:
 		var data := LucidCity.bake_probes(g[0], g[1], g[2], g[3], lay.lamps, STATES, space, 24)
 		grids.append({"rect": g[0], "step": g[1], "floor": g[2], "y": g[3], "data": data})
 	var pr := Resource.new()

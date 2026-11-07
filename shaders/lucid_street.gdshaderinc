@@ -3,8 +3,8 @@
 // (lucid_ground.gdshader), so the two agree where they meet: wetness and
 // puddles, and the street heads' and signals' reflections found by
 // arithmetic on the grid (LucidCity.GRID: avenue heads 10 m up at x =
-// xc +- 7.5, z = 17.5 + 35 k; street heads 8 m up at 25, 55, 85 m into
-// each block, z = zc +- 5.0). Needs lucid_city and lucid_spec.
+// xc +- 7.6, z = 17.5 + 35 k; street heads 8 m up at 25, 55, 85 m into
+// each block, z = zc +- 5.1). Needs lucid_city and lucid_spec.
 
 uniform float wet = 0.0;                 // moisture after rain: 0 dry, 1 soaked (darker, smoother)
 uniform float puddles = 0.0;             // how much water stands in the low spots (0 none)
@@ -72,7 +72,7 @@ vec3 lamp_reflections(vec3 lp, LucidMirror m) {
 			vec3 q = lp + r * t;
 			float xc = round(q.x / 110.0) * 110.0;
 			float sx = q.x >= xc ? 1.0 : -1.0;
-			vec3 c = vec3(xc + sx * 7.5, 10.0, 17.5 + 35.0 * round((q.z - 17.5) / 35.0));
+			vec3 c = vec3(xc + sx * 7.6, 10.0, 17.5 + 35.0 * round((q.z - 17.5) / 35.0));
 			acc += lens_led * lucid_emitter_cover(lp, m, c, vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), vec2(0.25, 0.125));
 		}
 		t = (8.0 - lp.y) / r.y;
@@ -82,7 +82,7 @@ vec3 lamp_reflections(vec3 lp, LucidMirror m) {
 			float sz = q.z >= zc ? 1.0 : -1.0;
 			float xl = floor(q.x / 110.0) * 110.0;
 			float k = clamp(round((q.x - xl - 25.0) / 30.0), 0.0, 2.0);
-			vec3 c = vec3(xl + 25.0 + 30.0 * k, 8.0, zc + sz * 5.0);
+			vec3 c = vec3(xl + 25.0 + 30.0 * k, 8.0, zc + sz * 5.1);
 			float lv = distance(c.xz, fail_lamp.xz) < 0.5 ? fail_lamp.w : 1.0;
 			acc += lens_na * lv * lucid_emitter_cover(lp, m, c, vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), vec2(0.125, 0.2));
 		}
@@ -97,7 +97,7 @@ vec3 lamp_reflections(vec3 lp, LucidMirror m) {
 		// Signal optics: a beam of about +-15 degrees round its axis.
 		float beam = max(dot(nn, normalize(lp - c)), 0.0);
 		beam *= beam;
-		acc += sig_rad[i].rgb * beam * beam * lucid_emitter_cover(lp, m, c, cross(vec3(0.0, 1.0, 0.0), nn), vec3(0.0, 1.0, 0.0), vec2(0.133));
+		acc += sig_rad[i].rgb * beam * beam * lucid_emitter_cover(lp, m, c, cross(vec3(0.0, 1.0, 0.0), nn), vec3(0.0, 1.0, 0.0), vec2(0.135));
 	}
 	return acc;
 }

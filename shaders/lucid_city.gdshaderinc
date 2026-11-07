@@ -160,10 +160,10 @@ float lucid_fresnel(float f0, float c) {
 // ------------------------------------------------------- the street grid ---
 // The city's plan (LucidCity.GRID, the same numbers): avenues along Z every
 // 110 m (carriageway +-9.5 m, building line +-15 m), streets along X every
-// 80 m (+-6 m, +-10 m). Road paint (retro-reflective white, aged): lane
-// lines, the centre line, stop lines and zebra crossings at every corner.
-// Returns the paint's coverage at p (metres, ground plane), anti-aliased
-// by the footprint w (metres per pixel).
+// 80 m (+-6 m, +-10 m). Road paint (retro-reflective, aged): white lane
+// lines, stop lines and crosswalks at every corner, yellow centre lines.
+// Returns the white paint's coverage at p (metres, ground plane) and the
+// yellow's in `yellow`, anti-aliased by the footprint w (metres per pixel).
 float lucid_stripe(float x, float c, float half_w, float w) {
 	return clamp((half_w - abs(x - c)) / max(w, 1e-4) + 0.5, 0.0, 1.0);
 }
@@ -175,33 +175,42 @@ float lucid_zebra(float x, float w) {
 	return smoothstep(0.5 + aw, 0.5 - aw, t) * (1.0 - smoothstep(0.3, 0.8, w)) + 0.5 * smoothstep(0.3, 0.8, w);
 }
 
-float lucid_road_paint(vec2 p, float w) {
+float lucid_road_paint(vec2 p, float w, out float yellow) {
 	float xa = p.x - round(p.x / 110.0) * 110.0;      // across the avenue
 	float zs = p.y - round(p.y / 80.0) * 80.0;        // across the street
 	float ax = abs(xa);
 	float az = abs(zs);
 	float paint = 0.0;
+	yellow = 0.0;
 	if (ax < 9.5 && az > 10.0) {
-		// Avenue: dashed lane lines (3 m dash, 9 m gap) at +-3.5, a double
-		// centre line, the parking lane's edge line, stop lines for the
-		// lanes coming towards the crossing (traffic keeps right).
+		// Avenue: dashed lane lines (3 m dash, 9 m gap: MUTCD 3A.06) at
+		// +-3.5, the double yellow centre line (two 100 mm lines 100 mm
+		// apart), the parking lane's 100 mm edge line, stop lines (0.4 m)
+		// 1.2 m short of the crosswalk across the lanes coming towards the
+		// crossing (traffic keeps right: the east half south of it).
 		float dash = step(fract(p.y / 12.0), 0.25);
 		paint = max(paint, lucid_stripe(ax, 3.5, 0.06, w) * dash);
-		paint = max(paint, max(lucid_stripe(ax, 0.12, 0.05, w), lucid_stripe(ax, 0.32, 0.05, w)));
+		yellow = lucid_stripe(ax, 0.1, 0.05, w);
 		paint = max(paint, lucid_stripe(ax, 7.0, 0.05, w));
-		paint = max(paint, lucid_stripe(az, 10.4, 0.2, w) * step(ax, 7.0) * step(0.0, -xa * zs));
+		paint = max(paint, lucid_stripe(az, 11.0, 0.2, w) * step(ax, 7.0) * step(0.0, xa * zs));
 	}
 	if (az < 6.0 && ax > 15.0) {
+		// Street: a dashed yellow centre line, the parking lanes' edge
+		// lines, stop lines (the south half west of the crossing).
 		float dash = step(fract(p.x / 12.0), 0.25);
-		paint = max(paint, lucid_stripe(az, 0.0, 0.06, w) * dash);
+		yellow = lucid_stripe(az, 0.0, 0.06, w) * dash;
 		paint = max(paint, lucid_stripe(az, 3.5, 0.05, w));
-		paint = max(paint, lucid_stripe(ax, 15.4, 0.2, w) * step(az, 3.5) * step(0.0, xa * zs));
+		paint = max(paint, lucid_stripe(ax, 15.4, 0.2, w) * step(az, 3.5) * step(0.0, -xa * zs));
 	}
-	if (ax < 9.0 && az > 6.6 && az < 9.6) {
+	// Crosswalks (3 m, continental: 0.6 m bars on 1.2 m centres, along the
+	// traffic) from curb to curb, round the corners' 4.5 m radius.
+	float r = 4.5;
+	if (az > 6.6 && az < 9.6 && ax < 9.5 + r - sqrt(max(r * r - (az - 10.5) * (az - 10.5), 0.0)) - 0.3) {
 		paint = max(paint, lucid_zebra(xa, w));
 	}
-	if (az < 5.6 && ax > 10.6 && ax < 13.6) {
+	if (ax > 10.6 && ax < 13.6 && az < 6.0 + r - sqrt(max(r * r - (ax - 14.0) * (ax - 14.0), 0.0)) - 0.3) {
 		paint = max(paint, lucid_zebra(zs, w));
 	}
+	paint = max(paint - yellow, 0.0);
 	return paint;
 }

@@ -25,6 +25,7 @@ uniform float shop_band = 0.0;                   // shop band height (m), 0 none
 uniform float win_reflect = 0.9;
 uniform float win_top = 1000.0;                  // the wall's top (m)
 uniform vec4 win_mask = vec4(0.0);               // u shift, no windows from u (y) to u (z), v shift (m)
+uniform vec2 shop_mask = vec2(0.0);              // no shopfront from u (x) to u (y): a door's bay, a blank wall
 #endif
 
 uniform vec3 albedo = vec3(0.35);         // linear (a measured albedo)
@@ -131,9 +132,10 @@ void fragment() {
 	vec3 col = albedo * texture(albedo_tex, uv).rgb / max(tex_mean, vec3(0.001));
 	float rough = clamp(roughness * texture(rough_tex, uv).g / rough_tex_mean, 0.05, 1.0);
 	if (road_paint) {
-		float pw = lucid_road_paint(lp.xz, length(fwidth(lp.xz)));
-		col = mix(col, vec3(0.55, 0.54, 0.50), pw);
-		rough = mix(rough, 0.6, pw);
+		float py;
+		float pw = lucid_road_paint(lp.xz, length(fwidth(lp.xz)), py);
+		col = mix(mix(col, vec3(0.55, 0.54, 0.50), pw), vec3(0.50, 0.36, 0.07), py);
+		rough = mix(rough, 0.6, pw + py);
 	}
 	if (use_normal) {
 		vec3 nt = texture(normal_tex, uv).rgb * 2.0 - 1.0;
@@ -166,7 +168,7 @@ void fragment() {
 		float fr = lucid_fresnel(0.08, dot(vw, wn)) * win_reflect;
 		Facade fc = lucid_facade(u0 + win_mask.x, lp.y + win_mask.w, facade.y, facade.x, facade.z, facade.w, shop_band,
 				glass_reflection(lp, wn, vw, v_sky, cap), fr, win_top + win_mask.w, v_light);
-		if (u0 > win_mask.y && u0 < win_mask.z) {
+		if ((u0 > win_mask.y && u0 < win_mask.z) || (lp.y + win_mask.w < shop_band && u0 > shop_mask.x && u0 < shop_mask.y)) {
 			fc.glass = 0.0;
 			fc.frame = 0.0;
 			fc.emit = vec3(0.0);

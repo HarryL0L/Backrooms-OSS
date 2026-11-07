@@ -171,7 +171,16 @@ Facade lucid_facade(float u, float v, float kind, float seed, float storey, floa
 	float fv = fract(vv / storey);
 	float bi = floor(u / bay);
 	float fu = fract(u / bay);
-	vec4 r = kind < 0.5 ? vec4(0.3, 0.7, 0.3, 0.8) : (kind < 1.5 ? vec4(0.03, 0.97, 0.27, 0.96) : vec4(0.29, 0.71, 0.25, 0.82));
+	// The openings in metres (across the bay, up from the floor), so they
+	// keep their real size whatever the storey: a home's 1.2 x 1.5 m on a
+	// 0.9 m sill; a masonry building's tall double-hung sash 1.1 m wide on
+	// a 0.85 m sill, up to 2.0 m tall with a lintel and the floor over it
+	// (0.7 m or more); a curtain wall's 1.5 m modules with 64 mm mullions,
+	// vision glass from the floor to a 2.9 m ceiling and the spandrel over
+	// the plenum and the slab edge.
+	vec4 r = kind < 0.5 ? vec4(0.5 - 0.6 / bay, 0.5 + 0.6 / bay, 0.9 / storey, min(2.4, storey - 0.5) / storey)
+			: (kind < 1.5 ? vec4(0.032 / bay, 1.0 - 0.032 / bay, 0.1 / storey, min(2.9, storey - 1.0) / storey)
+			: vec4(0.5 - 0.55 / bay, 0.5 + 0.55 / bay, 0.85 / storey, (0.85 + clamp(storey - 1.55, 1.5, 2.0)) / storey));
 	float m = aa_box(fu, r.x, r.y, wu) * aa_box(fv, r.z, r.w, wv);
 	bool office = kind > 0.5 && kind < 1.5;
 	// A 70 mm frame round it and a 120 mm sill under it (not on curtain
@@ -212,7 +221,7 @@ Facade lucid_facade(float u, float v, float kind, float seed, float storey, floa
 		// Open plan: the ceiling's rows of troffers, desks and partitions
 		// darker below; unlit, the dark floor plate by the city's light.
 		float trof = step(0.5, fract(in_u * 1.0 + 0.25)) * smoothstep(0.86, 0.88, in_v) * smoothstep(0.95, 0.93, in_v);
-		float desk = smoothstep(0.32, 0.28, in_v) * (0.5 + 0.5 * step(0.5, fract(in_u * 2.0 + hv)));
+		float desk = smoothstep(0.27, 0.23, in_v) * (0.5 + 0.5 * step(0.5, fract(in_u * 2.0 + hv)));
 		e = refl * fres_w + (room * (1.0 - 0.45 * desk) * 0.92 + base * lit * trof * 2.5 + amb * 0.02 * 0.8) * (1.0 - fres_w);
 	} else {
 		float hb = lucid_hash(vec2(bi * 4.1 + seed, fl * 1.7));
