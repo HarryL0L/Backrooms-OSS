@@ -27,7 +27,7 @@ The framework:
 ## Ids
 
 `crawlspace`, `filing`, `reservoir`, `stairwell`, `flooded`, `office`,
-`atrium`, `ward`, `surveillance`, `metro`. Until
+`atrium`, `ward`, `surveillance`, `metro`, `night_city`. Until
 `scripts/world/levels/<id>_level.gd` exists (or while it fails to parse),
 the game uses the placeholder room, so the game always runs.
 
@@ -202,7 +202,7 @@ Helpers:
   lights it.
 - `add_box(size: Vector3, pos: Vector3, mat: Material, collide := true, parent: Node3D = null) -> MeshInstance3D`
 - `add_exit(xf: Transform3D, look := "door", to := "", opts := {}) -> LevelEntrance`:
-  look is `door, double, vent, hatch, lift, stairs` or `none` (an invisible
+  look is `door, double, vent, hatch, lift, stairs, roof` or `none` (an invisible
   walk-in trigger for an exit you model yourself). `xf` faces +Z (the side
   you stand on), origin at floor level on the wall face. opts: `label`,
   `sign`, `walk_in`, `size`, `script` (your own LevelEntrance subclass).

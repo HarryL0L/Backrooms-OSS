@@ -22,7 +22,7 @@ extends RefCounted
 ##   "chance": per 48 m x 48 m region where it can go (0.35)   [backrooms]
 ##   "pool": true: a floor hatch at the bottom of a pool      [backrooms]
 ##   "slot": a place in the mall (LevelEntrances.MALL_SLOTS)   [mall]
-##   "look": "door", "double", "vent", "hatch", "lift", "stairs"
+##   "look": "door", "double", "vent", "hatch", "lift", "stairs", "roof"
 ##   "sign": text on a plate over it; "label": the Use prompt
 ##   "script": your own LevelEntrance subclass (look and ride)
 
@@ -56,6 +56,9 @@ const LEVELS := {
 		"entrances": [{"kind": "wall", "biomes": ["GARAGE"], "floors": [-99, -1], "look": "stairs", "sign": "METRO",
 			"chance": 0.35},
 			{"in": "mall", "slot": "dept_back_s", "look": "stairs", "sign": "METRO"}]},
+	"night_city": {"name": "Level 12.1 - The Blue Hour", "intro": "Every light in the city is on. There is nobody left to have switched them on.",
+		"entrances": [{"kind": "wall", "biomes": ["CONCRETE", "LOBBY"], "floors": [2, 99], "look": "roof", "sign": "ROOF",
+			"label": "Go up to the roof", "chance": 0.35}]},
 }
 const BIOME_IDS := {"LOBBY": WorldGen.LOBBY, "POOL": WorldGen.POOL, "CONCRETE": WorldGen.CONCRETE,
 		"DARK": WorldGen.DARK, "PIPES": WorldGen.PIPES, "GARAGE": WorldGen.GARAGE}

@@ -4,7 +4,8 @@ extends Node3D
 ## the Backrooms (placed by LevelEntrances), standing in the Dead Mall, or,
 ## as an exit, in a side level itself (SideLevel.add_exit; dest "" = back
 ## to the Backrooms). One family of looks for all of them: "door", "double",
-## "vent", "hatch", "lift", "stairs", or "none" (an invisible walk-in
+## "vent", "hatch", "lift", "stairs", "roof" (a roof access door at the top
+## of a stair, cold night air behind it), or "none" (an invisible walk-in
 ## trigger for an exit a level builds itself).
 ##
 ## Local space: it faces +Z (the side you stand on); the origin is on the
@@ -22,9 +23,10 @@ extends Node3D
 ## script in the level's ENTRANCES ("script") or add_exit opts.
 
 const HOST_GROUP := "side_level_host"
-const LOOKS := ["door", "double", "vent", "hatch", "lift", "stairs", "none"]
+const LOOKS := ["door", "double", "vent", "hatch", "lift", "stairs", "roof", "none"]
 const LABELS := {"door": "Open the door", "double": "Push the doors", "vent": "Crawl into the vent",
-		"hatch": "Climb down the hatch", "lift": "Call the lift", "stairs": "Go down the stairs", "none": ""}
+		"hatch": "Climb down the hatch", "lift": "Call the lift", "stairs": "Go down the stairs",
+		"roof": "Go up to the roof", "none": ""}
 
 ## Where it goes: a side level's id ("" = the Backrooms, for exits).
 var dest := ""
@@ -202,6 +204,8 @@ func _build() -> void:
 			_lift()
 		"stairs":
 			_stairs()
+		"roof":
+			_roof_door()
 	if sign_text != "" and look != "none":
 		var y: float = {"vent": 0.68, "hatch": 0.0, "lift": 2.42, "stairs": 2.42, "double": 2.5}.get(look, 2.27)
 		if look != "hatch":
@@ -233,6 +237,25 @@ func _door(w: float, h: float, double: bool) -> void:
 			box(steel, Vector3(0.13, 0.025, 0.03), Vector3(sx * (lw - 0.13), 1.0, 0.045), piv)
 			box(steel, Vector3(0.04, 0.12, 0.01), Vector3(sx * (lw - 0.09), 1.0, 0.026), piv)
 		parts["leaf2" if right else "leaf"] = piv
+
+
+## A roof access door: steel, a panic bar, a "keep shut" notice, two
+## steps up to its sill, and behind it, when it opens, the deep blue of a
+## night sky instead of the dark.
+func _roof_door() -> void:
+	_door(0.92, 2.06, false)
+	var steel := mat(Color(0.7, 0.7, 0.68), 0.3, 0.9)
+	var leaf: Node3D = parts["leaf"]
+	box(steel, Vector3(0.7, 0.05, 0.05), Vector3(0.46, 1.0, 0.05), leaf)
+	box(mat(Color(0.75, 0.12, 0.08), 0.6), Vector3(0.24, 0.16, 0.005), Vector3(0.46, 1.5, 0.026), leaf)
+	var conc := mat(Color(0.45, 0.45, 0.43), 0.8)
+	box(conc, Vector3(1.3, 0.12, 0.3), Vector3(0.0, 0.06, 0.15))
+	box(conc, Vector3(1.3, 0.06, 0.18), Vector3(0.0, 0.15, 0.09))
+	if _void:
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(0.012, 0.02, 0.05)
+		_void.material_override = m
 
 
 func _vent() -> void:
@@ -341,7 +364,7 @@ func _plate(text: String, at: Vector3) -> void:
 
 
 func _sound() -> void:
-	var fn: String = {"vent": "draught", "hatch": "drip", "stairs": "wind", "lift": "hum"}.get(look, "draught")
+	var fn: String = {"vent": "draught", "hatch": "drip", "stairs": "wind", "lift": "hum", "roof": "wind"}.get(look, "draught")
 	if look == "none":
 		return
 	_audio = AudioStreamPlayer3D.new()

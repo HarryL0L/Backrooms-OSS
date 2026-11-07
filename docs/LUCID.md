@@ -36,7 +36,8 @@ textured rendering: one multiply per pixel for exposure, and no extra lights.
      tail.
    - A probe grid (ambient cubes at two heights per cell, with occlusion and
      the switchable lamps) lights entities, remote players, props and cars.
-3. **Sky, day/night, city scale**
+3. **Sky, day/night, city scale** (done for the city levels, see below;
+   testbed: Level 12.1, The Blue Hour, `night_city`)
    - Sky visibility (an ambient-occlusion "sky factor") baked per texel, so
      daylight through windows and openings is physical.
    - Day/night as a blend of two or three baked states (sun + sky, dusk,
@@ -328,6 +329,231 @@ shaders' non-Lucid paths are unchanged; checked with `realistic_shots`
   jumpscares, signs and the player's own hands still use the old estimates.
 - Cars take the grid's luminance, not its colour (their shader's `light`
   is a scalar).
+
+## What stage 3 does
+
+Stage 3 lights a city at night: a light-polluted sky and the moon, streets
+of real lamps, thousands of lit windows, a city to the horizon, on a phone.
+It is built for side levels (`scripts/render/lucid_city.gd`,
+`shaders/lucid_*`) and tested in The Blue Hour (`night_city`); the
+Backrooms' own bake is unchanged.
+
+### The night sky and the moon (`Lucid.STATES`, `Lucid.sky_nits`)
+
+The sky is a luminance model in cd/m2: a zenith value, a horizon excess
+fading with elevation as exp(-h / h0), and for twilight a glow toward an
+azimuth (cos^4). Each part has a colour temperature (daylight locus for
+the sky, Planckian for lamp glow). The same model runs in GDScript (bake,
+meter) and in the shaders (`lucid_sky_nits`, from the globals
+`lucid_sky_zenith/horizon/glow/glow_dir` that `LucidCity.push_sky()` sets).
+
+| State | Zenith | Horizon | Sky on the ground | Direct | Windows lit | Haze |
+| --- | --- | --- | --- | --- | --- | --- |
+| night | 0.040 cd/m2, 11000 K (16.1 mag/arcsec2, ~230 x the natural 174 ucd/m2) | 0.24 cd/m2, 4300 K, h0 = 0.22 rad | 0.18 lux horizontal, 0.14 vertical | moon 0.18 lux, 4100 K, 20 deg up at azimuth 255 | 30 % | 3.3e-4 /m (12 km) |
+| dusk (sun -5 deg) | 1.1 cd/m2, 15000 K | 3.0 cd/m2 + 5.0 glow in the west, 2600 K | 4.9 lux, 2.8 vertical | none | 20 % | 1.8e-4 /m |
+
+Megacity centres measure 15-17 mag/arcsec2 at the zenith (Falchi et al.
+2016); the horizon of a light dome is several times brighter and warmer
+(the long path through aerosol, low sodium sources). The moon is a
+directional light of 0.18 lux and a disc of 0.18 / 6.4e-5 sr = 2800 cd/m2
+(the light and the disc agree), with the aerosols' aureole (5 % of its
+light within a few degrees). Stars brighter than magnitude 3.5 are point
+sources of their real illuminance (2.54e-6 lux x 10^(-0.4 m)) dimmed by
+the air mass; at 16 mag/arcsec2 only a few show, as in a city.
+
+### Where the blue comes from
+
+Nothing is tinted. Three real effects make the night read blue:
+
+1. The sky's own colour: light-pollution and moonlight scattered by
+   molecules (Rayleigh) is a ~11000 K sky; the lamps' light that reaches
+   the ground is 2100 K (sodium) and 4000 K (LED), the windows 2900-4000 K.
+2. The camera's auto white balance is set by what it sees: the meter's
+   nine spots give a colour (the lit surfaces' light, the sky, the city),
+   converted to a CCT (McCamy 1992) and half corrected from 5500 K as in
+   stage 1. Under the lamps and windows it settles at 3400-4400 K, so
+   sodium stays orange, LED near white, and the 11000 K sky and everything
+   lit only by it go blue.
+3. The eye's night shift (`Camera.night_vision`, 0.5 in the city): in the
+   mesopic range (5 to 0.005 cd/m2, CIE 191:2010) the rods take over, so
+   each pixel's colour moves towards its scotopic luminance, Y (1.33 (1 +
+   (Y + Z) / X) - 1.68) / 2.576 (Jensen et al. 2000), in the blue grey of
+   chromaticity (0.25, 0.25) (Thompson, Shirley & Ferwerda 2002), by
+   log-linear steps over the range (`Lucid.mesopic`, `lucid_mesopic`). It
+   works on absolute luminance before the exposure, so dark sky and moonlit
+   roofs shift, lamp pools (0.5-3 cd/m2) barely do, and red lamps go dark.
+
+### The night camera (`Lucid.night_camera()`)
+
+A phone's main camera in its night video mode: f/1.8, ISO up to 12800,
+four 1/30 s frames merged (1/8 s effective): EV100 from -2.3 (the sensor
+saturates at 0.24 cd/m2) to 15.7. It aims at -0.5 EV from mid grey instead
+of +0.8 (phones aim lower in low light so a night looks like night and the
+lamp pools hold), and keeps its brightest spot within 2.5 stops. The meter
+(`night_city_level.gd`, `_meter`) reads one of nine spots a frame: a
+physics ray, then the surface's albedo times the lamps' light there (the
+same cos^m law, unoccluded) plus the probe grid's natural light; the sky
+model where the ray escapes; the city's mean where it meets the backdrop.
+Lit windows are light sources and are not metered (they clip, as in a
+photo). Measured in the harness: EV 0.8-1.8 on the roof, 2.4-3.6 in the
+street, 4.5 at the foot of the stair under a bulb.
+
+### Sky visibility and the per-vertex bake (`LucidCity.bake`)
+
+City surfaces are tessellated (a vertex every 1-1.5 m where lamps light
+them, coarser up high) and baked offline (`tools/lucid/city_bake.tscn`,
+headless, ~85 s for the crossing's 46 000 vertices) against the level's
+colliders in a physics space. Per vertex, in engine units (E / pi):
+
+- Every lamp within 70 m: E = I0 cos^m(theta_e) cos(theta_r) / d^2 with a
+  shadow ray (steel grating, railings and poles cast none).
+- A cosine-weighted gather of 64 rays (Hammersley, rotated per vertex):
+  an escaped ray adds the state's sky radiance in its direction, a hit adds
+  what that surface sends back: its albedo times the lamps' light there
+  (the lamp layer's bounce), its share of sky and moon (the natural layer)
+  and the mean luminance of its lit windows or shop lights (from the
+  collider's metadata: lit share x glazed share x window luminance).
+- The sky visibility: the cosine-weighted open share of the hemisphere
+  (open streets 0.45-0.6, the alley 0.2-0.35, under the stair less).
+- The moon with a shadow ray (night state).
+- The gather is denoised over the vertices of the same surface within
+  1.6 m facing the same way; direct light and the moon (the sharp shadows)
+  are not.
+
+The result is an ArrayMesh with custom arrays (`lucid_city.gdshader`):
+
+| Array | Format | Holds |
+| --- | --- | --- |
+| CUSTOM0 | RGBA half | rgb all lamps (direct + bounce), a sky visibility |
+| CUSTOM1 | RGBA half | rgb natural light of state A (night), a slot share 0 |
+| CUSTOM2 | RGBA half | rgb natural light of state B (dusk), a slot share 1 |
+| CUSTOM3 | RGBA8 | slot lamp indices (3), a slot share 2 |
+
+`L = lamps x (1 - dot(shares, 1 - levels)) x lamp level + mix(A, B, blend)`
+(vertex shader; 32 lamp levels in a uniform array). The sky visibility
+also weights the sky's reflection on damp asphalt and in unlit windows.
+Probe grids (`LucidCity.bake_probes`: the crossing every 4 m and the roof
+every 3 m, 1.2 m up, the mean of six directions per layer) light moving
+things (`light_at`) and the meter.
+
+### Day/night as baked states
+
+A tile stores its lamps once and its natural light per state; a blend
+factor (global `lucid_sky.x`) mixes two of them in the vertex shader and
+everything else follows it: the sky globals, the windows' lit share, the
+backdrop's far field, the haze, the probes, the meter. The lamp layer's
+level (`lucid_sky.z`) turns the street lamps off for a day state. Two
+states are baked now (night, dusk); a third (day: sun and clear sky)
+would be one more pair of arrays and one more `Lucid.STATES` entry. The
+level stays at night; `_test/levels/night_city_dusk.gd` (or
+the level script's static `force_blend = 1.0`) shows dusk.
+
+### City-scale light management
+
+- Lamps near you are baked geometry with lens faces of their real
+  luminance (36 000 cd/m2 for the LED heads, 42 000 for sodium); the
+  nearest four are also SpotLights whose `light()` adds only the specular
+  highlight on baked surfaces (the diffuse is in the bake), with energy
+  from `Lucid.light_node_cam()` under the level's camera.
+- Every other lamp, beacon and signal is a point source in a MultiMesh
+  (`lucid_points.gdshader`): a camera-facing gaussian disc no smaller than
+  a pixel carrying the source's real intensity toward the camera (street
+  heads I0 (cos^1.2 + 2 % for a flat LED lens, 12 % for a sodium drop
+  lens), so a lamp seen from above is mostly dark), attenuated by the air.
+  Bright ones get the lens's veiling glare: 3 % of the light reaching the
+  camera spread as 1 / (1 + (theta / 0.004)^2)^1.5, so halos have the
+  energy they really carry. Signals and beacons run on the level's clock.
+- The ground beyond the crossing (`lucid_ground.gdshader`) finds the lamps
+  that light a point by arithmetic (the grid is regular): the four nearest
+  pairs of avenue heads and the block's three pairs of street heads, each
+  with its real I0 and cos^m, plus half the sky and the shops' spill.
+- Buildings are instanced unit boxes (`lucid_blocks.gdshader`) in 16
+  MultiMeshes (8 directions x near / far, so most are culled), lit by the
+  state's far field: sky on roofs and walls, the lamp rows' vertical
+  illuminance on the lower floors (worked out from the real lamp rows:
+  `_facade_light`), the moon on the faces turned to it.
+- Windows (`lucid_windows.gdshaderinc`): a grid of storeys and bays, lit
+  by hash with real luminances (25 cd/m2 office floors, 12 homes, 40 for a
+  closed shop's night lights, Lucid.FIXTURES), unlit ones mirroring the sky
+  and, below the horizon, the city (solar-control curtain walls at about
+  four times a plain pane's reflectance), with frames and sills. When a
+  window falls under about a pixel the facade switches to cells of 2, 4, 8
+  windows lit with the same probability: the same mean, the speckle of a
+  photo, no shimmer.
+- Air: Koschmieder (transmittance exp(-sigma d), the rest the horizon's
+  luminance as airlight) in every city shader (`lucid_finish`); no halo
+  quads.
+
+### Validation (stage 3)
+
+Baked direct light against the analytic sum (`Lucid.FIXTURES`, the lamps
+of the grid, no occlusion in these open spots):
+
+| Point | Analytic | Baked |
+| --- | --- | --- |
+| Road under an avenue LED head (7.5, 0, 17.5) | 41.0 + 3.4 (opposite head) + 0.4 (neighbours) = 44.8 lux | 45.8 |
+| Road under a street sodium head (25, 0, 5.1) | 52.5 + 6.9 + 0.4 = 59.8 lux (+ avenue heads) | 61.8 |
+| Crossing centre | 8.1 lux (lamps) | 8.1 |
+
+Natural light (night) at street level is 4.7-7.6 lux, almost all of it
+the lit windows and shops round the crossing (the sky gives 0.18 lux); the
+sky visibility is 0.61 at the crossing's centre, 0.44-0.47 along the
+avenue, 0.32-0.35 on the sidewalks, lower in the alley.
+
+Cost (lavapipe, 1280 x 720, Realistic): 23-29 draw calls and 119k-140k
+primitives in the harness's views (the Lobby: 210-472 calls); four real
+lights and the moon, no shadows; the bake is 1.3 MB of vertex data, 56 KB
+of probes.
+
+### Known limits of stage 3
+
+- The meter's surface light ignores occlusion (it uses the lamp law, not
+  the bake); windows are not metered.
+- The gather sees lit windows as a facade's mean luminance, not window by
+  window; the backdrop buildings in it are boxes within 380 m.
+- Only the crossing is baked; the backdrop is analytic (no shadows, no
+  bounce between buildings, no lamp light on the far facades' upper parts).
+- One gather per vertex at 64 rays, denoised: bright small sources near a
+  vertex (a shopfront) can leave soft blotches.
+- The probes are the mean of six directions (no direction for moving
+  things yet).
+
+## API (stage 3)
+
+- `Lucid`: `STATES`, `sky_dir(alt, az)`, `sky_nits(state, dir)`,
+  `sky_uniforms(state)`, `sky_illuminance(state, n)`, `mag_arcsec2_nits(m)`,
+  `SKY_NATURAL_NITS`, `MOON_DISC_SR`, `mesopic(nits)`, `scotopic(c)`,
+  `night_shift(c, amount)`, `night_camera()`, `Camera.night_vision`,
+  `light_node_cam(c, cam)`, `push_level(cam, blend, lamps, air, haze)`,
+  `clear_level()`; fixtures `jelly_jar_60w`, `window_office`,
+  `window_home`, `shopfront`, `signal_red/yellow/green`, `ped_hand`,
+  `ped_walk`, `aviation_red_flash/steady` (chromaticity `xy` for coloured
+  signals).
+- `LucidCity`: `GRID`, `AVENUE_LAMP`, `STREET_LAMP`, `grid_lamps(rect)`,
+  `Surf` (quad, box, box_rot, cyl, poly with cell clipping, wall),
+  `corner_walk()`, `bake(surfs, lamps, states, space, rays)`,
+  `bake_probes()`, `unit_box()`, `block_multimesh()`, `point_multimesh()`,
+  `instance()`, `push_sky(a, b, t)`.
+- Globals: `lucid_sky` (x blend, y night vision, z lamp level, w haze),
+  `lucid_air` (rgb airlight, a extinction), `lucid_sky_zenith`,
+  `lucid_sky_horizon`, `lucid_sky_glow`, `lucid_sky_glow_dir`.
+- Shaders: `lucid_city.gdshaderinc` (`lucid_finish`, `lucid_mesopic`,
+  `lucid_air_light`, `lucid_sky_now`, `lucid_reflection`,
+  `lucid_road_paint`), `lucid_city` / `lucid_facade` (baked surfaces),
+  `lucid_blocks`, `lucid_ground`, `lucid_points`, `lucid_sky`,
+  `lucid_windows.gdshaderinc`.
+
+Stage 3 sources: Falchi et al. 2016, the new world atlas of artificial
+night sky brightness, https://www.science.org/doi/10.1126/sciadv.1600377 ;
+Jensen et al. 2000, a physically-based night sky model,
+https://graphics.stanford.edu/~henrik/papers/nightsky/ ; Thompson,
+Shirley & Ferwerda 2002, a spatial post-processing algorithm for images of
+night scenes; CIE 191:2010 mesopic photometry,
+https://cie.co.at/publications/recommended-system-mesopic-photometry-based-visual-performance ;
+McCamy 1992 CCT formula, https://en.wikipedia.org/wiki/Color_temperature ;
+ITE VTCSH / PTCSI signal intensities; FAA AC 70/7460-1M obstruction
+lighting; Koschmieder's law, https://en.wikipedia.org/wiki/Visibility .
+The city's sizes: assets/levels/night_city/SPEC.md.
 
 ## Units and reference data
 

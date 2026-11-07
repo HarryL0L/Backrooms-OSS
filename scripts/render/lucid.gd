@@ -64,6 +64,30 @@ const FIXTURES := {
 	# A ceiling opening onto bright sky (diffuse daylight, ~3000 cd/m2 seen
 	# through it), 1.8 m square.
 	"skylight": {"luminance": 3000.0, "kelvin": 5500.0, "m": 1.0, "size": Vector2(1.8, 1.8)},
+	# Stage 3, the city at night. A bare 60 W bulb in a caged "jelly jar"
+	# wall fitting over a service door (800 lm, ~75 % through the globe).
+	"jelly_jar_60w": {"flux": 600.0, "kelvin": 2800.0, "m": 0.0, "size": Vector2(0.1, 0.1)},
+	# Lit windows seen from outside (luminance of the glazed area): an
+	# office floor (~500 lux inside, walls and ceiling at 40-80 cd/m2, tinted
+	# glass T ~0.3-0.5), a home (warm lamps, curtains), a closed shop's night
+	# lighting (displays and security lights, ~40 cd/m2 behind the glass).
+	"window_office": {"luminance": 25.0, "kelvin": 4000.0, "m": 1.0, "size": Vector2(1.5, 2.7)},
+	"window_home": {"luminance": 12.0, "kelvin": 2900.0, "m": 1.0, "size": Vector2(1.2, 1.5)},
+	"shopfront": {"luminance": 40.0, "kelvin": 3500.0, "m": 1.0, "size": Vector2(4.0, 3.0)},
+	# Traffic signals, 300 mm LED, on-axis minimum maintained intensity
+	# (ITE VTCSH: red 365 cd, yellow 910, green 475) and their chromaticity
+	# boxes' centres. Pedestrian heads: the hand 3750 cd/m2, the walking
+	# person 2200 cd/m2 (ITE PTCSI).
+	"signal_red": {"peak_cd": 365.0, "xy": Vector2(0.692, 0.307), "m": 0.0, "size": Vector2(0.3, 0.3)},
+	"signal_yellow": {"peak_cd": 910.0, "xy": Vector2(0.575, 0.423), "m": 0.0, "size": Vector2(0.3, 0.3)},
+	"signal_green": {"peak_cd": 475.0, "xy": Vector2(0.170, 0.530), "m": 0.0, "size": Vector2(0.3, 0.3)},
+	"ped_hand": {"luminance": 3750.0, "xy": Vector2(0.600, 0.390), "m": 1.0, "size": Vector2(0.15, 0.2)},
+	"ped_walk": {"luminance": 2200.0, "kelvin": 6500.0, "m": 1.0, "size": Vector2(0.12, 0.2)},
+	# Aircraft warning lights on tall buildings (ICAO Annex 14): medium
+	# intensity type B, red, flashing 20-60 per minute, 2000 cd; low
+	# intensity type B, red, steady, 32 cd.
+	"aviation_red_flash": {"peak_cd": 2000.0, "xy": Vector2(0.70, 0.30), "m": 0.0, "size": Vector2(0.3, 0.3)},
+	"aviation_red_steady": {"peak_cd": 32.0, "xy": Vector2(0.70, 0.30), "m": 0.0, "size": Vector2(0.15, 0.15)},
 }
 
 ## Natural light, illuminance on a surface facing it (lux) and colour.
@@ -222,8 +246,13 @@ static func _xy_to_uv(xy: Vector2) -> Vector2:
 	return Vector2(4.0 * xy.x / d, 6.0 * xy.y / d)
 
 
-## The RGB of a fixture preset's light (its Kelvin and duv), luminance 1.
+## The RGB of a fixture preset's light (its Kelvin and duv, or the
+## chromaticity "xy" of a coloured signal), luminance 1.
 static func fixture_rgb(fx: Dictionary) -> Color:
+	if fx.has("xy"):
+		var c := xy_to_rgb(fx.xy)
+		var y := lum(c)
+		return Color(c.r / y, c.g / y, c.b / y)
 	return kelvin_rgb(fx.kelvin, false, fx.get("duv", 0.0))
 
 
@@ -288,6 +317,12 @@ class Camera:
 	var awb_neutral := 5500.0
 	var awb_min := 2800.0
 	var awb_max := 7500.0
+
+	## How much of the eye's night shift (mesopic Purkinje shift, see
+	## Lucid.mesopic) the picture shows: 0 for footage (a sensor has no
+	## rods), up to 1 for what a dark-adapted eye sees. Read by the city
+	## shaders through `lucid_sky.y`.
+	var night_vision := 0.0
 
 	var ev100 := STORE_EV100
 	var shutter := 1.0 / 60.0
@@ -359,6 +394,27 @@ class Camera:
 		return Color(g.r * k, g.g * k, g.b * k, 1.0)
 
 
+## A phone's main camera filming a city at night (stage 3) in its night
+## video mode: f/1.8, ISO up to 12800, and four 1/30 s frames merged per
+## output frame (what current phones' low-light video does), so an
+## effective exposure of up to 1/8 s: EV100 bottoms out at -2.3 (the
+## sensor saturates at 0.24 cd/m2). A lit street (0.3-1.5 cd/m2) meters
+## well above that and is exposed normally; a roof under the sky and the
+## moon (0.01-0.05 cd/m2) is beyond the camera and stays dark, as a night
+## should. Like phones in low light, it aims lower than by day (-0.5 EV
+## instead of +0.8: a night should look like night, and the lamp pools
+## must not burn out) and keeps the brightest spot within 2.5 stops. Auto
+## white balance as stage 1.
+static func night_camera() -> Camera:
+	var c := Camera.new()
+	c.aperture = 1.8
+	c.iso_max = 12800.0
+	c.shutter_max = 1.0 / 8.0
+	c.compensation = -0.5
+	c.headroom = 2.5
+	return c
+
+
 ## The camera exposing the Backrooms right now (null: Lucid is off, or the
 ## player is in a place lit the old way). Real lights read it to scale
 ## their energy like the baked light (see Player, FixtureLights).
@@ -387,3 +443,174 @@ static func light_node(c: Color) -> Array:
 	if m <= 0.0:
 		return [0.0, Color.WHITE]
 	return [m, Color(lin.r / m, lin.g / m, lin.b / m).linear_to_srgb()]
+
+
+## A real light node's [energy, sRGB colour] for an engine-unit light
+## colour `c` under a given camera (for places that run their own camera,
+## like the city levels, without making it Lucid.active).
+static func light_node_cam(c: Color, cam: Camera) -> Array:
+	var e := cam.shader_exposure() if cam != null else Color(1, 1, 1)
+	var lin := Color(c.r * e.r, c.g * e.g, c.b * e.b)
+	var m := maxf(lin.r, maxf(lin.g, lin.b))
+	if m <= 0.0:
+		return [0.0, Color.WHITE]
+	return [m, Color(lin.r / m, lin.g / m, lin.b / m).linear_to_srgb()]
+
+
+# ------------------------------------------------- stage 3: sky and night ---
+
+## Sky brightness in mag/arcsec2 to luminance (cd/m2): L = 10.8e4 x
+## 10^(-0.4 m) (the conversion used by sky quality meters and Falchi 2016).
+static func mag_arcsec2_nits(m: float) -> float:
+	return 10.8e4 * pow(10.0, -0.4 * m)
+
+
+## The natural moonless night sky at the zenith: 22.0 mag/arcsec2, 174
+## ucd/m2 (Falchi et al. 2016). A big city's own light, scattered back
+## down by the air, makes its zenith 100-200 times brighter.
+const SKY_NATURAL_NITS := 0.000174
+## Mean luminance of the full moon's disc (cd/m2) and its solid angle
+## (0.52 deg across): 0.25 lux = 3900 x 6.4e-5 sr.
+const MOON_DISC_SR := 6.4e-5
+
+## Natural light states for baked city levels: the sky (zenith and horizon
+## luminance in cd/m2 with their colour temperatures, `h0` the elevation
+## scale in radians over which the horizon glow fades into the zenith
+## value, plus a directional glow toward `glow_az` for twilight), the moon
+## or sun as a directional light (lux on a surface facing it, Kelvin,
+## altitude and azimuth in degrees: azimuth from north (-Z) through east
+## (+X)), how many windows are lit, the street lamps' level and the haze
+## (extinction coefficient of the air, 1/m: 3.912 / visual range).
+## Sources and reasoning: docs/LUCID.md (stage 3).
+const STATES := {
+	# A clear night under a megacity's light dome, the moon up. The zenith
+	# at 16.1 mag/arcsec2 (0.04 cd/m2, ~230x natural, the class of the most
+	# light-polluted city centres measured: LED and sodium light scattered
+	# by molecules, so the zenith is blue: ~11000 K like a moonlit Rayleigh
+	# sky); the horizon glow 6x that and warmer (more aerosol in the long
+	# path, more sodium from the low streets). Moon nearly full,
+	# 20 deg up in the west-south-west: 0.18 lux after extinction. Visual
+	# range 12 km.
+	"night": {"zenith": 0.04, "zenith_k": 11000.0, "horizon": 0.24, "horizon_k": 4300.0, "h0": 0.22,
+		"glow": 0.0, "glow_k": 3000.0, "glow_az": 270.0, "moon_lux": 0.18, "moon_k": 4100.0,
+		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.3, "lamps": 1.0, "haze": 3.3e-4, "stars": 1.0},
+	# The blue hour: the sun 5 deg below the horizon in the west. Zenith
+	# about 1 cd/m2 and very blue (the ozone Chappuis band), the western
+	# horizon a few cd/m2 and orange; about 5 lux on the ground from the sky
+	# alone (civil twilight ends at ~3.4 lux). Street lamps already on (photocells switch at 35-70 lux),
+	# fewer windows lit. No direct sun.
+	"dusk": {"zenith": 1.1, "zenith_k": 15000.0, "horizon": 3.0, "horizon_k": 7000.0, "h0": 0.35,
+		"glow": 5.0, "glow_k": 2600.0, "glow_az": 280.0, "moon_lux": 0.0, "moon_k": 4100.0,
+		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.2, "lamps": 1.0, "haze": 1.8e-4, "stars": 0.0},
+}
+
+
+## Unit vector toward a body at `alt_deg` above the horizon, azimuth
+## `az_deg` from north (-Z) through east (+X).
+static func sky_dir(alt_deg: float, az_deg: float) -> Vector3:
+	var a := deg_to_rad(alt_deg)
+	var z := deg_to_rad(az_deg)
+	return Vector3(sin(z) * cos(a), sin(a), -cos(z) * cos(a))
+
+
+## Sky luminance (linear RGB whose luminance is cd/m2) of `state` looking
+## along `dir` (unit, world space): the zenith value, plus the horizon
+## excess fading with elevation as exp(-h / h0), plus the twilight glow
+## toward glow_az (cos^4 in azimuth, same fade). Below the horizon: the
+## horizon value. The city shaders evaluate the same model
+## (lucid_city.gdshaderinc, lucid_sky_nits) from sky_uniforms().
+static func sky_nits(state: Dictionary, dir: Vector3) -> Color:
+	var u := sky_uniforms(state)
+	var h := asin(clampf(dir.y, -1.0, 1.0))
+	var t := exp(-maxf(h, 0.0) / float(state.h0))
+	var c: Color = u.zenith + (u.horizon - u.zenith) * t
+	var g: Vector3 = u.glow_dir
+	var flat := Vector2(dir.x, dir.z)
+	if flat.length() > 1e-4 and float(state.glow) > 0.0:
+		var ca := maxf(flat.normalized().dot(Vector2(g.x, g.z)), 0.0)
+		c += (u.glow as Color) * (ca * ca * ca * ca * t)
+	return c
+
+
+## The sky model's uniforms for a state: zenith, horizon and glow radiance
+## (Color, luminance in cd/m2), the glow direction, h0, the moon.
+static func sky_uniforms(state: Dictionary) -> Dictionary:
+	var zk := kelvin_rgb(state.zenith_k, true)
+	var hk := kelvin_rgb(state.horizon_k, state.horizon_k >= 4000.0)
+	var gk := kelvin_rgb(state.glow_k)
+	return {"zenith": zk * float(state.zenith), "horizon": hk * float(state.horizon),
+		"glow": gk * float(state.glow), "glow_dir": sky_dir(0.0, state.glow_az), "h0": float(state.h0),
+		"moon_dir": sky_dir(state.moon_alt, state.moon_az),
+		"moon": kelvin_rgb(state.moon_k) * (float(state.moon_lux) / MOON_DISC_SR)}
+
+
+## Illuminance (lux, RGB) the whole open sky of `state` gives a surface
+## facing `n` (numerical integral of sky_nits x cos).
+static func sky_illuminance(state: Dictionary, n: Vector3, steps := 24) -> Color:
+	var e := Color(0, 0, 0)
+	for i in steps:
+		var el := (float(i) + 0.5) / steps * PI * 0.5
+		for j in steps * 2:
+			var az := (float(j) + 0.5) / (steps * 2) * TAU
+			var d := Vector3(cos(el) * sin(az), sin(el), -cos(el) * cos(az))
+			var c := maxf(n.dot(d), 0.0)
+			if c <= 0.0:
+				continue
+			var dw := cos(el) * (PI * 0.5 / steps) * (TAU / (steps * 2))
+			e += sky_nits(state, d) * (c * dw)
+	return e
+
+
+## The eye's night shift (Purkinje): between 5 and 0.005 cd/m2 (the CIE
+## 191:2010 mesopic range) vision hands over from cones to rods, which see
+## blue-green better and red not at all, and lose colour. 0 = photopic,
+## 1 = scotopic; log-linear between.
+static func mesopic(nits: float) -> float:
+	return clampf((0.69897 - log(maxf(nits, 1e-6)) / log(10.0)) / 3.0, 0.0, 1.0)
+
+
+## Rod (scotopic) luminance of a linear RGB colour relative to its
+## photopic luminance, normalised so that D65 white is 1: Y (1.33 (1 + (Y
+## + Z) / X) - 1.68) / 2.576 (Jensen et al. 2000, "A physically-based
+## night sky model"). The scotopic picture is that luminance in the blue
+## grey of chromaticity (0.25, 0.25) (Thompson, Shirley & Ferwerda 2002).
+static func scotopic(c: Color) -> float:
+	var x := 0.4124 * c.r + 0.3576 * c.g + 0.1805 * c.b
+	var y := 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+	var z := 0.0193 * c.r + 0.1192 * c.g + 0.9505 * c.b
+	if x <= 1e-9:
+		return 0.0
+	return maxf(y * (1.33 * (1.0 + (y + z) / x) - 1.68) / 2.576, 0.0)
+
+
+const SCOTOPIC_RGB := Color(0.706, 0.990, 1.966)
+
+
+## A colour (cd/m2 RGB) as an eye adapted to it sees it, `amount` of the
+## way to full night vision (Camera.night_vision).
+static func night_shift(c: Color, amount: float) -> Color:
+	var s := amount * mesopic(lum(c))
+	if s <= 0.0:
+		return c
+	var v := scotopic(c)
+	return c.lerp(SCOTOPIC_RGB * v, s)
+
+
+## Pushes a level's own camera to the world shaders (lucid_exposure) and
+## the night globals (`lucid_sky`: x state blend, y night vision, z lamp
+## level, w haze; `lucid_air`: rgb the air's horizon luminance in engine
+## units, a the extinction coefficient) without making it Lucid.active (the
+## game turns the Backrooms' camera off while you are away).
+static func push_level(cam: Camera, blend: float, lamps: float, air: Color, haze: float) -> void:
+	var e := cam.shader_exposure()
+	RenderingServer.global_shader_parameter_set("lucid_exposure", Vector4(e.r, e.g, e.b, 1.0))
+	RenderingServer.global_shader_parameter_set("lucid_sky", Vector4(blend, cam.night_vision, lamps, haze))
+	RenderingServer.global_shader_parameter_set("lucid_air", Vector4(air.r / UNIT_NITS, air.g / UNIT_NITS,
+			air.b / UNIT_NITS, haze))
+
+
+## Puts the globals push_level() set back to "off".
+static func clear_level() -> void:
+	RenderingServer.global_shader_parameter_set("lucid_exposure", Vector4(1, 1, 1, 0))
+	RenderingServer.global_shader_parameter_set("lucid_sky", Vector4(0, 0, 1, 0))
+	RenderingServer.global_shader_parameter_set("lucid_air", Vector4(0, 0, 0, 0))

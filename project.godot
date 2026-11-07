@@ -90,6 +90,30 @@ lucid_exposure={
 "type": "vec4",
 "value": Vector4(1, 1, 1, 0)
 }
+lucid_sky={
+"type": "vec4",
+"value": Vector4(0, 0, 1, 0)
+}
+lucid_air={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+lucid_sky_zenith={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+lucid_sky_horizon={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+lucid_sky_glow={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+lucid_sky_glow_dir={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
 lucid_flash={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 0)
