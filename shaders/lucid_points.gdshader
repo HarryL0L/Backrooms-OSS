@@ -101,5 +101,7 @@ void fragment() {
 	float k = q * v_rt;
 	float h = 1.0 + k * k;
 	float l = v_l * exp(-4.0 * qc * qc) + v_tail / (h * sqrt(h)) * (1.0 - smoothstep(0.75, 1.0, q));
-	ALBEDO = lucid_mesopic(v_col * l) * lucid_exposure.rgb;
+	// Not in reflection probes: a point source is a single huge texel there,
+	// and the lamps' reflections are analytic (lucid_street).
+	ALBEDO = lucid_capturing(PROJECTION_MATRIX) > 0.5 ? vec3(0.0) : lucid_mesopic(v_col * l) * lucid_exposure.rgb;
 }

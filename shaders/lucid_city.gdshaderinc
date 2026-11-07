@@ -7,6 +7,8 @@
 // Purkinje shift, Lucid.night_shift) on the absolute luminance, then the
 // camera's exposure and white balance (lucid_exposure).
 
+#include "res://shaders/lucid_spec.gdshaderinc"
+
 global uniform vec4 lucid_exposure;   // rgb: 2^(7 - EV100) x white balance gains
 global uniform vec4 lucid_sky;        // x: state blend (0 = A, 1 = B), y: night vision, z: lamp level, w: haze
 global uniform vec4 lucid_air;        // rgb: horizon airlight (engine units), a: extinction (1/m)
@@ -54,6 +56,64 @@ vec3 lucid_air_light(vec3 c, float d) {
 // Scene-referred engine units -> the value for the frame buffer (AgX after).
 vec3 lucid_finish(vec3 c, float d) {
 	return lucid_mesopic(lucid_air_light(c, d)) * lucid_exposure.rgb;
+}
+
+// Stage 4: the haze lit by the four nearest street lamps (globals
+// lucid_glow0..3: xyz the lens (world), w its peak intensity as engine
+// units of E / pi at 1 m, positive an LED head, negative a sodium head;
+// lucid_glow_led / _na their colours). Single scattering along the view
+// ray from the eye to the point d away, for a point source of intensity
+// I0 cos^1.2 (taken at the ray's closest point, h from the lamp) in air of
+// scattering coefficient 0.9 x the extinction (urban aerosol, albedo 0.9),
+// with a Henyey-Greenstein phase (g = 0.6):
+//   L = sigma_s I p (atan((d - tc) / h) + atan(tc / h)) / h
+// (the extinction over a few tens of metres, under 1 %, is left out). As
+// strong as the real haze makes it: at 12 km visibility a faint glow a
+// metre or so round each head, no halo beyond.
+global uniform vec4 lucid_glow0;
+global uniform vec4 lucid_glow1;
+global uniform vec4 lucid_glow2;
+global uniform vec4 lucid_glow3;
+global uniform vec4 lucid_glow_led;
+global uniform vec4 lucid_glow_na;
+
+vec3 lucid_glow_one(vec4 g, vec3 cam, vec3 vd, float d) {
+	if (g.w == 0.0) {
+		return vec3(0.0);
+	}
+	vec3 lc = g.xyz - cam;
+	float tc = dot(lc, vd);
+	vec3 pc = vd * tc - lc;                  // from the lamp to the closest point
+	float h = max(length(pc), 0.15);
+	float ce = max(-pc.y / h, 0.0);          // emission angle (heads look down)
+	vec3 ld = pc / h;
+	float cs = dot(ld, -vd);                 // scattering angle: toward the eye
+	const float G = 0.6;
+	float ph = (1.0 - G * G) / (4.0 * 3.14159265 * pow(1.0 + G * G + 2.0 * G * cs, 1.5));
+	float ang = atan((d - tc) / h) + atan(tc / h);
+	return (g.w > 0.0 ? lucid_glow_led.rgb : lucid_glow_na.rgb) * (abs(g.w) * pow(ce, 1.2) * ph * ang / h);
+}
+
+vec3 lucid_airglow(vec3 wpos, vec3 cam) {
+	vec3 dv = wpos - cam;
+	float d = length(dv);
+	vec3 vd = dv / max(d, 1e-4);
+	vec3 s = lucid_glow_one(lucid_glow0, cam, vd, d) + lucid_glow_one(lucid_glow1, cam, vd, d)
+			+ lucid_glow_one(lucid_glow2, cam, vd, d) + lucid_glow_one(lucid_glow3, cam, vd, d);
+	// x pi: engine intensity is I0 / (pi UNIT_NITS).
+	return s * (0.9 * lucid_air.a * 3.14159265);
+}
+
+// lucid_finish for a point at wpos seen from cam, with the lamps' airglow.
+// cap: lucid_capturing(PROJECTION_MATRIX); a probe captures engine units
+// (no airglow, night shift or exposure: the surface that mirrors it adds
+// those along its own view).
+vec3 lucid_finish_at(vec3 c, vec3 wpos, vec3 cam, float cap) {
+	float d = length(wpos - cam);
+	if (cap > 0.5) {
+		return lucid_air_light(c, d);
+	}
+	return lucid_mesopic(lucid_air_light(c, d) + lucid_airglow(wpos, cam)) * lucid_exposure.rgb;
 }
 
 // The physical sky (Lucid.sky_nits): zenith, horizon excess fading with

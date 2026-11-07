@@ -8,10 +8,16 @@
 //   CUSTOM3: slot lamp indices / 255 (rgb), a slot share 2
 // Light = lamps x (1 - dot(shares, 1 - slot levels)) x lamp level
 //       + mix(state A, state B, blend).
-// Real lights (the nearest few lamps, the moon) only add their specular
-// highlight (light()), so nothing is lit twice.
+// Stage 4 (lucid_spec.gdshaderinc): one physically based specular, taken
+// from the diffuse: GGX with the material's F0 and roughness, after rain
+// darker and smoother by its wetness (puddles in the low spots); what it
+// mirrors is the street heads and the signals (analytic, per pixel), the
+// moon (its light node) and everything else from the box-projected
+// reflection probe of the part of the street it is in (or the sky model
+// times the sky visibility where no probe is).
 render_mode specular_schlick_ggx, ambient_light_disabled;
 #include "res://shaders/lucid_city.gdshaderinc"
+#include "res://shaders/lucid_street.gdshaderinc"
 #ifdef WINDOWS
 #include "res://shaders/lucid_windows.gdshaderinc"
 uniform vec4 facade = vec4(0.0, 2.0, 3.0, 3.0);   // seed, kind, storey (m), bay (m)
@@ -29,11 +35,19 @@ uniform bool use_normal = false;
 uniform float normal_depth = 1.0;
 uniform float uv_scale = 2.0;            // metres per texture repeat (world projected)
 uniform float roughness = 0.8;
-uniform float specular = 0.5;
+uniform float f0 = 0.04;                 // normal reflectance (dielectrics 0.02-0.05)
 uniform float rough_tex_mean = 0.6;
 uniform vec3 emit_nits = vec3(0.0);      // self-luminous (cd/m2, linear RGB)
 uniform vec4 lamp_lvl[8];                // levels of lamps 0..31 (4 per vec4)
-uniform float sky_gloss = 0.0;           // how much the sky's reflection shows (wet / glossy)
+uniform bool reflect_env = false;        // sample the probe / sky for the specular (else only the moon)
+uniform bool lamp_refl = false;          // mirror the street heads and the signals
+uniform bool analytic_emitter = false;   // a lens whose reflections are analytic (dark in probes)
+uniform sampler2DArray probe_tex : hint_default_black, filter_linear_mipmap, repeat_disable;
+uniform int probe_n = 0;
+uniform vec4 probe_c[8];                 // probe centres, box corners (level space)
+uniform vec4 probe_lo[8];
+uniform vec4 probe_hi[8];                // (lo.w, hi.w: the selecting box's x extent)
+uniform vec4 probe_sel[8];               // the selecting box's z extent (x, y) and y extent (z, w)
 uniform vec3 ground_origin = vec3(0.0);  // world position of the level's ground origin
 uniform bool baked = true;               // false: no vertex bake, lit by const_light (E / pi, engine units)
 uniform vec3 const_light = vec3(0.0);
@@ -43,12 +57,30 @@ varying vec3 v_light;
 varying float v_sky;
 varying vec3 v_wpos;
 varying vec3 v_wn;
+varying float v_f0;
 
 float lvl(float idx) {
 	int i = int(idx * 255.0 + 0.5);
 	vec4 q = lamp_lvl[clamp(i >> 2, 0, 7)];
 	int k = i & 3;
 	return k == 0 ? q.x : (k == 1 ? q.y : (k == 2 ? q.z : q.w));
+}
+
+// What the environment sends along r from lp: the probe whose box holds
+// lp (box-projected), else the sky model times the sky visibility.
+vec3 env_reflection(vec3 lp, vec3 r, float rough, float sky_vis) {
+	for (int i = 0; i < 8; i++) {
+		if (i >= probe_n) {
+			break;
+		}
+		vec3 slo = vec3(probe_lo[i].w, probe_sel[i].z, probe_sel[i].x);
+		vec3 shi = vec3(probe_hi[i].w, probe_sel[i].w, probe_sel[i].y);
+		if (all(greaterThanEqual(lp, slo - 0.5)) && all(lessThanEqual(lp, shi + 0.5))) {
+			vec3 d = lucid_box_dir(lp, r, probe_c[i].xyz, probe_lo[i].xyz, probe_hi[i].xyz);
+			return textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(rough, 128.0)).rgb;
+		}
+	}
+	return lucid_sky_now(r) * sky_vis;
 }
 
 void vertex() {
@@ -84,43 +116,53 @@ void fragment() {
 		vec3 b = abs(wn.y) > 0.6 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
 		NORMAL = normalize((VIEW_MATRIX * vec4(normalize(t * nt.x + b * nt.y + wn * nt.z), 0.0)).xyz);
 	}
-	vec3 rad = col * v_light + emit_nits / LUCID_UNIT_NITS;
+	vec3 nw = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	// After rain (lucid_wet): darker, smoother, puddles in the low spots.
+	float fz = f0;
+	if (wet > 0.0 || puddles > 0.0) {
+		float film = puddles > 0.0 && wn.y > 0.6 ? puddle(lp.xz) : 0.0;
+		// Water evens out the texture's roughness variation.
+		rough = mix(rough, roughness, wet * 0.7);
+		lucid_wet(col, rough, fz, wet, film);
+		// The water fills the texture's pits (half its relief left),
+		// and a puddle's surface is flat.
+		nw = normalize(mix(nw, wn, max(film, wet * 0.5)));
+		NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
+	}
+	vec3 vw = normalize(CAMERA_POSITION_WORLD - v_wpos);
+	float e_spec = lucid_spec_albedo(dot(nw, vw), rough, fz);
+	float cap = lucid_capturing(PROJECTION_MATRIX);
+	vec3 rad = col * v_light * (1.0 - e_spec) + emit_nits / LUCID_UNIT_NITS * (analytic_emitter ? 1.0 - cap : 1.0);
 #ifdef WINDOWS
 	if (abs(wn.y) < 0.5) {
 		float u = abs(wn.x) > abs(wn.z) ? lp.z * sign(wn.x) : -lp.x * sign(wn.z);
-		vec3 vw = normalize(v_wpos - CAMERA_POSITION_WORLD);
-		vec3 r = reflect(vw, wn);
-		float fr = lucid_fresnel(0.04, dot(-vw, wn)) * win_reflect;
+		vec3 r = reflect(-vw, wn);
+		float fr = lucid_fresnel(0.04, dot(vw, wn)) * win_reflect;
 		Facade fc = lucid_facade(u, lp.y, facade.y, facade.x, facade.z, facade.w, shop_band, lucid_reflection(r, lucid_air.rgb * 2.0) * v_sky, fr, win_top);
 		rad = rad * (1.0 - fc.glass - fc.frame) + vec3(0.5, 0.49, 0.46) * v_light * fc.frame + fc.emit;
 	}
 #endif
-	// The open sky mirrored by a damp surface (its share of the sky only).
-	if (sky_gloss > 0.0) {
-		vec3 vw = normalize(v_wpos - CAMERA_POSITION_WORLD);
-		vec3 nw = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
-		vec3 r = reflect(vw, nw);
-		float f = lucid_fresnel(0.04, dot(-vw, nw)) * (1.0 - rough) * sky_gloss;
-		rad += lucid_sky_now(r) * f * v_sky;
+	// (Not in a probe's capture: the ground's own reflections would only
+	// come back as glare round the horizon of its mips.)
+	if ((reflect_env || lamp_refl) && cap < 0.5) {
+		LucidMirror m = lucid_mirror(nw, vw, rough);
+		vec3 spec = reflect_env ? env_reflection(lp, m.r, rough, v_sky) : vec3(0.0);
+		if (lamp_refl) {
+			spec += lamp_reflections(lp, m);
+		}
+		rad += spec * e_spec;
 	}
-	float d = length(v_wpos - CAMERA_POSITION_WORLD);
 	ALBEDO = col;
 	ROUGHNESS = rough;
-	SPECULAR = specular;
-	EMISSION = lucid_finish(rad, d);
+	v_f0 = fz;
+	EMISSION = lucid_finish_at(rad, v_wpos, CAMERA_POSITION_WORLD, cap);
 }
 
 void light() {
-	// Specular only (the diffuse is in the bake): GGX, Smith, Schlick.
-	vec3 h = normalize(VIEW + LIGHT);
-	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
-	float ndh = clamp(dot(NORMAL, h), 0.0, 1.0);
-	float ndv = clamp(dot(NORMAL, VIEW), 0.001, 1.0);
-	float a = ROUGHNESS * ROUGHNESS;
-	float a2 = a * a;
-	float dd = ndh * ndh * (a2 - 1.0) + 1.0;
-	float dist = a2 / (PI * dd * dd);
-	float vis = 0.5 / (ndl * sqrt(ndv * ndv * (1.0 - a2) + a2) + ndv * sqrt(ndl * ndl * (1.0 - a2) + a2) + 1e-5);
-	float f = lucid_fresnel(0.08 * specular, dot(VIEW, h));
-	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * (PI * ndl * dist * vis * f);
+	// The moon's specular (the diffuse is in the bake; the street heads'
+	// reflections are analytic, in fragment()).
+	if (LIGHT_IS_DIRECTIONAL) {
+		// (LIGHT_COLOR is E / pi: Lucid.light_node_cam.)
+		SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * LUCID_PI * lucid_ggx(NORMAL, VIEW, LIGHT, ROUGHNESS, v_f0);
+	}
 }

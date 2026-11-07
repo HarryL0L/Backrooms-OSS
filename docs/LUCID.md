@@ -46,11 +46,17 @@ textured rendering: one multiply per pixel for exposure, and no extra lights.
      `led_street_100w`), lit windows, cars. Distant lights become emitters
      and a merged far-field term, near ones get baked transfer. The camera's
      limits (ISO, shutter) make night look like night.
-4. **Reflections and air**
-   - Box-projected cube-map reflections per room or tile for glossy floors and
-     water, in the same units.
-   - Analytic air: height and density fog lit by the same lights (in-scattering
-     from the fixtures' intensity), replacing the halo quads.
+4. **Reflections and air** (done, see below)
+   - One physically based specular (GGX, Smith, Schlick with real F0),
+     taken from the diffuse.
+   - Analytic reflections of the emitters the level knows (panels, street
+     heads, signals), streaking toward the viewer as on a real polished
+     floor or wet street.
+   - Box-projected reflection probes, captured once per street segment or
+     mall section, in the same units.
+   - Wetness: darker (Lekner & Dorf), smoother, puddles: the Blue Hour
+     after rain.
+   - Air: the haze lit by the nearest street heads (single scattering).
 
 ## What stage 1 does
 
@@ -517,6 +523,8 @@ of probes.
   vertex (a shopfront) can leave soft blotches.
 - The probes are the mean of six directions (no direction for moving
   things yet).
+- (Found in stage 4) Colours passed to the city's vec3 uniforms arrived
+  converted from sRGB, see "Stage 3 fixes" below.
 
 ## API (stage 3)
 
@@ -554,6 +562,332 @@ McCamy 1992 CCT formula, https://en.wikipedia.org/wiki/Color_temperature ;
 ITE VTCSH / PTCSI signal intensities; FAA AC 70/7460-1M obstruction
 lighting; Koschmieder's law, https://en.wikipedia.org/wiki/Visibility .
 The city's sizes: assets/levels/night_city/SPEC.md.
+
+## What stage 4 does
+
+Stage 4 gives L.U.C.I.D. surfaces a real specular: polished floors and wet
+streets mirror the lights the way a phone photo shows them, and nothing is
+reflected that the light does not give.
+
+### One specular model (`shaders/lucid_spec.gdshaderinc`)
+
+- GGX (Trowbridge-Reitz) microfacets, Smith's height-correlated
+  visibility, Schlick's Fresnel with the material's real F0. Roughness is
+  perceptual (alpha = roughness^2).
+- The diffuse keeps 1 - E_spec, where E_spec is the lobe's directional
+  albedo (the split-sum DFG term, Karis' analytic fit for mobile). So a
+  glossy floor at a grazing view gets darker as it gets more mirror-like.
+- Three sources of specular light, in the same units as the bake:
+  1. **Emitters the level knows**, worked out per pixel
+     (`lucid_emitter_cover`). The reflected lobe is a gaussian about the
+     mirror direction, sqrt(2) alpha wide in the plane of incidence and
+     cos(theta_v) times that across it. A microfacet tilt turns the
+     reflection by twice the tilt in that plane and by 2 cos(theta_v) times
+     it across, which is why lamps on a glossy floor stretch into streaks
+     toward you. Its peak density, 1 / (4 pi alpha^2 cos theta_v), is
+     GGX's. An emitter (a rectangle of known size and luminance) covers a
+     share of that lobe: its angular extent in the lobe's frame (its area
+     kept), convolved with the gaussian (an erf on each axis). The
+     reflected radiance is luminance x share x E_spec. The pixel's own
+     angular footprint widens the lobe a little, so a mirror does not
+     alias.
+  2. **The environment** (everything but those emitters): a box-projected
+     reflection probe, read at the mip whose texel matches the lobe.
+  3. **Light nodes** (the moon): GGX per light in `light()`.
+
+Materials (roughness, F0):
+
+| Surface | Roughness | F0 | Where |
+| --- | --- | --- | --- |
+| Asphalt, dry | 0.75 (x the texture) | 0.04 | city road, alley |
+| Asphalt, soaked (wet 1.0) | 0.19 | 0.04 | after rain |
+| Concrete sidewalk / curb, damp (wet 0.55) | 0.74-0.8 | 0.04 | darker, still matt |
+| Roof concrete, damp (wet 0.5) | 0.85 | 0.04 | ponds in puddles |
+| Puddle (water film) | 0.03 | 0.02 | city, any wet floor |
+| Painted steel (poles, doors, housings) | 0.45-0.5 | 0.04 | city |
+| Polished terrazzo | 0.08 | 0.045 | Dead Mall floors |
+| Glazed floor tile | 0.06 (0.03 wet) | 0.04 (0.02 wet) | Dead Mall, Poolrooms |
+| Honed stone | 0.2 | 0.045 | Dead Mall |
+| Fountain water | 0.03 | 0.02 | Dead Mall |
+| Brushed steel (rails) | 0.3 | 0.56 | Dead Mall |
+| Carpet, dry or damp | 0.98 | (none) | Lobby: no gloss, damp only darker |
+
+### Emitters reflected analytically
+
+- **Blue Hour** (`shaders/lucid_street.gdshaderinc`, `lamp_reflections`):
+  the street grid's lamps are found by arithmetic, not from a list. The
+  reflected ray meets the avenue heads' height (10 m) and the street heads'
+  height (8 m). The nearest head of each kind to that point is evaluated
+  as its lens (LED 0.5 x 0.25 m, 36 400 cd/m2; sodium 0.4 x 0.25 m,
+  42 000 cd/m2), at its lamp level (the failing head follows its cycle).
+  Far down a street the meeting point is far away, so a puddle mirrors the
+  distant heads too. The eight vehicle signals' lit lenses (300 mm, peak
+  cd / area, a +-15 degree beam) give the red, yellow and green streaks.
+  That is 2 + 8 emitter evaluations per wet pixel, the signals rejected
+  early when out of the lobe.
+- **Dead Mall** (`mall.gdshader`, `panel_cover`): the panels are drawn from
+  above into a map (`_build_reflections`: cover and height, RG8, 0.1 m a
+  texel). The floor follows the reflected ray to the three heights where
+  panels hang and reads the map with `textureGrad` over the lobe's
+  footprint on that plane: sigma x distance / sin(elevation) along the
+  ray, sigma_across x distance across it. Their radiance is the bake's own
+  (Blender emission strength 9 = radiance 9 in lightmap units), so a panel's
+  reflection keeps its ratio to the lit floor. Stage 3's oval spots (7x
+  the panel's luminance, (1 - roughness) as a gloss) are gone.
+- **Poolrooms** (`pool_tile.gdshader`, `panel_cover`): the 2 x 2 LED
+  panels sit on WorldGen's checkerboard (3 % dead). The 3 x 3 cells round
+  the reflected ray's point on the ceiling plane are evaluated as
+  emitters at the panels' luminance (`Lucid.face_engine`: 2540 cd/m2 with the LLF, 16.5 in
+  engine units, set by WorldMaterials). Where the lobe's footprint
+  outgrows the cells (far off, at grazing views) it hands over to the
+  panels' mean cover (lit area / ceiling area, 3.2 %). Each tile is laid a
+  hair out of level (+-0.004 rad), so the image breaks tile by tile. The
+  rest of the white-tiled room is the Tiled Baths' one "probe": the floor's
+  own light x 0.79 x 0.7.
+
+### Reflection probes (`scripts/render/lucid_probe.gd`, `LucidProbe`)
+
+A probe is the radiance arriving at a point, in the level's light units,
+as an octahedral map: 128 texels across, RGBE 9-9-9-5, box-filtered mips,
+85 KB with its mips. It is captured once, when the level is built: six 64 px HDR
+SubViewports (RGBA half, checked exact from 0.0003 to 30) with a linear
+camera render its faces, two frames a probe, reused from one probe to the
+next. The faces are then resampled on the CPU (about 20 ms a probe). A texel is
+clamped at 50 engine units.
+
+While a probe captures, the global `lucid_capture` is 1, and
+`lucid_capturing(PROJECTION_MATRIX)` is 1 only in the capture views (a
+90 degree square projection, which no player camera has). In those views:
+
+- the city shaders output engine units (no exposure, night shift or
+  airglow: the surface that mirrors the probe adds those along its own
+  view);
+- the analytic emitters go dark (street heads' and signals' lenses, the
+  mall's panels), and so do the point sprites;
+- the ground's own reflections are off (they would come back as glare
+  round the probe's horizon).
+
+So nothing is reflected twice. A floor reads the probe box-projected: its
+reflected ray is followed to the box (the street canyon between the
+building lines, the mall section between its shopfronts) and the map is
+read toward that point from the probe's centre, never sharper than mip 1.
+
+- **Blue Hour**: seven probes, 1.7 m up (the roof 1.7 m over the roof):
+  the alley, the roof, the crossing, the avenue north and south, the
+  street east and west. Where a street runs on, its box ends 400 m away.
+  The crossing projects onto a 120 m box (it is open four ways). They show
+  the lit windows, the shopfronts and the sky in the wet asphalt.
+- **Dead Mall**: one per kind of section (8), in section space, shared by
+  the repeated sections.
+- **Backrooms chunks**: no probe. The Lobby is matt; the Tiled Baths use
+  the analytic room term above.
+
+### Wet surfaces (`lucid_wet`)
+
+A porous surface takes water in two steps (Lagarde 2013).
+
+1. Up to wet = 0.5 the pores fill. That makes it darker, by Lekner & Dorf
+   (1988): light is trapped under the water,
+   A_wet = A (1 - r_e)(1 - r_i) / (1 - r_i A) with r_e = 0.066 and
+   r_i = 0.472 for water, so asphalt goes from 0.09 to 0.046. It stays
+   rough.
+2. Above 0.5 water lies on it and smooths it, to a quarter of its
+   roughness soaked. Water also fills half the texture's relief.
+
+A puddle is a flat water film (roughness 0.03, F0 0.02) over the darkened
+surface. Puddles sit in the low spots: value noise for depressions a few
+metres across, and on roads the gutters along the curbs, where the 2 %
+crossfall sends the water (`puddle`).
+
+The Blue Hour is after rain: the road soaked (puddles 0.5), the alley
+0.9, sidewalks and curbs damp (0.55: dark, matt), the plaza 0.6, the roof
+0.5 with ponding. The far ground shader uses the same model, so the two
+agree where they meet. The Lobby's damp carpet patches are darker by the
+same formula and matt (stage 3 gave them roughness 0.55 and more specular).
+Pool surrounds are glazed tile with a water film where wet.
+
+### Air (`lucid_airglow`)
+
+The haze is lit by the four nearest street heads (globals
+`lucid_glow0..3`), as single scattering along the view ray from the eye to
+the shaded point. Each head is a point source of I0 cos^1.2 (taken at the
+ray's closest point, h from the lamp). The scattering coefficient is 0.9 x
+the extinction (urban aerosol, albedo 0.9), with a Henyey-Greenstein phase
+(g = 0.6):
+
+L = sigma_s I p (atan((d - tc) / h) + atan(tc / h)) / h
+
+At the night state's 3.3e-4 /m (12 km visibility) that is a faint glow of
+about 0.3 cd/m2 a metre from a head, as strong as the real haze makes it.
+It is added in `lucid_finish_at` (city surfaces, buildings, the far ground)
+and in the sky. Indoor dust is not modelled.
+
+### Stage 3 fixes
+
+- **Colour uniforms**: Godot converts a Color given to a vec3 / vec4
+  uniform from sRGB to linear, even without `source_color`. So every
+  measured value the city passed as a Color arrived wrong:
+  - an albedo of 0.30 arrived as 0.073;
+  - a window's 25 cd/m2 arrived as 7x less;
+  - a lens's 36 000 cd/m2 arrived as 10^15.
+
+  Textured surfaces were half hidden by the same error in `tex_mean`.
+  `NightCityLevel._sp()` now passes them as Vector3. Windows,
+  shopfronts, untextured steel and signals now have their real values,
+  and the lenses no longer bloom without bound.
+- **Shopfronts**: they no longer read as flat clipped panels. They show a
+  real luminance range: a row of night lights under the ceiling (8x the
+  mean, which clip), the ceiling-lit top of the back wall, shelving in
+  shadow, a dim floor, a dark counter, and the glass's reflection over
+  them. Their mean is ~0.6 of the fixture's 40 cd/m2 (the bake's gather
+  still uses the full mean).
+- **Meter**: the city's meter adds the lamps' GGX reflection on wet ground
+  for the spots that hit it (each lens as a small sphere, Karis 2013), and
+  the darkening.
+
+## API (stage 4)
+
+- `shaders/lucid_spec.gdshaderinc` (guarded; included by
+  `lucid_city.gdshaderinc`, `mall.gdshader`, `pool_tile.gdshader`):
+  - BRDF: `lucid_schlick`, `lucid_ggx(n, v, l, rough, f0)` (BRDF x cos),
+    `lucid_spec_albedo(ndv, rough, f0)`, `lucid_lobe`.
+  - Mirror and emitters: `LucidMirror` / `lucid_mirror(n, v, rough)`,
+    `lucid_emitter_cover(p, m, centre, a1, a2, half_sizes)`, `lucid_box`,
+    `lucid_erf`.
+  - Probes: `lucid_oct`, `lucid_box_dir`, `lucid_probe_lod`.
+  - Capture: `lucid_capture` (global), `lucid_capturing(PROJECTION_MATRIX)`.
+- `shaders/lucid_street.gdshaderinc`: uniforms `wet`, `puddles`, `gutters`,
+  `lens_led`, `lens_na`, `fail_lamp`, `sig_pos/rad/dir[8]`; functions
+  `lucid_wet(col, rough, f0, moist, film)`, `puddle(p)`,
+  `lamp_reflections(lp, m)`.
+- `lucid_city.gdshaderinc`: `lucid_airglow(wpos, cam)`,
+  `lucid_finish_at(c, wpos, cam, cap)`; globals `lucid_glow0..3`,
+  `lucid_glow_led`, `lucid_glow_na`.
+- `lucid_surface.gdshaderinc` uniforms: `f0` (replaces `specular`),
+  `reflect_env`, `lamp_refl`, `analytic_emitter`, `probe_tex`
+  (sampler2DArray), `probe_n`, `probe_c/lo/hi/sel[8]`. `sky_gloss` is
+  gone (the sky's reflection is now the probe's or E_spec x sky x sky
+  visibility).
+- `LucidProbe`: `SIZE`, `FACE`, `CLAMP`, `capture_environment(bg)`,
+  `capture(host, origins, env, far, scale)` (await; two frames a probe),
+  `octahedral(faces)`, `oct_dir(u, v)`, `array_texture(maps)`,
+  `bytes(maps)`.
+- `NightCityLevel`: `PROBES`, `PROBE_PROJECT`, `probe_bytes`, `probe_ms`,
+  `_capture_probes()`, `_lamps_spec()` (meter), `_sp()`; layout materials
+  take `f0`, `wet`, `puddles`, `gutters`, `lamps`.
+- `MallLevel`: `REAL_SPEC`, `PROBE_Y`, `PROBE_BOX`, `probe_bytes`,
+  `refl_bytes`; `mall.gdshader` uniforms `rough_real`, `f0`, `panel_rad`,
+  `probe_tex`, `probe_c`, `probe_box_lo/hi`.
+- `pool_tile.gdshader`: `panel_rad`, `panel_cover()`.
+- `_test/levels/level_shots.gd`: `PERF=1` (mean frame time over 60
+  frames a shot), `SHOTS=<list>`.
+
+### Validation (stage 4)
+
+The probe capture is checked in the harness (a box of known emission on
+each face, 0.0003 to 30 engine units). They come back exact through the
+HDR SubViewport, and the octahedral map puts each one in its direction.
+
+A street head's reflection on the soaked road matches GGX worked by hand.
+Take the avenue LED head 25 m off, seen from 1.7 m (cos theta_v = 0.17):
+
+- roughness 0.27 gives a peak of about 37 cd/m2, against 0.7 cd/m2 for
+  the lamp-lit road beside it (50x);
+- across the view the streak is 2 sqrt(2) alpha cos theta_v = 2 degrees
+  wide.
+
+This is the look of a phone photo of a wet street: the streaks clip, the
+road between them is dark.
+
+Screens (before = HEAD, after = stage 4; `_test/levels/level_shots.tscn
+-- night_city`, `_test/realistic_shots.tscn`, `_test/lucid_shots.tscn`,
+`_test/water_shots.tscn PRESET=5`):
+
+- Blue Hour avenue, crossing, side street: the lamps and signals streak
+  toward you in the soaked asphalt; puddles mirror the shopfronts and the
+  facades (probes); damp sidewalks are darker and matt. The windows and
+  shopfronts are brighter and the lenses' bloom smaller (the colour
+  uniform fix).
+- Roof, alley, failing lamp: the roof is damp, with shallow puddles; the
+  alley's puddles mirror the stair's bulbs' light and the lit windows.
+  The failing head's streak goes out with it.
+- Dead Mall concourse and Fountain Court: the panels' reflections are
+  rectangles stretched toward you, faint at your feet (F ~ 0.05) and
+  strong far off; the far floor mirrors the section (probe). Stage 3's
+  round spots at 7x the panel's luminance are gone.
+- Poolrooms dry floor and pool edge: the panels on the checkerboard,
+  streaking and breaking tile by tile, fading into an even sheen far off.
+  Stage 3's mottled streaks are gone.
+- Lobby spawn hall: unchanged but for the damp carpet patches (darker,
+  no gloss). The car park's Attendant: unchanged.
+
+Cost (lavapipe, 1280 x 720, Realistic, mean frame time over 60 frames,
+the same project tree; run-to-run noise about 5 %):
+
+| View | HEAD | Stage 4 | Draw calls |
+| --- | --- | --- | --- |
+| Blue Hour, mean of 12 shots | 135.8 ms | 130.0 / 132.3 ms (two runs) | 24-29, unchanged |
+| Dead Mall concourse / Fountain Court | 98.7 / 96.1 ms | 104.3 / 102.6 ms (mean of three runs, +6 %) | 86, unchanged |
+| Poolrooms (realistic_shots) | 165.2 ms | 176.8 ms (mean of three, +7 %) | 380, unchanged |
+| Lobby spawn hall | 125.4-131.9 ms | 131.0-140.3 ms (noise: the shading is the same) | 212 |
+
+Memory:
+
+- Probes: the Blue Hour 7 x 85 KB = 597 KB, the Dead Mall 8 = 682 KB.
+- The mall's panel map: 2277 KB, the same as before (RG8 at 0.1 m
+  instead of RGF at 0.2 m).
+- Lavapipe reports the Blue Hour's video memory at 131 MB instead of 106.6
+  MB. That is the HDR capture's pipelines and the six capture viewports'
+  leftovers (about 1.4 MB a viewport stays allocated after it is freed;
+  42 viewports at once left 150 MB, so they are reused).
+
+Capture time on lavapipe, first-use pipeline compiles included: the Blue
+Hour 11.2 s, the Dead Mall 7.7-10.9 s. Resampling takes ~20 ms a probe.
+On a phone it is two frames a probe (14 / 16 frames) at load.
+
+Regressions:
+
+- `side_flow_test`: 0 failed, 0 script / shader errors (exit 134 after
+  the mall, as before).
+- `level_shots night_city`, `realistic_shots`, `lucid_shots`,
+  `water_shots`: 0 script or shader errors.
+- The Android export builds.
+- The presets other than Realistic take the old paths: the pool tile's
+  `tile_glint` and the carpet's damp gloss without L.U.C.I.D., the mall's
+  analytic floor only in Realistic.
+
+### Known limits of stage 4
+
+- The lobe is a gaussian with GGX's peak and width, but not GGX's long
+  tails. The soft halo round a reflection on a polished floor is
+  narrower than a real one.
+- Emitters are rectangles seen in the small-angle limit, their extents
+  projected onto the lobe's axes (a parallelogram's area kept). A lamp
+  seen nearly edge-on in a mirror is approximate.
+- The Blue Hour reflects the nearest avenue head and street head (where
+  the reflected ray meets their heights) and the eight vehicle signals.
+  The pedestrian signals, the stair's bulbs and the far point lights are
+  not reflected (the point sprites are kept out of the probes).
+- Probes are captured once at 64 px a face, never read sharper than mip 1,
+  and box-projected with one box. A puddle's mirror image of a facade is
+  soft; the crossing (open four ways) projects onto a larger box. The
+  capture costs two frames a probe at load and pipelines for the HDR
+  target. The probes do not follow the lamp levels
+  (a failing head's light in them stays).
+- The Backrooms chunks have no probes. The Tiled Baths reflect the room as
+  a uniform term from the floor's own light. No glossy biome besides it
+  shows its environment.
+- The mall's panel map is 0.1 m a texel. A panel's reflection on terrazzo
+  at 0.08 is about as sharp as the map. The map has the lowest panel over
+  each spot only.
+- Wetness is a fixed state of the level (after rain), not a weather
+  simulation. The bake's bounce does not see the darker wet ground (a few %
+  less bounce in reality).
+- Airglow only for the four nearest heads, isotropic in azimuth, without
+  the extinction along the path (under 1 % at these distances).
+- The city's probes (mean of six directions) for moving things are still
+  not directional (stage 3 limit). Entities get no specular from the
+  probes.
 
 ## Units and reference data
 

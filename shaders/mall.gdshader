@@ -7,6 +7,7 @@ shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
+#include "res://shaders/lucid_spec.gdshaderinc"
 // (`lightmap` comes from common.gdshaderinc)
 
 uniform vec3 albedo : source_color = vec3(0.6);
@@ -18,45 +19,70 @@ uniform float lm_scale = 4.0;
 uniform float floor_y = -4000.0;     // the mall's ground floor (dirt collects low on walls)
 uniform float storey_h = 5.0;        // floor to floor, for the floors above
 // Realistic: the ceiling light panels seen from above (MallLevel's
-// _build_reflections): R = panel cover, G = cover x height above floor_y.
+// _build_reflections): R = panel cover, G = cover x height above floor_y / 16 m.
 uniform sampler2D refl_map : hint_default_black, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform vec4 refl_rect = vec4(0.0);  // x0, z0, 1 / width (m), 1 / depth (m); 0 = none
+// Realistic (stage 4): measured roughness and normal reflectance (F0) of
+// the surface (MallLevel.REAL_SPEC; rough_real < 0 keeps `roughness`), the
+// panels' radiance in lightmap units, and the section's reflection probe
+// (LucidProbe, box-projected; probe_box_lo.w = 0 none).
+uniform float rough_real = -1.0;
+uniform float f0 = 0.04;
+uniform vec3 panel_rad = vec3(9.0, 8.73, 8.1);
+uniform sampler2D probe_tex : hint_default_black, filter_linear_mipmap, repeat_disable;
+uniform vec4 probe_c = vec4(0.0);
+uniform vec4 probe_box_lo = vec4(0.0);
+uniform vec4 probe_box_hi = vec4(0.0);
 
 varying vec3 v_wpos;
 varying vec3 v_wn;
+varying vec3 v_origin;
 
-// The lights a polished floor mirrors: follow the mirrored view ray up to
-// the heights where the panels hang over a storey (3.5 and 4.75 m) and the
-// ceilings of the floors above seen through the atrium (about 9 m), and
-// read the panel map there. Rougher and farther: a wider, streakier blur
-// (the map's footprint stretched along the ray, like the long reflections
-// on a shiny floor).
-vec3 floor_reflection(vec3 wpos, vec3 cam, float rough) {
-	vec3 v = normalize(wpos - cam);
-	vec3 r = vec3(v.x, -v.y, v.z);
+// Realistic (L.U.C.I.D. stage 4, lucid_spec.gdshaderinc): the polished
+// floors' reflections. The panels are emitters of the radiance the
+// lightmap was baked with (Blender emission strength 9, the same units as
+// the lightmap's light). Follow the mirrored view ray up to the heights
+// where they hang over a storey (3.5 and 4.75 m) and the ceilings of the
+// floors above seen through the atrium (about 9 m), and read the panel
+// map there over the reflected lobe's footprint on that plane: sigma x
+// distance / sin(elevation) along the ray, sigma_across x distance across
+// it, so the panels stretch into streaks toward you as on a real polished
+// floor. Returns the share of the lobe on a lit panel.
+float panel_cover(vec3 wpos, LucidMirror m, float pixm, float de) {
+	vec3 r = m.r;
 	if (r.y < 0.03) {
-		return vec3(0.0);
+		return 0.0;
 	}
 	float fy = wpos.y - floor_y;
+	float lvl = floor(fy / storey_h + 0.5) * storey_h;
 	float best = 0.0;
 	vec3 hts = vec3(3.5, 4.75, 9.0);
+	vec2 dir = normalize(r.xz + vec2(1e-5));
 	for (int i = 0; i < 3; i++) {
-		float d = (hts[i] + floor(fy / storey_h + 0.5) * storey_h - fy) / r.y;
+		float d = (hts[i] + lvl - fy) / r.y;
 		vec2 hp = wpos.xz + r.xz * d;
 		vec2 uv = (hp - refl_rect.xy) * refl_rect.zw;
 		if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
 			continue;
 		}
-		vec2 dir = normalize(r.xz + vec2(1e-4));
-		float blur = 0.04 + d * rough * 0.05;          // metres
-		vec4 s = textureGrad(refl_map, uv, dir * refl_rect.zw * blur * 8.0, vec2(-dir.y, dir.x) * refl_rect.zw * blur);
+		// The footprint's gaussian sigmas on the plane (m); a box filter
+		// of about 2.5 sigma reads the same mean.
+		float fa = m.sig.x * d / r.y;
+		float fc = m.sig.y * d;
+		// Never finer than the pixel's own footprint there (no sparkle):
+		// the floor pixel's, scaled as the mirror image lies further off.
+		float pix = pixm * (1.0 + d / max(de, 0.1)) * refl_rect.z;
+		vec2 ga = dir * refl_rect.zw * fa * 2.5;
+		vec2 gc = vec2(-dir.y, dir.x) * refl_rect.zw * fc * 2.5;
+		ga *= max(1.0, pix / max(length(ga), 1e-6));
+		gc *= max(1.0, pix / max(length(gc), 1e-6));
+		vec4 s = textureGrad(refl_map, uv, ga, gc);
 		if (s.r > 0.002) {
-			float h = s.g / s.r - floor(fy / storey_h + 0.5) * storey_h;
-			best = max(best, s.r * (1.0 - smoothstep(0.6, 1.2, abs(h - hts[i]))) / (1.0 + d * 0.04));
+			float h = s.g / s.r * 16.0 - lvl;
+			best = max(best, s.r * (1.0 - smoothstep(0.6, 1.2, abs(h - hts[i]))));
 		}
 	}
-	float fres = mix(0.08, 1.0, pow(1.0 - clamp(-v.y, 0.0, 1.0), 5.0));
-	return vec3(1.0, 0.97, 0.9) * 7.0 * best * fres * (1.0 - rough);
+	return best;
 }
 
 float vnoise(vec2 p) {
@@ -73,6 +99,7 @@ float vnoise(vec2 p) {
 void vertex() {
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	v_origin = MODEL_MATRIX[3].xyz;
 	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
 
@@ -119,12 +146,25 @@ void fragment() {
 		// each and bake too dark; they're out in the concourse light.
 		light = max(light, vec3(0.32, 0.31, 0.29));
 	}
+	vec3 refl = vec3(0.0);
+	float keep = 1.0;
+	float cap = lucid_capturing(PROJECTION_MATRIX);
+	if (realistic > 0.5 && rough_real >= 0.0) {
+		rough = rough_real;
+		vec3 v = normalize(CAMERA_POSITION_WORLD - v_wpos);
+		float e_spec = lucid_spec_albedo(dot(n, v), rough, f0);
+		keep = 1.0 - e_spec;
+		LucidMirror mr = lucid_mirror(n, v, rough);
+		if (probe_box_lo.w > 0.5) {
+			vec3 pd = lucid_box_dir(v_wpos, mr.r, v_origin + probe_c.xyz, v_origin + probe_box_lo.xyz, v_origin + probe_box_hi.xyz);
+			refl += textureLod(probe_tex, lucid_oct(normalize(pd)), lucid_probe_lod(rough, 128.0)).rgb * e_spec;
+		}
+		if (refl_rect.z > 0.0 && n.y > 0.6) {
+			refl += panel_rad * panel_cover(v_wpos, mr, length(fwidth(v_wpos.xz)), length(CAMERA_POSITION_WORLD - v_wpos)) * e_spec * (1.0 - cap);
+		}
+	}
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	SPECULAR = 0.4;
-	vec3 refl = vec3(0.0);
-	if (realistic > 0.5 && refl_rect.z > 0.0 && n.y > 0.6 && rough < 0.6) {
-		refl = floor_reflection(v_wpos, CAMERA_POSITION_WORLD, rough);
-	}
-	EMISSION = col * light + albedo * emit + col * flashlight(v_wpos, n, CAMERA_POSITION_WORLD, 1.0 - rough) + refl + dither(FRAGCOORD.xy);
+	EMISSION = col * light * keep + albedo * emit * (1.0 - cap * step(1.0, emit)) + col * flashlight(v_wpos, n, CAMERA_POSITION_WORLD, 1.0 - rough) + refl + dither(FRAGCOORD.xy);
 }

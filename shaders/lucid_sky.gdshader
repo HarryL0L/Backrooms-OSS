@@ -61,5 +61,6 @@ void fragment() {
 			rad += sc * l / LUCID_UNIT_NITS * stars;
 		}
 	}
-	ALBEDO = lucid_mesopic(rad) * lucid_exposure.rgb;
+	// (The haze round the nearest street heads: lucid_airglow.)
+	ALBEDO = lucid_capturing(PROJECTION_MATRIX) > 0.5 ? rad : lucid_mesopic(rad + lucid_airglow(CAMERA_POSITION_WORLD + dir * 5000.0, CAMERA_POSITION_WORLD)) * lucid_exposure.rgb;
 }

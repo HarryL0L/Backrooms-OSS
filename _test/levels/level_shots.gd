@@ -18,6 +18,8 @@ extends Node
 # before the `--`. --preset N switches the graphics preset first (0 Potato
 # .. 5 Photoreal); --set key=value any setting (e.g. --set graphics/ps1=true);
 # --script res://... runs that script as level <id> (a variant being tried).
+# PERF=1 also prints the mean frame time over 60 frames per shot;
+# SHOTS=<comma list> takes only those shots.
 # Exits 1 on any script or shader error.
 
 class _Errors:
@@ -119,7 +121,10 @@ func _run() -> void:
 	_check_textures(level)
 	var p: Player = game.player
 	p.controls_enabled = false
+	var only := OS.get_environment("SHOTS").split(",", false)
 	for s in level.shots():
+		if not only.is_empty() and not only.has(s.name):
+			continue
 		var xf: Transform3D = s.transform
 		p.force_crawl = bool(s.get("crawl", false))
 		p.teleport(xf.origin + Vector3(0, 0.02, 0), SideLevel._yaw_of(xf), SideLevel._pitch_of(xf))
@@ -136,6 +141,12 @@ func _run() -> void:
 				Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
 				Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
 				Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0, path])
+		if OS.get_environment("PERF") == "1":
+			# Mean frame time over 60 frames (lavapipe: compare runs only).
+			var pt0 := Time.get_ticks_usec()
+			for i in 60:
+				await RenderingServer.frame_post_draw
+			print("PERF %s frame_ms=%.2f" % [s.name, (Time.get_ticks_usec() - pt0) / 60000.0])
 	p.force_crawl = false
 	if movie:
 		print("level_shots: film")

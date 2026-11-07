@@ -31,7 +31,18 @@ void fragment() {
 	vec3 col = base_color * (0.86 + 0.24 * n1) * (0.84 + 0.22 * n2) * (0.85 + 0.25 * loops) * photo_detail(uv);
 	// Damp, musty patches: darker, browner and slightly glossy.
 	float damp = smoothstep(0.62 - 0.08 * realistic, 0.8, blot);
-	col = mix(col, col * vec3(0.66, 0.6, 0.46), damp * (0.6 + 0.25 * realistic));
+	bool lucid = lucid_exposure.a > 0.5;
+	if (lucid) {
+		// L.U.C.I.D. (stage 4): darker by the water held in the pile
+		// (Lekner & Dorf 1988: light trapped under the water film, albedo
+		// A (1 - r_e)(1 - r_i) / (1 - r_i A) with r_e = 0.066, r_i = 0.472
+		// for water), with a mildew stain's tint, and still matt: the
+		// fibres stand out of the water, there is no film to mirror.
+		vec3 wet = col * 0.493 / (1.0 - 0.472 * col);
+		col = mix(col, wet * vec3(1.0, 0.94, 0.8), damp);
+	} else {
+		col = mix(col, col * vec3(0.66, 0.6, 0.46), damp * (0.6 + 0.25 * realistic));
+	}
 	// Realistic: broad darker trodden paths, and old stains ringed round
 	// the damp patches (from the noise read above).
 	float trod = smoothstep(0.4, 0.75, texture(noise_blot, uv * 0.035 + 0.17).r);
@@ -40,8 +51,8 @@ void fragment() {
 	float worn = smoothstep(0.35, 0.2, texture(noise_blot, uv * 0.21 + 0.5).r);
 	col = mix(col, col * vec3(1.08, 1.04, 0.95), worn * 0.4);
 	ALBEDO = col;
-	ROUGHNESS = mix(0.98, 0.55, damp);
-	SPECULAR = mix(0.2, 0.45, damp);
+	ROUGHNESS = lucid ? 0.98 : mix(0.98, 0.55, damp);
+	SPECULAR = lucid ? 0.2 : mix(0.2, 0.45, damp);
 	vec3 nm = photo_nmap(uv, texture(noise_normal, uv * 3.0).rgb);
 	NORMAL_MAP = nm;
 	NORMAL_MAP_DEPTH = 0.8;

@@ -51,6 +51,28 @@ const FAIL_ON := 80.0
 const FAIL_OFF := 45.0
 const FAIL_WARM := 75.0
 const REAL_LIGHTS := 4
+## Stage 4: the street heads' lens luminance (engine units), for their
+## analytic reflections (the same as the lenses drawn).
+var _lens_led := Lucid.fixture_rgb(Lucid.FIXTURES.led_street_100w) * (Lucid.face_luminance(Lucid.FIXTURES.led_street_100w) / Lucid.UNIT_NITS)
+var _lens_na := Lucid.fixture_rgb(Lucid.FIXTURES.sodium_hps_150w) * (Lucid.face_luminance(Lucid.FIXTURES.sodium_hps_150w) / Lucid.UNIT_NITS)
+## Reflection probes (LucidProbe), level space: centre, box (lo, hi), in
+## the order a surface looks for the box it is in: the alley, the roof,
+## the crossing, the avenue north and south, the street east and west. A
+## box's walls are the building lines; where the street runs on, its end
+## is far off (the street seen down its length is far away).
+const PROBES := [[Vector3(48, 1.7, 28), Vector3(45, 0, 10), Vector3(51, 23, 46)],
+		[Vector3(30, 24.2, 25), Vector3(15, 22.5, 10), Vector3(45, 60, 40)],
+		[Vector3(0, 1.7, 0), Vector3(-15, 0, -10), Vector3(15, 30, 10)],
+		[Vector3(0, 1.7, -35), Vector3(-15, 0, -400), Vector3(15, 30, -10)],
+		[Vector3(0, 1.7, 35), Vector3(-15, 0, 10), Vector3(15, 30, 400)],
+		[Vector3(40, 1.7, 0), Vector3(15, 0, -10), Vector3(400, 30, 10)],
+		[Vector3(-40, 1.7, 0), Vector3(-400, 0, -10), Vector3(-15, 30, 10)]]
+## The box a probe projects onto, where it differs from the one that
+## selects it: the crossing is open four ways.
+const PROBE_PROJECT := {2: [Vector3(-60, 0, -60), Vector3(60, 30, 60)]}
+var probe_bytes := 0
+var probe_ms := 0
+var _sig_key := ""
 
 ## Debug: the light state blend (0 night, 1 dusk); < 0 = the level's own (night).
 static var force_blend := -1.0
@@ -108,6 +130,8 @@ func build(p_seed: int) -> void:
 	_lamps_real()
 	_sky_dome()
 	_load_probes()
+	if _baked:
+		_capture_probes.call_deferred()
 	for l in lay.lamps:
 		if l.get("failing", false):
 			_fail_idx = l.idx
@@ -123,6 +147,18 @@ func build(p_seed: int) -> void:
 
 # ---------------------------------------------------------------- materials ---
 
+## Sets a shader parameter, a Color as a plain Vector3. (Godot converts a
+## Color given to a vec3 / vec4 uniform from sRGB to linear: a measured
+## albedo of 0.30 arrived as 0.073 and a lens of 36 000 cd/m2 as 10^15.
+## None of the city's uniforms are sRGB colours.)
+static func _sp(m: ShaderMaterial, key: String, v: Variant) -> void:
+	if v is Color:
+		var c: Color = v
+		m.set_shader_parameter(key, Vector3(c.r, c.g, c.b))
+	else:
+		m.set_shader_parameter(key, v)
+
+
 func _materials() -> void:
 	var o := Vector3(0.0, LEVEL_Y, 0.0)
 	var st_a: Dictionary = Lucid.STATES[STATE_A]
@@ -131,33 +167,41 @@ func _materials() -> void:
 		var d: Dictionary = lay.mats[name]
 		var sm := ShaderMaterial.new()
 		sm.shader = FACADE if d.has("facade") else CITY
-		sm.set_shader_parameter("albedo", (d.albedo as Color))
-		sm.set_shader_parameter("roughness", d.get("rough", 0.7))
-		sm.set_shader_parameter("specular", d.get("spec", 0.5))
-		sm.set_shader_parameter("sky_gloss", d.get("gloss", 0.0))
-		sm.set_shader_parameter("road_paint", d.get("paint", false))
-		sm.set_shader_parameter("ground_origin", o)
-		sm.set_shader_parameter("baked", _baked)
-		sm.set_shader_parameter("const_light", Color(1, 1, 1) * Lucid.lux_to_engine(2.0))
+		_sp(sm, "albedo", (d.albedo as Color))
+		_sp(sm, "roughness", d.get("rough", 0.7))
+		# Stage 4: F0, wetness after rain, what it mirrors.
+		_sp(sm, "f0", d.get("f0", 0.04))
+		_sp(sm, "wet", d.get("wet", 0.0))
+		_sp(sm, "puddles", d.get("puddles", 0.0))
+		_sp(sm, "gutters", d.get("gutters", false))
+		_sp(sm, "reflect_env", float(d.get("wet", 0.0)) > 0.0)
+		_sp(sm, "lamp_refl", d.get("lamps", false))
+		_sp(sm, "analytic_emitter", String(name).begins_with("lens_") or String(name).begins_with("sig_"))
+		_sp(sm, "lens_led", _lens_led)
+		_sp(sm, "lens_na", _lens_na)
+		_sp(sm, "road_paint", d.get("paint", false))
+		_sp(sm, "ground_origin", o)
+		_sp(sm, "baked", _baked)
+		_sp(sm, "const_light", Color(1, 1, 1) * Lucid.lux_to_engine(2.0))
 		if d.has("tex"):
 			var t: String = d.tex
 			var dir := DIR + "textures/"
-			sm.set_shader_parameter("albedo_tex", load(dir + t + "_diff.jpg"))
-			sm.set_shader_parameter("rough_tex", load(dir + t + "_rough.jpg"))
-			sm.set_shader_parameter("tex_mean", TEX_MEAN[t][0])
-			sm.set_shader_parameter("rough_tex_mean", TEX_MEAN[t][1])
-			sm.set_shader_parameter("uv_scale", d.get("uv", 2.0))
+			_sp(sm, "albedo_tex", load(dir + t + "_diff.jpg"))
+			_sp(sm, "rough_tex", load(dir + t + "_rough.jpg"))
+			_sp(sm, "tex_mean", TEX_MEAN[t][0])
+			_sp(sm, "rough_tex_mean", TEX_MEAN[t][1])
+			_sp(sm, "uv_scale", d.get("uv", 2.0))
 			if d.has("normal") and not low:
-				sm.set_shader_parameter("normal_tex", load(dir + t + "_nor.jpg"))
-				sm.set_shader_parameter("use_normal", true)
-				sm.set_shader_parameter("normal_depth", d.normal)
+				_sp(sm, "normal_tex", load(dir + t + "_nor.jpg"))
+				_sp(sm, "use_normal", true)
+				_sp(sm, "normal_depth", d.normal)
 		if d.has("emit"):
 			var fx: Dictionary = Lucid.FIXTURES[d.emit]
-			sm.set_shader_parameter("emit_nits", Lucid.fixture_rgb(fx) * Lucid.face_luminance(fx))
+			_sp(sm, "emit_nits", Lucid.fixture_rgb(fx) * Lucid.face_luminance(fx))
 		if d.has("facade"):
-			sm.set_shader_parameter("facade", d.facade)
-			sm.set_shader_parameter("shop_band", d.get("shop", 0.0))
-			sm.set_shader_parameter("win_top", d.get("top", 1000.0))
+			_sp(sm, "facade", d.facade)
+			_sp(sm, "shop_band", d.get("shop", 0.0))
+			_sp(sm, "win_top", d.get("top", 1000.0))
 			_window_params(sm, st_a, st_b)
 		mats[name] = sm
 		_kit_mats.append(sm)
@@ -166,9 +210,9 @@ func _materials() -> void:
 func _window_params(sm: ShaderMaterial, a: Dictionary, b: Dictionary) -> void:
 	for k in [["win_office_rad", "window_office"], ["win_home_rad", "window_home"], ["win_shop_rad", "shopfront"]]:
 		var fx: Dictionary = Lucid.FIXTURES[k[1]]
-		sm.set_shader_parameter(k[0], Lucid.fixture_rgb(fx) * (Lucid.face_luminance(fx) / Lucid.UNIT_NITS))
-	sm.set_shader_parameter("lit_a", a.windows)
-	sm.set_shader_parameter("lit_b", b.windows)
+		_sp(sm, k[0], Lucid.fixture_rgb(fx) * (Lucid.face_luminance(fx) / Lucid.UNIT_NITS))
+	_sp(sm, "lit_a", a.windows)
+	_sp(sm, "lit_b", b.windows)
 
 
 ## The baked tiles (or, without a bake, the plan's geometry lit flat).
@@ -228,7 +272,7 @@ func _backdrop() -> void:
 	# Buildings, in sectors (8 directions x near / far) so most are culled.
 	_block_mat = ShaderMaterial.new()
 	_block_mat.shader = BLOCKS
-	_block_mat.set_shader_parameter("ground_y", LEVEL_Y)
+	_sp(_block_mat, "ground_y", LEVEL_Y)
 	_window_params(_block_mat, Lucid.STATES[STATE_A], Lucid.STATES[STATE_B])
 	_kit_mats.append(_block_mat)
 	var box := LucidCity.unit_box()
@@ -243,12 +287,17 @@ func _backdrop() -> void:
 	# The ground beyond the crossing.
 	_ground_mat = ShaderMaterial.new()
 	_ground_mat.shader = GROUND
-	_ground_mat.set_shader_parameter("ground_y", LEVEL_Y)
-	_ground_mat.set_shader_parameter("i_led", Lucid.light_engine(Lucid.FIXTURES.led_street_100w, LucidCity.AVENUE_LAMP.llf))
-	_ground_mat.set_shader_parameter("i_na", Lucid.light_engine(Lucid.FIXTURES.sodium_hps_150w, LucidCity.STREET_LAMP.llf))
-	_ground_mat.set_shader_parameter("asphalt", Color(0.094, 0.086, 0.068))
-	_ground_mat.set_shader_parameter("walk", Color(0.3, 0.295, 0.28))
-	_ground_mat.set_shader_parameter("e_spill", Lucid.fixture_rgb(Lucid.FIXTURES.shopfront) * Lucid.lux_to_engine(2.0))
+	_sp(_ground_mat, "ground_y", LEVEL_Y)
+	_sp(_ground_mat, "i_led", Lucid.light_engine(Lucid.FIXTURES.led_street_100w, LucidCity.AVENUE_LAMP.llf))
+	_sp(_ground_mat, "i_na", Lucid.light_engine(Lucid.FIXTURES.sodium_hps_150w, LucidCity.STREET_LAMP.llf))
+	_sp(_ground_mat, "asphalt", Color(0.094, 0.086, 0.068))
+	_sp(_ground_mat, "walk", Color(0.3, 0.295, 0.28))
+	_sp(_ground_mat, "e_spill", Lucid.fixture_rgb(Lucid.FIXTURES.shopfront) * Lucid.lux_to_engine(2.0))
+	_sp(_ground_mat, "wet", lay.mats.road.wet)
+	_sp(_ground_mat, "puddles", lay.mats.road.puddles)
+	_sp(_ground_mat, "gutters", true)
+	_sp(_ground_mat, "lens_led", _lens_led)
+	_sp(_ground_mat, "lens_na", _lens_na)
 	_kit_mats.append(_ground_mat)
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(14000, 14000)
@@ -283,13 +332,13 @@ func _backdrop() -> void:
 	# Point lights: lamps, beacons, signals, bridge necklaces.
 	_points_mat = ShaderMaterial.new()
 	_points_mat.shader = POINTS
-	_points_mat.set_shader_parameter("cycle", CYCLE)
+	_sp(_points_mat, "cycle", CYCLE)
 	_kit_mats.append(_points_mat)
 	for list in _sectors(lay.points, 1e9).values():
 		LucidCity.instance(LucidCity.point_multimesh(list), _points_mat, city)
 	# Far-field lighting numbers for the blocks (worked out once).
-	_block_mat.set_shader_parameter("e_street_led", _facade_light(true))
-	_block_mat.set_shader_parameter("e_street_na", _facade_light(false))
+	_sp(_block_mat, "e_street_led", _facade_light(true))
+	_sp(_block_mat, "e_street_na", _facade_light(false))
 
 
 ## Splits instance entries ({pos, ...}) into 8 directions x (nearer /
@@ -338,15 +387,15 @@ func _lamp_model(spec: Dictionary, fx_name: String) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	var lit := ShaderMaterial.new()
 	lit.shader = CITY
-	lit.set_shader_parameter("albedo", Color(0.25, 0.26, 0.26))
-	lit.set_shader_parameter("baked", false)
+	_sp(lit, "albedo", Color(0.25, 0.26, 0.26))
+	_sp(lit, "baked", false)
 	var fx: Dictionary = Lucid.FIXTURES[fx_name]
-	lit.set_shader_parameter("const_light", Lucid.fixture_rgb(fx) * Lucid.lux_to_engine(5.0))
+	_sp(lit, "const_light", Lucid.fixture_rgb(fx) * Lucid.lux_to_engine(5.0))
 	var lm := ShaderMaterial.new()
 	lm.shader = CITY
-	lm.set_shader_parameter("albedo", Color(0.3, 0.3, 0.3))
-	lm.set_shader_parameter("baked", false)
-	lm.set_shader_parameter("emit_nits", Lucid.fixture_rgb(fx) * Lucid.face_luminance(fx))
+	_sp(lm, "albedo", Color(0.3, 0.3, 0.3))
+	_sp(lm, "baked", false)
+	_sp(lm, "emit_nits", Lucid.fixture_rgb(fx) * Lucid.face_luminance(fx))
 	for pair in [[s, lit], [lens, lm]]:
 		var arr := []
 		arr.resize(Mesh.ARRAY_MAX)
@@ -385,6 +434,9 @@ func _sky_dome() -> void:
 ## street; they also light anything not baked, like other players).
 func _lamps_real() -> void:
 	var n := REAL_LIGHTS if not low else 2
+	for k in [["lucid_glow_led", "led_street_100w"], ["lucid_glow_na", "sodium_hps_150w"]]:
+		var rgb := Lucid.fixture_rgb(Lucid.FIXTURES[k[1]])
+		RenderingServer.global_shader_parameter_set(k[0], Vector4(rgb.r, rgb.g, rgb.b, 0.0))
 	for i in n:
 		var l := SpotLight3D.new()
 		l.spot_range = 40.0
@@ -550,17 +602,17 @@ func _update(delta: float) -> void:
 	var mb := Lucid.kelvin_rgb(b.moon_k) * Lucid.lux_to_engine(b.moon_lux)
 	var moon_e := ma.lerp(mb, blend)
 	var md := Lucid.sky_dir(a.moon_alt, a.moon_az)
-	_block_mat.set_shader_parameter("e_sky_up", e_up)
-	_block_mat.set_shader_parameter("e_sky_side", e_side)
-	_block_mat.set_shader_parameter("e_moon", moon_e)
-	_block_mat.set_shader_parameter("moon_dir", md)
-	_ground_mat.set_shader_parameter("e_sky_up", e_up)
-	_points_mat.set_shader_parameter("clock", clock)
+	_sp(_block_mat, "e_sky_up", e_up)
+	_sp(_block_mat, "e_sky_side", e_side)
+	_sp(_block_mat, "e_moon", moon_e)
+	_sp(_block_mat, "moon_dir", md)
+	_sp(_ground_mat, "e_sky_up", e_up)
+	_sp(_points_mat, "clock", clock)
 	var su := Lucid.sky_uniforms(a)
-	_sky_mat.set_shader_parameter("moon_dir", md)
-	_sky_mat.set_shader_parameter("moon_rad", (su.moon as Color) * ((1.0 - blend) / Lucid.UNIT_NITS))
-	_sky_mat.set_shader_parameter("moon_e", moon_e)
-	_sky_mat.set_shader_parameter("stars", lerpf(a.stars, b.stars, blend))
+	_sp(_sky_mat, "moon_dir", md)
+	_sp(_sky_mat, "moon_rad", (su.moon as Color) * ((1.0 - blend) / Lucid.UNIT_NITS))
+	_sp(_sky_mat, "moon_e", moon_e)
+	_sp(_sky_mat, "stars", lerpf(a.stars, b.stars, blend))
 	if player != null and player.camera != null:
 		_sky.global_position = player.camera.global_position
 	# The moon's highlight as a directional light.
@@ -605,6 +657,12 @@ func _meter(delta: float) -> void:
 		# (Lit windows are light sources: like a phone's matrix metering, it
 		# exposes for the lit surfaces and lets the windows clip.)
 		col = (e + _natural(p)) * (alb * Lucid.UNIT_NITS)
+		# Stage 4: wet ground after rain mirrors the lamps (the meter sees
+		# that too; the shaders' roughness after the water: road 0.19,
+		# damp sidewalks ~0.75), and darkens (Lekner & Dorf: ~0.55).
+		if nn.y > 0.7 and p.y < 12.0:
+			var rough := 0.19 if p.y < 0.1 else 0.75
+			col = col * 0.55 + _lamps_spec(p, nn, -dir, rough) * Lucid.UNIT_NITS
 	elif dir.y < 0.06:
 		col = Lucid.kelvin_rgb(3300.0) * 0.25
 	else:
@@ -634,6 +692,39 @@ func _meter(delta: float) -> void:
 	cam.balance(_cct(rgb), delta)
 	if n == 9:
 		cam.settle()
+
+
+## The lamps' specular reflection (engine units) at p seen along v (toward
+## the eye): GGX, Smith, Schlick (F0 0.04), each lens as a small sphere
+## (its angular radius added to alpha, Karis 2013) so a mirror spot is not
+## a spike.
+func _lamps_spec(p: Vector3, n: Vector3, v: Vector3, rough: float) -> Color:
+	var out := Color(0, 0, 0)
+	var a0 := rough * rough
+	var ndv := maxf(n.dot(v), 1e-3)
+	for l in _meter_ctx.lamps:
+		var d: Vector3 = l.pos - p
+		var r2 := d.length_squared()
+		if r2 > 2500.0:
+			continue
+		var dist := sqrt(r2)
+		var ld := d / dist
+		var ndl := n.dot(ld)
+		var ce: float = -ld.dot(l.dir)
+		if ndl <= 0.0 or (l.m > 0.0 and ce <= 0.0):
+			continue
+		var em := 1.0 if l.m <= 0.0 else pow(ce, l.m)
+		var a := minf(a0 + 0.25 / dist, 1.0)
+		var a2 := a * a
+		var h := (v + ld).normalized()
+		var ndh := maxf(n.dot(h), 0.0)
+		var dd := ndh * ndh * (a2 - 1.0) + 1.0
+		var dn := a2 / (PI * dd * dd)
+		var vis := 0.5 / (ndl * sqrt(ndv * ndv * (1.0 - a2) + a2) + ndv * sqrt(ndl * ndl * (1.0 - a2) + a2) + 1e-5)
+		var f := 0.04 + 0.96 * pow(1.0 - clampf(v.dot(h), 0.0, 1.0), 5.0)
+		# E / pi normal to the lamp -> radiance: x pi x BRDF x cos.
+		out += (l.c as Color) * (em / r2 * PI * dn * vis * f * ndl)
+	return out
 
 
 static func _cct(c: Color) -> float:
@@ -678,7 +769,7 @@ func _failing_lamp(delta: float) -> void:
 		_push_levels()
 	var fx: Dictionary = Lucid.FIXTURES.sodium_hps_150w
 	var e := Lucid.fixture_rgb(fx) * Lucid.face_luminance(fx) * lvl
-	mats.lens_na_failing.set_shader_parameter("emit_nits", Color(e.r * tint.r, e.g * tint.g, e.b * tint.b))
+	_sp(mats.lens_na_failing, "emit_nits", Color(e.r * tint.r, e.g * tint.g, e.b * tint.b))
 	if _buzz:
 		_buzz.volume_db = -22.0 + 10.0 * lvl if lvl > 0.01 else -80.0
 
@@ -687,8 +778,55 @@ func _push_levels() -> void:
 	var arr := PackedVector4Array()
 	for i in 8:
 		arr.append(Vector4(lamp_lvl[i * 4], lamp_lvl[i * 4 + 1], lamp_lvl[i * 4 + 2], lamp_lvl[i * 4 + 3]))
+	# The failing head's lens (its reflections follow it).
+	var fail := Vector4(LAYOUT.FAILING.x, LAYOUT.FAILING.y, LAYOUT.FAILING.z - 0.1, lamp_lvl[_fail_idx] if _fail_idx >= 0 else 1.0)
 	for n in mats:
-		(mats[n] as ShaderMaterial).set_shader_parameter("lamp_lvl", arr)
+		_sp((mats[n] as ShaderMaterial), "lamp_lvl", arr)
+		_sp((mats[n] as ShaderMaterial), "fail_lamp", fail)
+	_sp(_ground_mat, "fail_lamp", fail)
+
+
+## Stage 4: the reflection probes, captured once the level is in the tree
+## (LucidProbe: all of them in one go, two frames, with the street heads'
+## and signals' lenses dark in them: their reflections are analytic).
+func _capture_probes() -> void:
+	await get_tree().process_frame
+	if not is_inside_tree():
+		return
+	var t0 := Time.get_ticks_msec()
+	var origins := []
+	for pr in PROBES:
+		origins.append(city.to_global(pr[0]))
+	var faces: Array = await LucidProbe.capture(self, origins, LucidProbe.capture_environment(), 3000.0)
+	if not is_inside_tree():
+		return
+	var maps: Array[Image] = []
+	for f in faces:
+		maps.append(LucidProbe.octahedral(f))
+	var tex := LucidProbe.array_texture(maps)
+	var pc := PackedVector4Array()
+	var lo := PackedVector4Array()
+	var hi := PackedVector4Array()
+	var sel_z := PackedVector4Array()
+	for k in PROBES.size():
+		var pr: Array = PROBES[k]
+		var box: Array = PROBE_PROJECT.get(k, [pr[1], pr[2]])
+		# lo.w / hi.w and probe_sel: the selecting box (x; z, y).
+		pc.append(Vector4(pr[0].x, pr[0].y, pr[0].z, 0.0))
+		lo.append(Vector4(box[0].x, box[0].y, box[0].z, pr[1].x))
+		hi.append(Vector4(box[1].x, box[1].y, box[1].z, pr[2].x))
+		sel_z.append(Vector4(pr[1].z, pr[2].z, pr[1].y, pr[2].y))
+	for n in mats:
+		var sm := mats[n] as ShaderMaterial
+		_sp(sm, "probe_tex", tex)
+		_sp(sm, "probe_n", PROBES.size())
+		_sp(sm, "probe_c", pc)
+		_sp(sm, "probe_lo", lo)
+		_sp(sm, "probe_hi", hi)
+		_sp(sm, "probe_sel", sel_z)
+	probe_bytes = LucidProbe.bytes(maps)
+	probe_ms = Time.get_ticks_msec() - t0
+	print("night_city probes: %d, %d KB, %d ms" % [maps.size(), probe_bytes / 1024, probe_ms])
 
 
 ## Signal phase at time t (s into the cycle) for a head set.
@@ -723,14 +861,38 @@ func _signals() -> void:
 			var fx: Dictionary = cols[c]
 			# 300 mm lens: luminance = I / area.
 			var lum: float = fx.peak_cd / (PI * 0.15 * 0.15) if c == on else 0.0
-			mats["sig_%s_%s" % [set_name, c]].set_shader_parameter("emit_nits", Lucid.fixture_rgb(fx) * lum)
+			_sp(mats["sig_%s_%s" % [set_name, c]], "emit_nits", Lucid.fixture_rgb(fx) * lum)
 	for set_name in ["ped_a", "ped_s"]:
 		var st := signal_state(s, set_name)
 		var hand_on := st == "hand" or (st == "flash" and fmod(s, 1.0) < 0.5)
 		var hfx: Dictionary = Lucid.FIXTURES.ped_hand
 		var wfx: Dictionary = Lucid.FIXTURES.ped_walk
-		mats[set_name + "_hand"].set_shader_parameter("emit_nits", Lucid.fixture_rgb(hfx) * (hfx.luminance if hand_on else 0.0))
-		mats[set_name + "_walk"].set_shader_parameter("emit_nits", Lucid.fixture_rgb(wfx) * (wfx.luminance if st == "walk" else 0.0))
+		_sp(mats[set_name + "_hand"], "emit_nits", Lucid.fixture_rgb(hfx) * (hfx.luminance if hand_on else 0.0))
+		_sp(mats[set_name + "_walk"], "emit_nits", Lucid.fixture_rgb(wfx) * (wfx.luminance if st == "walk" else 0.0))
+	# Stage 4: the lit lens of each vehicle head, for its reflections.
+	var key := signal_state(s, "avenue") + signal_state(s, "street")
+	if key != _sig_key:
+		_sig_key = key
+		var sp := PackedVector4Array()
+		var sr := PackedVector4Array()
+		var sd := PackedVector4Array()
+		for h in lay.heads:
+			if h.set != "avenue" and h.set != "street":
+				continue
+			var on := signal_state(s, h.set)
+			var i: int = ["r", "y", "g"].find(on)
+			var fx: Dictionary = cols[on]
+			var lum: float = fx.peak_cd / (PI * 0.15 * 0.15) / Lucid.UNIT_NITS
+			var c: Vector3 = h.pos + Vector3(0, 0.33 - i * 0.33, 0) + (h.normal as Vector3) * 0.011
+			var rgb := Lucid.fixture_rgb(fx) * lum
+			sp.append(Vector4(c.x, c.y, c.z, 0.0))
+			sr.append(Vector4(rgb.r, rgb.g, rgb.b, 1.0))
+			sd.append(Vector4(h.normal.x, h.normal.y, h.normal.z, 0.0))
+		for n in ["road", "alley", "walk", "curb", "plaza"]:
+			var sm := mats[n] as ShaderMaterial
+			_sp(sm, "sig_pos", sp)
+			_sp(sm, "sig_rad", sr)
+			_sp(sm, "sig_dir", sd)
 	# Accessible signal sounds: a locator tick every second, a rapid tick
 	# while a crossing has its walk.
 	var walking := signal_state(s, "ped_a") == "walk" or signal_state(s, "ped_s") == "walk"
@@ -761,6 +923,7 @@ func _real_lights(delta: float) -> void:
 		var l := _lights[i]
 		if idx < 0:
 			l.visible = false
+			RenderingServer.global_shader_parameter_set("lucid_glow%d" % i, Vector4.ZERO)
 			continue
 		var lamp: Dictionary = {}
 		for x in lay.lamps:
@@ -773,6 +936,11 @@ func _real_lights(delta: float) -> void:
 		l.light_color = ln[1]
 		l.global_position = city.to_global(lamp.pos - Vector3(0, 0.05, 0))
 		l.visible = ln[0] > 0.0
+		# Stage 4: the haze it lights (lucid_airglow): peak intensity as
+		# engine units, negative for sodium.
+		var led: bool = lamp.fx == "led_street_100w"
+		RenderingServer.global_shader_parameter_set("lucid_glow%d" % i, Vector4(l.global_position.x, l.global_position.y,
+				l.global_position.z, Lucid.lum(c) * (1.0 if led else -1.0)))
 
 
 # -------------------------------------------------------------------- audio ---

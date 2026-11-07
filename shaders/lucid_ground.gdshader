@@ -7,9 +7,13 @@
 // E = I0 cos^m(theta) cos(theta) / d^2 with its real I0 and m. Plus the
 // state's sky (half of it, between the buildings) and the spill of the
 // lit shopfronts on the sidewalks. Unoccluded: the near part is baked.
+// Stage 4: wet after rain like the near streets (lucid_street), with the
+// same specular: the sky (about half of it open between the buildings)
+// and the street heads mirrored.
 shader_type spatial;
 render_mode unshaded, fog_disabled;
 #include "res://shaders/lucid_city.gdshaderinc"
+#include "res://shaders/lucid_street.gdshaderinc"
 
 uniform vec3 i_led = vec3(1.0);         // engine colour of an avenue head (E / pi at 1 m)
 uniform vec3 i_na = vec3(1.0);          // and of a street head
@@ -65,6 +69,18 @@ void fragment() {
 	}
 	float n = lucid_hash(floor(p * 0.5));
 	alb *= 0.85 + 0.3 * n * smoothstep(1.0, 0.2, w);
-	float d = length(wp - CAMERA_POSITION_WORLD);
-	ALBEDO = lucid_finish(alb * e, d);
+	vec3 rad = alb * e;
+	float cap = lucid_capturing(PROJECTION_MATRIX);
+	if (wet > 0.0 && road && cap < 0.5) {
+		float rough = 0.75;
+		float fz = 0.04;
+		lucid_wet(alb, rough, fz, wet, puddles > 0.0 ? puddle(p) : 0.0);
+		vec3 vw = normalize(CAMERA_POSITION_WORLD - wp);
+		vec3 up = vec3(0.0, 1.0, 0.0);
+		float e_spec = lucid_spec_albedo(vw.y, rough, fz);
+		LucidMirror m = lucid_mirror(up, vw, rough);
+		vec3 lp = vec3(p.x, wp.y - ground_y, p.y);
+		rad = alb * e * (1.0 - e_spec) + (lucid_sky_now(m.r) * 0.45 + lamp_reflections(lp, m)) * e_spec;
+	}
+	ALBEDO = lucid_finish_at(rad, wp, CAMERA_POSITION_WORLD, cap);
 }

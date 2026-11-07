@@ -60,9 +60,20 @@ Facade lucid_facade(float u, float v, float kind, float seed, float storey, floa
 		float h = lucid_hash(vec2(bi * 1.91 + seed * 31.3, seed * 5.7 + 11.0));
 		float lit = step(h, 0.35);
 		float var = 0.6 + 0.9 * lucid_hash(vec2(h * 7.3, bi));
-		// Inside: brighter towards the ceiling and the back, a dark counter.
+		// Inside (stage 4: a real luminance range, not a flat panel, so the
+		// camera's exposure shows detail): the night lights in a row under
+		// the ceiling (small, ~8x the mean, they clip as in a photo), the
+		// ceiling and the top of the back wall lit by them, shelving
+		// down the back (uprights and shelves in shadow), a dim floor and a
+		// dark counter. Mean ~0.6 of the fixture's luminance (the bake's gather
+		// still sees the fixture's full mean: a few % more bounce).
 		float in_v = v / (g0 * 0.78);
-		vec3 shop = win_shop_rad * var * (0.55 + 0.6 * in_v) * (fu > 0.3 && fu < 0.7 && in_v < 0.3 ? 0.35 : 1.0);
+		float in_u = (fu - 0.06) / 0.88;
+		float lamp = step(abs(fract(in_u * 3.0) - 0.5), 0.17) * smoothstep(0.86, 0.88, in_v) * smoothstep(0.96, 0.94, in_v);
+		float shelf = 1.0 - 0.55 * step(fract(in_u * 9.0 + h * 3.0), 0.12) - 0.45 * step(fract(in_v * 5.5), 0.18) * step(0.15, in_v) * step(in_v, 0.8);
+		float grad = 0.18 + 0.82 * smoothstep(0.0, 0.95, in_v) * smoothstep(0.0, 0.95, in_v);
+		float counter = fu > 0.3 && fu < 0.7 && in_v < 0.3 ? 0.25 : 1.0;
+		vec3 shop = win_shop_rad * var * (grad * shelf * counter * 0.95 + lamp * 8.0) + refl * fres;
 		vec3 avg = win_shop_rad * 0.9 * 0.35;
 		float far = smoothstep(0.35, 1.0, max(wu, wv));
 		// A closed one: a roller shutter (ribbed steel, lit like the wall).

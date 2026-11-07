@@ -37,6 +37,17 @@ const SURFACES := {
 	"dark": [0, Color(0.02, 0.02, 0.02), 0.9, 0.0], "carpet": [4, Color(0.27, 0.19, 0.21), 0.95, 0.0],
 	"screen": [0, Color(0.1, 0.25, 0.2), 0.3, 0.6],
 }
+## Realistic (L.U.C.I.D. stage 4): [roughness, F0] of the surfaces that
+## reflect (lucid_spec.gdshaderinc): polished terrazzo and stone (marble
+## chips, n ~ 1.5-1.6: F0 0.04-0.05), glazed floor tile, the fountain's
+## water (F0 0.02), brushed steel (a metal: F0 ~0.56).
+const REAL_SPEC := {"terrazzo": [0.08, 0.045], "stone": [0.2, 0.045], "tile_white": [0.06, 0.04],
+		"water": [0.03, 0.02], "metal_bright": [0.3, 0.56]}
+## Where a section's probe sits (above its floor, section space) and its
+## box: the concourse between the shopfronts, up to the first gallery's
+## ceiling.
+const PROBE_Y := 1.7
+const PROBE_BOX := Vector3(0.0, 9.0, 6.5)
 
 var player: Player
 var environment: Environment
@@ -71,6 +82,7 @@ func build(seed_value: int) -> void:
 	length = x
 	if Settings.is_realistic():
 		_build_reflections()
+		_capture_probes.call_deferred()
 	_collect_spots()
 	_build_movers()
 	environment = _make_environment()
@@ -126,6 +138,9 @@ static func _material(sec: String, mname: String, lm: Texture2D) -> Material:
 		sm.set_shader_parameter("emit", d[3])
 		sm.set_shader_parameter("floor_y", MALL_Y)
 		sm.set_shader_parameter("grime", 0.1 if mname.begins_with("light") else 0.35)
+		if REAL_SPEC.has(mname):
+			sm.set_shader_parameter("rough_real", REAL_SPEC[mname][0])
+			sm.set_shader_parameter("f0", REAL_SPEC[mname][1])
 	sm.set_shader_parameter("lightmap", lm)
 	_mats[key] = sm
 	return sm
@@ -162,14 +177,15 @@ static func warm_materials() -> Array[Material]:
 	return out
 
 
-## Realistic: the polished floors mirror every ceiling light as a bright
-## spot or streak, as on a phone photo of a mall at night. No reflection
-## render (the Mobile renderer has no SSR and a probe would cost a phone a
-## cube map): the light panels are drawn once, from above, into a small map
-## (R = panel, G = its height above the ground floor), and the floor shader
-## follows the mirrored view ray up to them (two texture reads per floor
-## pixel).
-const REFL_TEXEL := 0.2              # metres per texel of the panel map
+## Realistic: the polished floors mirror every ceiling light (L.U.C.I.D.
+## stage 4: analytically, mall.gdshader panel_cover). No reflection render
+## (the Mobile renderer has no SSR): the light panels are drawn once, from
+## above, into a map (R = panel cover, G = cover x its height above the
+## ground floor / 16 m, RG8), and the floor shader follows the mirrored
+## view ray up to them and reads the map over the reflected lobe's
+## footprint (three texture reads per floor pixel).
+const REFL_TEXEL := 0.1              # metres per texel of the panel map
+var refl_bytes := 0
 var _refl_rect := Vector4.ZERO
 
 
@@ -200,6 +216,7 @@ func _build_reflections() -> void:
 	var w := ceili((hi.x - lo.x) / REFL_TEXEL)
 	var h := ceili((hi.y - lo.y) / REFL_TEXEL)
 	var img := Image.create(w, h, false, Image.FORMAT_RGF)
+	# (Built in float, stored as RG8: 2 bytes a texel.)
 	for t in range(0, tris.size() - 2, 3):
 		var a := tris[t]
 		var b := tris[t + 1]
@@ -219,7 +236,14 @@ func _build_reflections() -> void:
 					var old := img.get_pixel(xi, zi)
 					# The lowest panel over a spot is the one a floor sees.
 					img.set_pixel(xi, zi, Color(1.0, y if old.r < 0.5 else minf(old.g, y), 0.0))
+	for zi in h:
+		for xi in w:
+			var c := img.get_pixel(xi, zi)
+			if c.r > 0.5:
+				img.set_pixel(xi, zi, Color(1.0, c.g / 16.0, 0.0))
+	img.convert(Image.FORMAT_RG8)
 	img.generate_mipmaps()
+	refl_bytes = img.get_data().size()
 	var tex := ImageTexture.create_from_image(img)
 	_refl_rect = Vector4(lo.x, lo.y, 1.0 / (w * REFL_TEXEL), 1.0 / (h * REFL_TEXEL))
 	for k in _mats:
@@ -227,6 +251,55 @@ func _build_reflections() -> void:
 		if sm and sm.shader and sm.shader.resource_path.ends_with("mall.gdshader"):
 			sm.set_shader_parameter("refl_map", tex)
 			sm.set_shader_parameter("refl_rect", _refl_rect)
+
+
+## Realistic: one reflection probe per kind of section (LucidProbe),
+## captured once, a few frames after the level is in the tree (the repeated
+## sections share theirs). The ceiling panels are left out of it: their
+## reflections are analytic.
+var probe_bytes := 0
+
+
+func _capture_probes() -> void:
+	await get_tree().process_frame
+	if not is_inside_tree():
+		return
+	var origins := []
+	var secs := []
+	var x := 0.0
+	for e in LAYOUT:
+		if not secs.has(e[0]):
+			secs.append(e[0])
+			origins.append(Vector3(x + float(e[1]) * 0.5, MALL_Y + PROBE_Y, 0.0))
+		x += float(e[1])
+	var t0 := Time.get_ticks_msec()
+	var env := LucidProbe.capture_environment(environment.background_color if environment else Color.BLACK)
+	var faces: Array = await LucidProbe.capture(self, origins, env, 150.0)
+	if not is_inside_tree():
+		return
+	var maps: Array[Image] = []
+	for i in secs.size():
+		var img := LucidProbe.octahedral(faces[i])
+		maps.append(img)
+		var tex := ImageTexture.create_from_image(img)
+		var ln := 20.0
+		for e in LAYOUT:
+			if e[0] == secs[i]:
+				ln = e[1]
+				break
+		for k in _mats:
+			if not String(k).begins_with(secs[i] + "/"):
+				continue
+			var sm := _mats[k] as ShaderMaterial
+			if sm == null or not sm.shader.resource_path.ends_with("mall.gdshader"):
+				continue
+			# Section space: the section's meshes sit at its origin.
+			sm.set_shader_parameter("probe_tex", tex)
+			sm.set_shader_parameter("probe_c", Vector4(0.0, PROBE_Y, 0.0, 0.0))
+			sm.set_shader_parameter("probe_box_lo", Vector4(-ln * 0.5, -0.05, -PROBE_BOX.z, 1.0))
+			sm.set_shader_parameter("probe_box_hi", Vector4(ln * 0.5, PROBE_BOX.y, PROBE_BOX.z, 0.0))
+	probe_bytes = LucidProbe.bytes(maps)
+	print("mall probes: %d, %d KB, %d ms; panel map %d KB" % [maps.size(), probe_bytes / 1024, Time.get_ticks_msec() - t0, refl_bytes / 1024])
 
 
 func _collect_spots() -> void:

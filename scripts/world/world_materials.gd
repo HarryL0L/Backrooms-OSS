@@ -149,6 +149,12 @@ func set_realistic(on: bool) -> void:
 		var p: Dictionary = REALISTIC[m]
 		for k in p:
 			(materials[m] as ShaderMaterial).set_shader_parameter(k, p[k][1] if on else p[k][0])
+	# Stage 4: the Tiled Baths' panels, whose reflections the glazed tiles
+	# work out analytically.
+	var pfx: Dictionary = Lucid.FIXTURES[WorldGen.LUCID_FIXTURE[WorldGen.POOL]]
+	# (A Vector3: Godot would take a Color for an sRGB one.)
+	var prad := Lucid.face_engine(pfx, WorldGen.LUCID_LLF[WorldGen.POOL])
+	(materials[ChunkBuilder.MAT_POOL_TILE] as ShaderMaterial).set_shader_parameter("panel_rad", Vector3(prad.r, prad.g, prad.b))
 	var trim_default := Color(0.84, 0.82, 0.74)
 	for m in LUCID:
 		var e: Array = LUCID[m]

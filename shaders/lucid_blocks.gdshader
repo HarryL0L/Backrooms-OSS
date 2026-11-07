@@ -68,5 +68,5 @@ void fragment() {
 				lucid_reflection(r, lucid_air.rgb * 2.0) * (0.4 + 0.6 * clear), fr, v_top);
 		rad = wall * e * (1.0 - fc.glass - fc.frame) + vec3(0.5, 0.49, 0.46) * e * fc.frame + fc.emit;
 	}
-	ALBEDO = lucid_finish(rad, d);
+	ALBEDO = lucid_finish_at(rad, v_wpos, CAMERA_POSITION_WORLD, lucid_capturing(PROJECTION_MATRIX));
 }

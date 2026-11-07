@@ -3,6 +3,7 @@ render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
 #include "res://shaders/water.gdshaderinc"
+#include "res://shaders/lucid_spec.gdshaderinc"
 
 uniform sampler2D noise_fine : hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D noise_blot : hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -17,6 +18,10 @@ uniform vec3 water_absorb = vec3(0.45, 0.07, 0.03);
 uniform vec3 water_scatter : source_color = vec3(0.08, 0.32, 0.40);
 // Cell-edge noise (WorldMaterials): two drifting layers make the caustic net.
 uniform sampler2D noise_caustic : hint_default_white, filter_linear_mipmap, repeat_enable;
+// L.U.C.I.D. (stage 4): the ceiling panels' luminance (engine units,
+// Lucid.face_engine of the Tiled Baths' 2 x 2 LED panels; set by
+// WorldMaterials) for their analytic reflections.
+uniform vec3 panel_rad = vec3(16.0);
 
 varying vec3 v_vlight;
 varying vec3 v_lm;
@@ -89,6 +94,39 @@ vec3 tile_glint(vec3 wpos, vec3 cam, vec2 cell, float wet) {
 	float mask = 1.0 - smoothstep(0.0, 0.01 + dist * rough, length(vec2(along, across)));
 	float fres = 0.04 + 0.96 * pow(1.0 - cosv, 5.0);
 	return vec3(0.9, 0.97, 1.0) * 3.0 * mask * min(fres, 0.5) * mix(0.5, 1.4, wet) / (1.0 + dist * 0.15);
+}
+
+// L.U.C.I.D. (stage 4, lucid_spec.gdshaderinc): the glazed tiles' real
+// specular. The panels hang in the ceiling on the checkerboard of cells
+// WorldGen.light_state gives the Tiled Baths (every other cell, 3 % dead);
+// the reflected ray meets the ceiling's plane, and the panels of the 3 x 3
+// cells round that point are evaluated as emitters (the share of the GGX
+// lobe each covers). When the lobe's footprint there outgrows the cells
+// (far off, at grazing angles), it hands over to the panels' mean cover
+// (lit area / ceiling area). Each tile is laid a hair out of level, so the
+// image breaks up tile by tile. Returns the share of the lobe on panels.
+float panel_cover(vec3 wpos, LucidMirror m) {
+	if (m.r.y < 0.02) {
+		return 0.0;
+	}
+	float py = ceiling_y - 0.02;
+	float t = (py - wpos.y) / m.r.y;
+	vec2 q = wpos.xz + m.r.xz * t;
+	vec2 c0 = floor(q / 2.4);
+	float cover = 0.0;
+	for (int dz = -1; dz <= 1; dz++) {
+		for (int dx = -1; dx <= 1; dx++) {
+			int gx = int(c0.x) + dx;
+			int gz = int(c0.y) + dz;
+			if (((gx + gz) & 1) != 0 || world_rnd(gx, gz, 31u) < 0.03) {
+				continue;
+			}
+			vec3 c = vec3((float(gx) + 0.5) * 2.4, py, (float(gz) + 0.5) * 2.4);
+			cover += lucid_emitter_cover(wpos, m, c, vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), vec2(0.31));
+		}
+	}
+	float along = m.sig.x * t / m.r.y;
+	return mix(cover, 0.0324, smoothstep(0.8, 2.4, along));
 }
 
 // 1 on a tile, 0 down in the grout, with a rounded bevel.
@@ -170,6 +208,7 @@ void fragment() {
 	col *= 0.95 + 0.08 * texture(noise_fine, uv * 3.0).r;
 	float bevel = smoothstep(0.004, 0.02, edge);
 	vec3 emission_extra = vec3(0.0);
+	float lucid_keep = 1.0;     // what the specular leaves the diffuse
 	if (under) {
 		float lum = dot(v_light, vec3(0.3, 0.59, 0.11));
 		// Caustics move with the surface above: offset by its slope.
@@ -200,8 +239,26 @@ void fragment() {
 		// Wet patches (puddles drying out away from the rim): grout darkens.
 		float wet = clamp((v_wet - 0.35 + (grime - 0.5) * 0.9) * 2.5, 0.0, 1.0);
 		col = mix(col, col * mix(1.0, 0.7, grout), wet);
-		// (Realistic: a little stronger, as the photographed tiles are.)
-		emission_extra += tile_glint(v_wpos, cam, cell, wet) * (1.0 - grout) * (1.0 + 0.3 * realistic);
+		if (lucid_exposure.a > 0.5) {
+			// Glazed ceramic: F0 0.04 (n = 1.5), roughness 0.06 dry, a
+			// water film (0.03, F0 0.02) where it is wet; the grout is matt.
+			vec2 tilt = vec2(hash12(cell + 17.0), hash12(cell + 41.0)) - 0.5;
+			vec3 tn = normalize(vec3(tilt.x * 0.008, 1.0, tilt.y * 0.008));
+			vec3 vw = normalize(cam - v_wpos);
+			float rough = mix(mix(0.06, 0.03, wet), 0.9, grout);
+			float f0 = mix(0.04, 0.02, wet);
+			float e_spec = lucid_spec_albedo(dot(tn, vw), rough, f0);
+			lucid_keep = 1.0 - e_spec;
+			LucidMirror mr = lucid_mirror(tn, vw, rough);
+			// What else the tiles mirror: the white-tiled room, lit about
+			// as this floor is (tile albedo 0.79, the ceiling a little
+			// darker than the walls): the Tiled Baths' one probe.
+			vec3 room = v_light * 0.79 * 0.7;
+			emission_extra += (panel_rad * lucid_exposure.rgb * panel_cover(v_wpos, mr) * (1.0 - grout) + room) * e_spec;
+		} else {
+			// (Realistic: a little stronger, as the photographed tiles are.)
+			emission_extra += tile_glint(v_wpos, cam, cell, wet) * (1.0 - grout) * (1.0 + 0.3 * realistic);
+		}
 	}
 	float bump = 1.0;
 	if (photoreal > 0.5) {
@@ -211,5 +268,5 @@ void fragment() {
 	ALBEDO = col * mix(0.85, 1.0, bevel);
 	ROUGHNESS = mix(0.07, 0.7, grout);
 	SPECULAR = 0.6;
-	EMISSION = col * mix(0.85, 1.0, bevel) * v_light * bump + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.8) + emission_extra + dither(FRAGCOORD.xy);
+	EMISSION = col * mix(0.85, 1.0, bevel) * v_light * bump * lucid_keep + col * flashlight(v_wpos, normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz), CAMERA_POSITION_WORLD, 0.8) + emission_extra + dither(FRAGCOORD.xy);
 }
