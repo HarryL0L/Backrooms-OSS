@@ -140,8 +140,9 @@ class Surf:
 		if faces[5]:
 			quad(c + Vector3(-h.x, -h.y, -h.z), Vector3(s.x, 0, 0), Vector3(0, s.y, 0), step, Vector3.FORWARD)
 
-	## A box turned about Y by `yaw` (no tessellation finer than `step`).
-	func box_rot(c: Vector3, s: Vector3, yaw: float, step := 1.0) -> void:
+	## A box turned about Y by `yaw` (no tessellation finer than `step`);
+	## its bottom too with `bottom` (anything seen from under it).
+	func box_rot(c: Vector3, s: Vector3, yaw: float, step := 1.0, bottom := false) -> void:
 		var b := Basis(Vector3.UP, yaw)
 		var h := s * 0.5
 		var ax := b.x * s.x
@@ -153,6 +154,8 @@ class Surf:
 		quad(o + ay, ax, az, step, b.y)
 		quad(o + az, ax, ay, step, b.z)
 		quad(o, ax, ay, step, -b.z)
+		if bottom:
+			quad(o, ax, az, step, -b.y)
 
 	## A vertical cylinder (pole) from `base` up `h`, radius r, `sides` facets.
 	func cyl(base: Vector3, r: float, h: float, sides := 8, step := 2.0) -> void:

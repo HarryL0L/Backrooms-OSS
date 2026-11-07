@@ -63,10 +63,10 @@ void fragment() {
 		vec3 e = e_sky_side * (0.45 + 0.4 * clear) + street * sv + e_moon * max(dot(wn, moon_dir), 0.0) * (0.25 + 0.75 * clear);
 		float u = abs(wn.x) > abs(wn.z) ? v_wpos.z * sign(wn.x) : -v_wpos.x * sign(wn.z);
 		vec3 r = reflect(vw, wn);
-		float fr = lucid_fresnel(0.04, dot(-vw, wn)) * 0.9;
+		float fr = lucid_fresnel(0.08, dot(-vw, wn)) * 0.9;
 		Facade fc = lucid_facade(u, v, kind, seed, v_custom.z, v_custom.w, shops > 0.5 && v_base < 0.5 ? 4.5 : 0.0,
-				lucid_reflection(r, lucid_air.rgb * 2.0) * (0.4 + 0.6 * clear), fr, v_top);
-		rad = wall * e * (1.0 - fc.glass - fc.frame) + vec3(0.5, 0.49, 0.46) * e * fc.frame + fc.emit;
+				lucid_reflection(r, lucid_air.rgb * 2.0) * (0.4 + 0.6 * clear), fr, v_top, e);
+		rad = lucid_facade_mix(wall * e, vec3(0.5, 0.49, 0.46) * e, fc);
 	}
 	ALBEDO = lucid_finish_at(rad, v_wpos, CAMERA_POSITION_WORLD, lucid_capturing(PROJECTION_MATRIX));
 }

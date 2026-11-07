@@ -46,6 +46,13 @@ stage 3.
   caged bulb; water tank 4.6 m across on a 3.2 m stand; condensers, vents.
 - Fire stair: on A's east wall in the 6 m alley, two flights a storey
   (3.0 m run each), landings 1.2 m, rails 1.07 m; bulbs at each storey.
+  Built like a real steel one: 200 mm channel stringers, open bar-grating
+  treads with nosing angles, grating landings in 150 mm channel frames on a
+  ledger angle bolted to the wall and on four 80 mm columns, knee braces
+  under the half landings, guards (top rail, mid rail, pickets every 0.3 m)
+  on every open side, a wall handrail on the inner flights. A window opens
+  onto each floor landing, none behind the flights (A_side `win_mask`).
+- Bulkhead: a steel ladder up its north face to its roof.
 - Bounds: barricades at x = +-86 and z = +-61 (invisible walls behind
   them), the alley's plywood hoarding at z = 46.
 - Backdrop: ~5700 instanced buildings to 5.5 km (all of them within 1.3
@@ -93,7 +100,8 @@ stage 3.
 
 ## Performance (Realistic preset, worst view of the harness)
 
-Draw calls 23-29, primitives 119k-140k (lavapipe, 1280 x 720). The Lobby
+Draw calls 19-29, primitives 102k-154k (lavapipe, 1280 x 720; the steel
+fire stair is ~13k of it). The Lobby
 on Realistic draws 210-472 calls. Up to 4 real lights (the nearest lamps,
 specular only on baked surfaces) plus the moon, no real-time shadows,
 textures 1024 px or less (VRAM compressed, mipmaps), assets ~4 MB.

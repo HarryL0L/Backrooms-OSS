@@ -480,12 +480,21 @@ the level script's static `force_blend = 1.0`) shows dusk.
   `_facade_light`), the moon on the faces turned to it.
 - Windows (`lucid_windows.gdshaderinc`): a grid of storeys and bays, lit
   by hash with real luminances (25 cd/m2 office floors, 12 homes, 40 for a
-  closed shop's night lights, Lucid.FIXTURES), unlit ones mirroring the sky
-  and, below the horizon, the city (solar-control curtain walls at about
-  four times a plain pane's reflectance), with frames and sills. When a
-  window falls under about a pixel the facade switches to cells of 2, 4, 8
-  windows lit with the same probability: the same mean, the speckle of a
-  photo, no shimmer.
+  closed shop's night lights, Lucid.FIXTURES), with frames, sills and sash
+  bars and a room behind the glass (a ceiling lamp, furniture against the
+  light, blinds or curtains; dark rooms show their blinds and curtains lit
+  by the street through the pane, a hall light further in). Glass mirrors
+  by Fresnel (a pane is two faces: F0 0.08; solar-control curtain walls
+  about three times that): on the near facades the reflection probe of the
+  street it faces and the street heads and signals (stage 4), elsewhere
+  the sky and, below the horizon, the city. Resolved windows blend their
+  edges in the camera's output (compressed, weighted, expanded), so a
+  window fifty times brighter than its wall keeps no stair-stepped edge.
+  When a window falls under about a pixel the facade switches to cells of
+  2, 4, 8 windows lit with the same probability: the same mean, the speckle
+  of a photo, no shimmer; where it does so only one way (a facade edge on,
+  or seen straight up) the windows blend to their mean along it, as whole
+  long cells lit or not would draw stripes.
 - Air: Koschmieder (transmittance exp(-sigma d), the rest the horizon's
   luminance as airlight) in every city shader (`lucid_finish`); no halo
   quads.

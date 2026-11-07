@@ -114,11 +114,13 @@ func build(p_seed: int) -> void:
 	_fail_t = float(p_seed % 97)
 	cam = Lucid.night_camera()
 	cam.night_vision = NIGHT_VISION
-	lamp_lvl.resize(32)
-	lamp_lvl.fill(1.0)
 	_baked = ResourceLoader.exists(DIR + "bake/street.res") and ResourceLoader.exists(DIR + "bake/a.res")
 	lay = LAYOUT.new()
 	lay.build(not _baked)
+	# One level per lamp (the bake's 32 relightable slots are the first;
+	# the real lights may pick any of the crossing's lamps).
+	lamp_lvl.resize(maxi(32, lay.lamps.size()))
+	lamp_lvl.fill(1.0)
 	city = Node3D.new()
 	city.name = "City"
 	add_child(city)
@@ -202,6 +204,7 @@ func _materials() -> void:
 			_sp(sm, "facade", d.facade)
 			_sp(sm, "shop_band", d.get("shop", 0.0))
 			_sp(sm, "win_top", d.get("top", 1000.0))
+			_sp(sm, "win_mask", d.get("win_mask", Vector4.ZERO))
 			_window_params(sm, st_a, st_b)
 		mats[name] = sm
 		_kit_mats.append(sm)
@@ -380,8 +383,8 @@ func _lamp_model(spec: Dictionary, fx_name: String) -> ArrayMesh:
 	var arm: float = spec.arm
 	var s := LucidCity.Surf.new()
 	s.cyl(Vector3.ZERO, 0.11, h + 0.25, 6, h)
-	s.box(Vector3(0, h + 0.2, arm * 0.5), Vector3(0.08, 0.08, arm), 4.0)
-	s.box(Vector3(0, h + 0.08, arm + 0.1), Vector3(0.34, 0.15, 0.72), 2.0)
+	s.box(Vector3(0, h + 0.2, arm * 0.5), Vector3(0.08, 0.08, arm), 4.0, LAYOUT.ALL)
+	s.box(Vector3(0, h + 0.08, arm + 0.1), Vector3(0.34, 0.15, 0.72), 2.0, LAYOUT.ALL)
 	var lens := LucidCity.Surf.new()
 	lens.quad(Vector3(-0.13, h - 0.001, arm - 0.15), Vector3(0.26, 0, 0), Vector3(0, 0, 0.45), 1.0, Vector3.DOWN)
 	var mesh := ArrayMesh.new()
@@ -1027,6 +1030,25 @@ func shots() -> Array:
 		{"name": "street_west", "transform": _view(Vector3(30.0, 0.15, 8.0), 90.0, 3.0), "wait": 4.0},
 		{"name": "plaza_tower", "transform": _view(Vector3(-20.0, 0.15, -15.0), 45.0, 30.0), "wait": 4.0},
 		{"name": "failing_lamp", "transform": _view(Vector3(40.0, 0.15, 8.5), 280.0, 12.0), "wait": 4.0},
+		# QA close-ups: the bulkhead, the parapet's corner, the fire stair
+		# from its top, middle and bottom, the sky overhead, windows.
+		{"name": "qa_bulkhead", "transform": _view(Vector3(31.0, 22.5, 31.0), 300.0, 5.0), "wait": 3.0},
+		{"name": "qa_door", "transform": _view(Vector3(32.6, 22.5, 33.4), 270.0, 20.0), "wait": 3.0},
+		{"name": "qa_parapet", "transform": _view(Vector3(43.6, 22.5, 11.4), 330.0, -8.0), "wait": 3.0},
+		{"name": "qa_stair_top", "transform": _view(Vector3(46.3, 22.5, 13.0), 180.0, -55.0), "wait": 3.0},
+		{"name": "qa_stair_top2", "transform": _view(Vector3(44.0, 22.5, 12.8), 250.0, -35.0), "wait": 3.0},
+		{"name": "qa_stair_mid_up", "transform": _view(Vector3(46.9, 11.7, 13.0), 160.0, 55.0), "wait": 3.0},
+		{"name": "qa_stair_mid_dn", "transform": _view(Vector3(46.9, 11.7, 13.0), 180.0, -45.0), "wait": 3.0},
+		{"name": "qa_stair_win", "transform": _view(Vector3(46.0, 9.82, 15.4), 95.0, 5.0), "wait": 3.0},
+		{"name": "qa_stair_bot_up", "transform": _view(Vector3(49.0, 0.15, 16.0), 0.0, 60.0), "wait": 3.0},
+		{"name": "qa_stair_side", "transform": _view(Vector3(50.5, 0.15, 24.0), 20.0, 25.0), "wait": 3.0},
+		{"name": "qa_sky_up", "transform": _view(Vector3(5.0, 0.15, 5.0), 0.0, 89.0), "wait": 3.0},
+		{"name": "qa_sky_up2", "transform": _view(Vector3(25.0, 22.5, 25.0), 300.0, 70.0), "wait": 3.0},
+		{"name": "qa_sky_arms", "transform": _view(Vector3(2.0, 0.0, 9.0), 90.0, 80.0), "wait": 3.0},
+		{"name": "qa_win_shop", "transform": _view(Vector3(13.0, 0.15, 24.0), 270.0, 5.0), "wait": 3.0},
+		{"name": "qa_win_B", "transform": _view(Vector3(47.5, 8.1, 16.4), 270.0, 10.0), "wait": 3.0},
+		{"name": "qa_win_D1", "transform": _view(Vector3(20.0, 0.15, -8.5), 0.0, 25.0), "wait": 3.0},
+		{"name": "qa_backdrop", "transform": _view(Vector3(85.0, 0.15, 9.0), 270.0, 12.0), "wait": 3.0},
 	]
 
 

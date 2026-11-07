@@ -28,6 +28,9 @@ const RIVER := Vector2(-1700.0, -1450.0)
 const BRIDGE_Z := -400.0
 const VIADUCT_X := 385.0
 const DOWNTOWN := [Vector3(-2350.0, 0.0, -650.0), Vector3(700.0, 0.0, -1350.0)]
+## Every face of a box (Surf.box leaves out the bottom, which nothing
+## standing on the ground shows; anything over the eye needs it).
+const ALL := [true, true, true, true, true, true]
 
 ## Baked geometry: tile -> {material name -> LucidCity.Surf}.
 var tiles := {}
@@ -115,8 +118,13 @@ func _define_materials() -> void:
 		"hydrant": {"albedo": Color(0.32, 0.04, 0.03), "rough": 0.5},
 		"black": {"albedo": Color(0.03, 0.03, 0.03), "rough": 0.6},
 		# Facades: windows from lucid_windows (seed, kind, storey, bay), shop band.
-		"A_wall": {"albedo": Color(0.33, 0.19, 0.11), "tex": "brick", "uv": 2.4, "rough": 0.85, "facade": Vector4(11, 2, ST, 2.6), "shop": G0, "normal": 0.8, "top": A_ROOF},
-		"A_side": {"albedo": Color(0.33, 0.19, 0.11), "tex": "brick", "uv": 2.4, "rough": 0.85, "facade": Vector4(12, 2, ST, 3.9), "shop": 0.0, "normal": 0.8, "top": A_ROOF},
+		"A_wall": {"albedo": Color(0.33, 0.19, 0.11), "tex": "brick", "uv": 2.4, "rough": 0.85, "facade": Vector4(11, 2, ST, 2.6), "shop": G0, "normal": 0.8, "top": A_ROOF + PARAPET},
+		# The alley wall: its storeys are A's (sills 0.8 m over floors 4.5 +
+		# 3.6 n), a window by each of the fire stair's floor landings (the
+		# way out onto it) and none behind its flights and half landings
+		# (win_mask: u shift, no windows from u to u, v shift).
+		"A_side": {"albedo": Color(0.33, 0.19, 0.11), "tex": "brick", "uv": 2.4, "rough": 0.85, "facade": Vector4(12, 2, ST, 3.9), "shop": 0.0, "normal": 0.8,
+				"top": A_ROOF + PARAPET, "win_mask": Vector4(3.9 * 3.5 - 13.0, 14.0, 19.2, -0.8)},
 		"brick": {"albedo": Color(0.33, 0.19, 0.11), "tex": "brick", "uv": 2.4, "rough": 0.85, "normal": 0.8},
 		"A2_wall": {"albedo": Color(0.36, 0.34, 0.30), "tex": "facade_concrete", "uv": 2.4, "rough": 0.85, "facade": Vector4(13, 0, ST, 3.0), "shop": 0.0},
 		"B_wall": {"albedo": Color(0.40, 0.38, 0.34), "tex": "facade_concrete", "uv": 2.4, "rough": 0.85, "facade": Vector4(21, 0, ST, 3.0), "shop": G0},
@@ -303,7 +311,11 @@ func _building_a() -> void:
 			s.wall(w[0], w[1], 14.0, A_ROOF + PARAPET, w[2], 2.5)
 		var si := surf("a", "A_side")
 		si.wall(Vector2(45, 10), Vector2(45, 40), 0.0, 14.0, Vector3.RIGHT, 1.2)
-		si.wall(Vector2(45, 10), Vector2(45, 40), 14.0, A_ROOF + PARAPET, Vector3.RIGHT, 2.5)
+		# Over the roof, the parapet's outer face stops at the gap to the
+		# fire stair's top landing.
+		si.wall(Vector2(45, 10), Vector2(45, 40), 14.0, A_ROOF, Vector3.RIGHT, 2.5)
+		si.wall(Vector2(45, 10), Vector2(45, LAND_A.x), A_ROOF, A_ROOF + PARAPET, Vector3.RIGHT, 2.5)
+		si.wall(Vector2(45, LAND_A.y), Vector2(45, 40), A_ROOF, A_ROOF + PARAPET, Vector3.RIGHT, 2.5)
 		si.wall(Vector2(45, 40), Vector2(15, 40), G0 + 3 * ST, A_ROOF + PARAPET, Vector3.BACK, 3.0)
 	# The parapet (0.3 m brick, 1.1 m over the roof) with a gap on the
 	# alley side for the fire stair's top landing.
@@ -316,11 +328,28 @@ func _building_a() -> void:
 	var g1 := LAND_A.y
 	_parapet(Vector3(45 - t * 0.5, y, (10 + t + g0) * 0.5), Vector3(t, PARAPET, g0 - 10 - t))
 	_parapet(Vector3(45 - t * 0.5, y, (g1 + 40 - t) * 0.5), Vector3(t, PARAPET, 40 - t - g1))
+	if _geo:
+		# The brick ends of the parapet either side of the gap, and a
+		# concrete threshold across it (the roof's edge to the landing).
+		for e in [[g0, Vector3.BACK], [g1, Vector3.FORWARD]]:
+			surf("a", "brick").quad(Vector3(45 - t, A_ROOF, e[0]), Vector3(t, 0, 0), Vector3(0, PARAPET, 0), 1.0, e[1])
+		surf("a", "coping").box(Vector3(45 - t * 0.5, A_ROOF + 0.01, (g0 + g1) * 0.5), Vector3(t, 0.02, g1 - g0), 1.0)
+		# Precast coping, 60 mm, 50 mm proud of both faces: the long runs
+		# over the street and the back, the side runs butted between them
+		# (no overlaps, so no two tops fight for the same pixels).
+		var cy := A_ROOF + PARAPET + 0.03
+		var cs := Vector3(0.0, 0.06, t + 0.1)
+		for z in [10 + t * 0.5, 40 - t * 0.5]:
+			surf("a", "coping").box(Vector3(30, cy, z), Vector3(30.1, cs.y, cs.z), 1.0, ALL)
+		var z0 := 10 + t + 0.05
+		var z1 := 40 - t - 0.05
+		for r in [[15 + t * 0.5, z0, z1], [45 - t * 0.5, z0, g0], [45 - t * 0.5, g1, z1]]:
+			surf("a", "coping").box(Vector3(r[0], cy, (r[1] + r[2]) * 0.5), Vector3(cs.z, cs.y, r[2] - r[1]), 1.0, ALL)
 	# The street door (residents' entrance on the avenue), recessed 0.3 m.
 	if _geo:
 		var d := surf("a", "door")
 		d.quad(Vector3(14.99, WALK, 33.0), Vector3(0, 0, 1.8), Vector3(0, 2.3, 0), 0.6, Vector3.LEFT)
-		surf("a", "steel_light").box(Vector3(14.95, WALK + 2.45, 33.9), Vector3(0.12, 0.12, 2.2), 1.0)
+		surf("a", "steel_light").box(Vector3(14.95, WALK + 2.45, 33.9), Vector3(0.12, 0.12, 2.2), 1.0, ALL)
 	spots.street_door = Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(14.98, WALK, 33.9))
 
 
@@ -339,52 +368,58 @@ func _parapet(c: Vector3, s: Vector3) -> void:
 		var sign_z := 1.0 if c.z < 25.0 else -1.0
 		inner.wall(Vector2(c.x - h.x, c.z + sign_z * h.z), Vector2(c.x + h.x, c.z + sign_z * h.z), A_ROOF, A_ROOF + PARAPET,
 				Vector3(0, 0, sign_z), 1.0)
-	surf("a", "coping").box(c + Vector3(0, h.y + 0.03, 0), Vector3(s.x + 0.06, 0.06, s.z + 0.06), 1.0,
-			[true, true, true, false, true, true])
 
 
 # ------------------------------------------------------------------- stair ---
 
-## The fire stair in the alley: steel switchback flights up A's east wall,
-## two flights a storey (out along the outer lane, back on the inner),
-## grating landings, rails 1.07 m high. Collision: a ramp per flight.
+## The fire stair in the alley: a steel switchback up A's east wall, two
+## flights a storey (out along the outer lane, back on the inner), as a
+## real one is put together: channel stringers 180 mm deep with open
+## grating treads between them (one riser fewer than the flight's rises,
+## the last one up onto the landing), landings of grating in a channel
+## frame on a ledger angle bolted to the wall and on four steel columns,
+## knee braces under the half landings, guards 1.07 m high (top rail, mid
+## rail, pickets) on every open side and a handrail on the wall. Collision:
+## a ramp per flight.
 func _stair() -> void:
 	var xo := Vector2(46.35, 47.45)      # outer lane
 	var xi := Vector2(45.1, 46.25)       # inner lane
-	var steel := "steel"
 	for k in STAIR_Y.size() - 1:
 		var y0: float = STAIR_Y[k]
 		var y1: float = STAIR_Y[k + 1]
 		var hm := (y0 + y1) * 0.5
 		_flight(xo, LAND_A.y, LAND_B.x, y0, hm)
 		_flight(xi, LAND_B.x, LAND_A.y, hm, y1)
-		# Landings (grating plate 50 mm) at the half and the top.
-		_landing(Vector3((STAIR_X.x + STAIR_X.y) * 0.5, hm, (LAND_B.x + LAND_B.y) * 0.5), Vector3(STAIR_X.y - STAIR_X.x, 0.05, LAND_B.y - LAND_B.x))
-		_landing(Vector3((STAIR_X.x + STAIR_X.y) * 0.5, y1, (LAND_A.x + LAND_A.y) * 0.5), Vector3(STAIR_X.y - STAIR_X.x, 0.05, LAND_A.y - LAND_A.x))
-		# Rails: the outer side and the landings' ends; the lanes split.
-		_rail(Vector3(STAIR_X.y + 0.02, y0, LAND_A.x), Vector3(STAIR_X.y + 0.02, y1, LAND_B.y), y0, y1, hm)
+		# Landings (grating, 30 mm, in their frames) at the half and the top.
+		_landing(Vector3((STAIR_X.x + STAIR_X.y) * 0.5, hm, (LAND_B.x + LAND_B.y) * 0.5), Vector3(STAIR_X.y - STAIR_X.x, 0.05, LAND_B.y - LAND_B.x), true)
+		_landing(Vector3((STAIR_X.x + STAIR_X.y) * 0.5, y1, (LAND_A.x + LAND_A.y) * 0.5), Vector3(STAIR_X.y - STAIR_X.x, 0.05, LAND_A.y - LAND_A.x), false)
+		# Guards: the outer side and the landings' ends; between the lanes.
+		_rail(y0, y1, hm, k == 0, k == STAIR_Y.size() - 2)
 		_rail_ends(y1, hm)
 		_col(Vector3(0.1, y1 - y0 + 1.2, LAND_B.x - LAND_A.y), Vector3(46.3, (y0 + y1) * 0.5 + 0.6, (LAND_A.y + LAND_B.x) * 0.5),
 				{}, true, false)
-		if _geo:
-			surf("a", steel).box(Vector3(46.3, (y0 + hm) * 0.5 + 0.55, (LAND_A.y + LAND_B.x) * 0.5),
-					Vector3(0.04, 0.04, LAND_B.x - LAND_A.y), 1.0)
-	# A post at each corner, alley floor to the roof.
 	if _geo:
-		for z in [LAND_A.x, LAND_B.y]:
-			surf("a", steel).box(Vector3(STAIR_X.y, (STAIR_Y[0] + A_ROOF + 1.1) * 0.5, z), Vector3(0.1, A_ROOF + 1.1, 0.1), 3.0)
+		var s := surf("a", "steel")
+		# Columns (80 mm square tube) at the landings' outer corners, from
+		# the alley to the top guard, on base plates.
+		var top: float = STAIR_Y[STAIR_Y.size() - 1] + 1.1
+		for z in [LAND_A.x + 0.04, LAND_A.y - 0.04, LAND_B.x + 0.04, LAND_B.y - 0.04]:
+			s.box(Vector3(STAIR_X.y - 0.04, (WALK + top) * 0.5, z), Vector3(0.08, top - WALK, 0.08), 3.0)
+			s.box(Vector3(STAIR_X.y - 0.04, WALK + 0.01, z), Vector3(0.2, 0.02, 0.2), 1.0)
 	# Nothing to walk under at the bottom of the first flight.
 	_col(Vector3(xo.y - xo.x, 1.0, LAND_B.x - LAND_A.y), Vector3((xo.x + xo.y) * 0.5, 0.5, (LAND_A.y + LAND_B.x) * 0.5),
 			{}, true, false)
-	# The landing bulbs (caged 60 W jelly jars on A's wall), one a storey.
-	for k in range(1, STAIR_Y.size()):
-		var y: float = STAIR_Y[k] + 2.3
+	# The landing bulbs (caged 60 W jelly jars on A's wall over the window
+	# out onto each floor landing, under the landing above), and one at the
+	# foot of the stair.
+	for k in range(1, STAIR_Y.size() - 1):
+		var y: float = STAIR_Y[k] + 3.1
 		lamps.append({"pos": Vector3(45.12, y, 13.0), "fx": "jelly_jar_60w", "llf": 1.0, "bulb": true})
 		if _geo:
-			_bulb(Vector3(45.12, y, 13.0))
+			_bulb(Vector3(45.0, y, 13.0), Vector3.RIGHT)
 	lamps.append({"pos": Vector3(45.12, 2.6, 18.2), "fx": "jelly_jar_60w", "llf": 1.0, "bulb": true})
 	if _geo:
-		_bulb(Vector3(45.12, 2.6, 18.2))
+		_bulb(Vector3(45.0, 2.6, 18.2), Vector3.RIGHT)
 	# The alley's end: a plywood hoarding, 2.4 m; a dumpster, bags.
 	_col(Vector3(6, 2.4, 0.1), Vector3(48, 1.35, 46.0), {"albedo": 0.2})
 	_col(Vector3(1.8, 1.3, 1.1), Vector3(49.9, 0.8, 32.0), {"albedo": 0.06})
@@ -398,58 +433,135 @@ func _stair() -> void:
 	spots.stair_top = Vector3(46.3, A_ROOF, 13.0)
 
 
+## A flight up the lane x (its edges) from z = za, y = ya to zb, yb: two
+## channel stringers, the treads between them (bar grating with a nosing
+## angle; open risers), the collision ramp.
 func _flight(x: Vector2, za: float, zb: float, ya: float, yb: float) -> void:
 	var run := absf(zb - za)
 	var rise := yb - ya
 	var n := maxi(roundi(rise / 0.18), 2)
-	var dz := (zb - za) / n
+	var dz := (zb - za) / (n - 1)
+	var sg := signf(zb - za)
 	if _geo:
 		var s := surf("a", "steel")
-		for i in n:
+		var w := x.y - x.x - 0.1
+		var xc := (x.x + x.y) * 0.5
+		var tb := (absf(dz) - 0.04 - 2.0 * 0.025) / 3.0
+		for i in n - 1:
+			var y := ya + rise * (i + 1) / n
 			var z := za + dz * (i + 0.5)
-			s.box(Vector3((x.x + x.y) * 0.5, ya + rise * (i + 1) / n - 0.02, z), Vector3(x.y - x.x, 0.04, absf(dz) + 0.02), 2.0)
-		# Stringers.
-		for xs in [x.x, x.y]:
-			var mid := Vector3(xs, (ya + yb) * 0.5 + 0.05, (za + zb) * 0.5)
-			var len := sqrt(run * run + rise * rise)
-			_beam(s, Transform3D(Basis(Vector3.RIGHT, -atan2(rise, zb - za)), mid), Vector3(0.02, 0.22, len))
+			# Three bars of grating with gaps you see through.
+			for j in 3:
+				var zj := z + sg * (j - 1) * (tb + 0.025)
+				s.box(Vector3(xc, y - 0.015, zj), Vector3(w, 0.03, tb), 2.0, [false, false, true, true, true, true])
+			# The nosing angle (50 x 50 mm) at the front edge.
+			s.box(Vector3(xc, y - 0.03, z - sg * (absf(dz) * 0.5 - 0.035)), Vector3(w, 0.06, 0.03), 2.0, [false, false, false, true, true, true])
+		# Stringers: 200 x 50 mm channels at the lane's edges, their tops
+		# 40 mm over the nosing line, from landing frame to landing frame.
+		for xs in [x.x + 0.025, x.y - 0.025]:
+			_bar(s, Vector3(xs, ya + rise / n - 0.06, za), Vector3(xs, yb - 0.06, zb), Vector2(0.05, 0.2))
 	var xf := Transform3D(Basis(Vector3.RIGHT, -atan2(rise, zb - za)), Vector3((x.x + x.y) * 0.5, (ya + yb) * 0.5 - 0.04, (za + zb) * 0.5))
 	# (Grating: it lets most light through, so it is no occluder.)
 	_col_xf(Vector3(x.y - x.x, 0.08, sqrt(run * run + rise * rise)), xf, {"albedo": 0.08}, true, false)
 
 
-func _beam(s: LucidCity.Surf, xf: Transform3D, size: Vector3) -> void:
-	var h := size * 0.5
-	var b := xf.basis
-	var o := xf.origin - b.x * h.x - b.y * h.y - b.z * h.z
-	s.quad(o + b.x * size.x, b.z * size.z, b.y * size.y, 2.0, b.x)
-	s.quad(o, b.z * size.z, b.y * size.y, 2.0, -b.x)
-	s.quad(o + b.y * size.y, b.x * size.x, b.z * size.z, 2.0, b.y)
+## A straight steel member from a to b (its centre line), size.x wide
+## (level), size.y deep: its four long faces.
+func _bar(s: LucidCity.Surf, a: Vector3, b: Vector3, size: Vector2) -> void:
+	var d := (b - a).normalized()
+	var side := d.cross(Vector3.UP)
+	if side.length() < 0.01:
+		side = Vector3.RIGHT
+	side = side.normalized()
+	var up := side.cross(d).normalized()
+	var hw := side * size.x * 0.5
+	var hh := up * size.y * 0.5
+	var l := b - a
+	var step := 2.0
+	s.quad(a + hw - hh, l, hh * 2.0, step, side)
+	s.quad(a - hw - hh, l, hh * 2.0, step, -side)
+	s.quad(a - hw + hh, l, hw * 2.0, step, up)
+	s.quad(a - hw - hh, l, hw * 2.0, step, -up)
 
 
-func _landing(c: Vector3, s: Vector3) -> void:
+## A landing: the grating deck, its frame (150 mm channels round it, the
+## wall side a ledger angle on anchor plates), knee braces from the wall
+## under a half landing (no window there).
+func _landing(c: Vector3, s: Vector3, braces: bool) -> void:
 	_col(Vector3(s.x, 0.1, s.z), c - Vector3(0, 0.05, 0), {"albedo": 0.08})
-	if _geo:
-		surf("a", "steel").box(c - Vector3(0, 0.025, 0), s, 1.0, [true, true, true, true, true, true])
+	if not _geo:
+		return
+	var st := surf("a", "steel")
+	var h := s * 0.5
+	# The deck: 50 mm bars from the wall out, 35 mm apart, on two bearers.
+	var inner := Vector2(s.x - 0.12, s.z - 0.12)
+	var nb := int(inner.y / 0.085)
+	for i in nb:
+		var z := c.z - inner.y * 0.5 + (i + 0.5) * inner.y / nb
+		st.box(Vector3(c.x, c.y - 0.015, z), Vector3(inner.x, 0.03, inner.y / nb - 0.035), 1.0, [false, false, true, true, true, true])
+	for dx in [-inner.x / 6.0, inner.x / 6.0]:
+		st.box(Vector3(c.x + dx, c.y - 0.06, c.z), Vector3(0.05, 0.06, inner.y), 1.0, [true, true, false, true, false, false])
+	# Frame: the two ends (wall to outer edge) and the outer side.
+	for dz in [-h.z + 0.03, h.z - 0.03]:
+		st.box(Vector3(c.x, c.y - 0.075, c.z + dz), Vector3(s.x, 0.15, 0.06), 1.0, ALL)
+	st.box(Vector3(c.x + h.x - 0.03, c.y - 0.075, c.z), Vector3(0.06, 0.15, s.z - 0.12), 1.0, ALL)
+	# The ledger on the wall and its anchor plates.
+	st.box(Vector3(c.x - h.x + 0.03, c.y - 0.05, c.z), Vector3(0.06, 0.1, s.z - 0.12), 1.0, ALL)
+	for dz in [-h.z + 0.15, h.z - 0.15]:
+		st.box(Vector3(c.x - h.x + 0.005, c.y - 0.1, c.z + dz), Vector3(0.01, 0.2, 0.2), 1.0, [true, false, true, true, true, true])
+	if braces:
+		for dz in [-h.z + 0.03, h.z - 0.03]:
+			var foot := Vector3(c.x - h.x + 0.03, c.y - 1.5, c.z + dz)
+			_bar(st, foot, Vector3(c.x + h.x - 0.9, c.y - 0.15, c.z + dz), Vector2(0.05, 0.05))
+			st.box(foot + Vector3(-0.025, 0.0, 0.0), Vector3(0.01, 0.2, 0.15), 1.0, [true, false, true, true, true, true])
 
 
-func _rail(_a: Vector3, _b: Vector3, y0: float, y1: float, _hm: float) -> void:
+## A guard 1.07 m high along a path of points on the walking line (the
+## nosings, the decks): top rail, mid rail, pickets every 0.3 m or less.
+func _guard(pts: Array, first_post := true) -> void:
+	var s := surf("a", "steel")
+	for i in pts.size() - 1:
+		var a: Vector3 = pts[i]
+		var b: Vector3 = pts[i + 1]
+		_bar(s, a + Vector3(0, 1.07, 0), b + Vector3(0, 1.07, 0), Vector2(0.04, 0.04))
+		_bar(s, a + Vector3(0, 0.55, 0), b + Vector3(0, 0.55, 0), Vector2(0.025, 0.025))
+		var hz := Vector2(b.x - a.x, b.z - a.z).length()
+		var m := maxi(ceili(hz / 0.3), 1)
+		for j in m:
+			var p := a.lerp(b, (j + 0.5) / m)
+			s.box(p + Vector3(0, 0.53, 0), Vector3(0.016, 1.06, 0.016), 2.0, [true, true, false, false, true, true])
+	for p in ([pts[0], pts[pts.size() - 1]] if first_post else [pts[pts.size() - 1]]):
+		s.box(p + Vector3(0, 0.545, 0), Vector3(0.04, 1.09, 0.04), 2.0, [true, true, true, false, true, true])
+
+
+func _rail(y0: float, y1: float, hm: float, first: bool, last: bool) -> void:
 	var x := STAIR_X.y + 0.02
 	_col(Vector3(0.06, y1 - y0 + 1.3, LAND_B.y - LAND_A.x), Vector3(x, (y0 + y1) * 0.5 + 0.65, (LAND_A.x + LAND_B.y) * 0.5),
 			{}, true, false)
-	if _geo:
-		var s := surf("a", "steel")
-		# Top rail following each flight and the landings, and balusters.
-		var hm := (y0 + y1) * 0.5
-		s.box(Vector3(x, hm + 1.07, (LAND_B.x + LAND_B.y) * 0.5), Vector3(0.04, 0.04, LAND_B.y - LAND_B.x), 1.0)
-		s.box(Vector3(x, y1 + 1.07, (LAND_A.x + LAND_A.y) * 0.5), Vector3(0.04, 0.04, LAND_A.y - LAND_A.x), 1.0)
-		var len := sqrt(pow(LAND_B.x - LAND_A.y, 2.0) + pow(hm - y0, 2.0))
-		var b := Basis(Vector3.RIGHT, -atan2(hm - y0, LAND_B.x - LAND_A.y))
-		_beam(s, Transform3D(b, Vector3(x, (y0 + hm) * 0.5 + 1.07, (LAND_A.y + LAND_B.x) * 0.5)), Vector3(0.04, 0.04, len))
-		for i in 7:
-			var z := LAND_A.y + (LAND_B.x - LAND_A.y) * (i + 0.5) / 7.0
-			var yb := y0 + (hm - y0) * (i + 0.5) / 7.0
-			s.box(Vector3(x, yb + 0.53, z), Vector3(0.02, 1.07, 0.02), 2.0, [true, true, false, false, true, true])
+	if not _geo:
+		return
+	# The outer side: the floor landing, up the outer flight and round the
+	# half landing (and the top landing's side).
+	var xg := STAIR_X.y - 0.04
+	var outer := [Vector3(xg, y0, LAND_A.y), Vector3(xg, hm, LAND_B.x), Vector3(xg, hm, LAND_B.y)]
+	if not first:
+		outer.push_front(Vector3(xg, y0, LAND_A.x))
+	_guard(outer)
+	if last:
+		_guard([Vector3(xg, y1, LAND_A.x), Vector3(xg, y1, LAND_A.y)])
+	# Between the lanes (each flight has a drop to the other lane's): one
+	# plane of guards, the lower flight's up to the half landing, the upper
+	# flight's back from it.
+	_guard([Vector3(46.3, y0, LAND_A.y), Vector3(46.3, hm, LAND_B.x), Vector3(46.3, y1, LAND_A.y)], first)
+	# The inner flight's handrail on the wall (0.86 m over the nosings) on
+	# brackets.
+	var s := surf("a", "steel")
+	var a := Vector3(45.08, hm + 0.86, LAND_B.x)
+	var b := Vector3(45.08, y1 + 0.86, LAND_A.y)
+	_bar(s, a, b, Vector2(0.04, 0.04))
+	for t in [0.15, 0.5, 0.85]:
+		var p := a.lerp(b, t)
+		s.box(Vector3(45.03, p.y - 0.04, p.z), Vector3(0.06, 0.02, 0.02), 1.0, ALL)
 
 
 func _rail_ends(y1: float, hm: float) -> void:
@@ -457,18 +569,27 @@ func _rail_ends(y1: float, hm: float) -> void:
 	_col(Vector3(STAIR_X.y - STAIR_X.x, 1.2, 0.06), Vector3((STAIR_X.x + STAIR_X.y) * 0.5, hm + 0.6, LAND_B.y + 0.02), {}, true, false)
 	_col(Vector3(STAIR_X.y - STAIR_X.x, 1.2, 0.06), Vector3((STAIR_X.x + STAIR_X.y) * 0.5, y1 + 0.6, LAND_A.x - 0.02), {}, true, false)
 	if _geo:
-		var s := surf("a", "steel")
-		s.box(Vector3((STAIR_X.x + STAIR_X.y) * 0.5, hm + 1.07, LAND_B.y + 0.02), Vector3(STAIR_X.y - STAIR_X.x, 0.04, 0.04), 1.0)
-		s.box(Vector3((STAIR_X.x + STAIR_X.y) * 0.5, y1 + 1.07, LAND_A.x - 0.02), Vector3(STAIR_X.y - STAIR_X.x, 0.04, 0.04), 1.0)
-		for i in 5:
-			var x := STAIR_X.x + (STAIR_X.y - STAIR_X.x) * (i + 0.5) / 5.0
-			s.box(Vector3(x, hm + 0.53, LAND_B.y + 0.02), Vector3(0.02, 1.07, 0.02), 2.0, [true, true, false, false, true, true])
-			s.box(Vector3(x, y1 + 0.53, LAND_A.x - 0.02), Vector3(0.02, 1.07, 0.02), 2.0, [true, true, false, false, true, true])
+		_guard([Vector3(STAIR_X.x + 0.05, hm, LAND_B.y - 0.03), Vector3(STAIR_X.y - 0.08, hm, LAND_B.y - 0.03)])
+		_guard([Vector3(STAIR_X.x + 0.05, y1, LAND_A.x + 0.03), Vector3(STAIR_X.y - 0.08, y1, LAND_A.x + 0.03)])
 
 
-func _bulb(p: Vector3) -> void:
-	surf("a", "steel").box(p + Vector3(0.05, 0.12, 0), Vector3(0.1, 0.06, 0.14), 0.5)
-	surf("a", "bulb").box(p - Vector3(-0.08, 0.02, 0), Vector3(0.11, 0.16, 0.11), 0.5, [true, true, false, true, true, true])
+## A caged jelly-jar bulb on a wall (the face at `wall`, facing `out`):
+## anchor plate, arm, cage cap, the glass 0.12 m out and 0.1 m down.
+func _bulb(wall: Vector3, out: Vector3) -> void:
+	var st := surf("a", "steel")
+	var g := wall + out * 0.12
+	st.box(wall + out * 0.01 + Vector3(0, 0.1, 0), Vector3(0.02, 0.14, 0.12) if out.x != 0.0 else Vector3(0.12, 0.14, 0.02), 0.5, ALL)
+	st.box(wall + out * 0.07 + Vector3(0, 0.15, 0), (Vector3(0.12, 0.03, 0.03) if out.x != 0.0 else Vector3(0.03, 0.03, 0.12)), 0.5, ALL)
+	st.box(g + Vector3(0, 0.11, 0), Vector3(0.13, 0.05, 0.13), 0.5, ALL)
+	surf("a", "bulb").box(g, Vector3(0.11, 0.16, 0.11), 0.5, [true, true, false, true, true, true])
+
+
+## A flat disc (a cap, a tank's floor) of `sides` facets facing nn (up or down).
+func _disc(s: LucidCity.Surf, c: Vector3, r: float, sides: int, nn: Vector3) -> void:
+	for i in sides:
+		var a0 := TAU * i / sides
+		var a1 := TAU * (i + 1) / sides
+		s.tri(c, c + Vector3(cos(a0) * r, 0, sin(a0) * r), c + Vector3(cos(a1) * r, 0, sin(a1) * r), nn)
 
 
 # -------------------------------------------------------------------- roof ---
@@ -485,12 +606,26 @@ func _roof() -> void:
 	if _geo:
 		var s := surf("a", "stucco")
 		s.box(Vector3(bh.get_center().x, A_ROOF + 1.5, bh.get_center().y), Vector3(5, 3, 5), 0.8)
-		surf("a", "coping").box(Vector3(36.5, A_ROOF + 3.04, 33.5), Vector3(5.1, 0.08, 5.1), 1.0)
+		surf("a", "coping").box(Vector3(36.5, A_ROOF + 3.04, 33.5), Vector3(5.1, 0.08, 5.1), 1.0, ALL)
 		surf("a", "door").quad(Vector3(33.99, A_ROOF, 33.05), Vector3(0, 0, 0.92), Vector3(0, 2.05, 0), 0.5, Vector3.LEFT)
 		surf("a", "steel_light").box(Vector3(33.97, A_ROOF + 1.05, 33.85), Vector3(0.04, 0.04, 0.6), 0.5)
-		_bulb(Vector3(33.88, A_ROOF + 2.45, 33.5))
-		surf("a", "steel").box(Vector3(33.95, A_ROOF + 2.12, 33.51), Vector3(0.1, 0.06, 1.1), 0.5)
-	lamps.append({"pos": Vector3(33.8, A_ROOF + 2.43, 33.5), "fx": "jelly_jar_60w", "llf": 1.0, "bulb": true})
+		_bulb(Vector3(34.0, A_ROOF + 2.45, 33.5), Vector3.LEFT)
+		surf("a", "steel").box(Vector3(33.95, A_ROOF + 2.12, 33.51), Vector3(0.1, 0.06, 1.1), 0.5, ALL)
+		# A steel ladder up the bulkhead's north face to its roof (rails
+		# 0.46 m apart on brackets 0.18 m off the wall, rungs every 0.3 m,
+		# the rails carried 1.07 m over the top to hold on to).
+		var lx := 37.6
+		var lz := 30.82
+		var lt := A_ROOF + 3.08 + 1.07
+		var ld := surf("a", "steel")
+		for dx in [-0.23, 0.23]:
+			ld.box(Vector3(lx + dx, (A_ROOF + lt) * 0.5, lz), Vector3(0.06, lt - A_ROOF, 0.02), 1.5, ALL)
+			for y in [A_ROOF + 0.6, A_ROOF + 2.7]:
+				ld.box(Vector3(lx + dx, y, (lz + 31.0) * 0.5), Vector3(0.05, 0.05, 31.0 - lz), 1.0, ALL)
+		for i in 10:
+			ld.box(Vector3(lx, A_ROOF + 0.3 + i * 0.3, lz), Vector3(0.46, 0.025, 0.025), 1.0, ALL)
+	_col(Vector3(0.6, 4.15, 0.22), Vector3(37.6, A_ROOF + 2.08, 30.88), {}, true, false)
+	lamps.append({"pos": Vector3(33.88, A_ROOF + 2.45, 33.5), "fx": "jelly_jar_60w", "llf": 1.0, "bulb": true})
 	spots.roof_door = Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(33.98, A_ROOF, 33.51))
 	spots.arrival = Transform3D(Basis(Vector3.UP, PI * 0.5 + 0.1), Vector3(32.6, A_ROOF, 33.4))
 	# Water tank: 4.6 m across, 4.2 m of staves on a 3.2 m steel stand.
@@ -498,6 +633,7 @@ func _roof() -> void:
 	_col(Vector3(4.2, 7.6, 4.2), tc + Vector3(0, 3.8, 0), {"albedo": 0.12})
 	if _geo:
 		surf("a", "wood").cyl(tc + Vector3(0, 3.2, 0), 2.3, 4.2, 16, 1.5)
+		_disc(surf("a", "wood"), tc + Vector3(0, 3.2, 0), 2.3, 16, Vector3.DOWN)
 		surf("a", "wood").cyl(tc + Vector3(0, 7.4, 0), 2.35, 0.25, 16, 1.0)
 		var cone := surf("a", "wood")
 		for i in 16:
@@ -514,8 +650,8 @@ func _roof() -> void:
 		for dx in [-1.6, 1.6]:
 			for dz in [-1.6, 1.6]:
 				st.box(tc + Vector3(dx, 1.6, dz), Vector3(0.2, 3.2, 0.2), 1.0)
-		st.box(tc + Vector3(0, 3.1, 0), Vector3(4.0, 0.2, 0.25), 1.0)
-		st.box(tc + Vector3(0, 3.1, 0), Vector3(0.25, 0.2, 4.0), 1.0)
+		st.box(tc + Vector3(0, 3.1, 0), Vector3(4.0, 0.2, 0.25), 1.0, ALL)
+		st.box(tc + Vector3(0, 3.1, 0), Vector3(0.25, 0.2, 4.0), 1.0, ALL)
 		for i in 3:
 			surf("a", "steel").cyl(tc + Vector3(0, 3.6 + i * 1.3, 0), 2.33, 0.05, 16, 1.0)
 	# Condensers and a kitchen exhaust; vent stacks.
@@ -528,8 +664,10 @@ func _roof() -> void:
 			surf("a", "black").box(p + Vector3(0, c[1].y * 0.5 + 0.01, 0), Vector3(c[1].x * 0.8, 0.02, c[1].z * 0.8), 1.0,
 					[false, false, true, false, false, false])
 	if _geo:
-		for v in [Vector3(19.0, 0, 14.0), Vector3(19.6, 0, 14.0), Vector3(41.0, 0, 37.5)]:
+		# (Capped: an open pipe end shows the sky through it from above.)
+		for v in [Vector3(19.0, 0, 14.0), Vector3(19.6, 0, 14.0), Vector3(42.5, 0, 28.0)]:
 			surf("a", "steel_light").cyl(v + Vector3(0, A_ROOF, 0), 0.08, 1.4, 8, 1.0)
+			_disc(surf("a", "steel_light"), v + Vector3(0, A_ROOF + 1.4, 0), 0.08, 8, Vector3.UP)
 
 
 # ------------------------------------------------------- crossing furniture ---
@@ -545,8 +683,11 @@ func _crossing_furniture() -> void:
 			if _geo:
 				var s := surf("street", "pole")
 				s.cyl(base, 0.12, 6.4, 8, 1.6)
-				# Mast arm over the avenue towards its centre line.
-				s.box(Vector3(c.x * 0.5 + sx * 0.6 * 0.5, 6.2, c.y), Vector3(absf(c.x) - 0.6 + 0.6, 0.14, 0.14), 1.5)
+				_disc(s, base + Vector3(0, 6.4, 0), 0.12, 8, Vector3.UP)
+				# Mast arm cantilevered over the avenue's near lanes to just
+				# past its head (x = +-4), a hanger down to the head.
+				s.box(Vector3(sx * (absf(c.x) + 3.0) * 0.5, 6.2, c.y), Vector3(absf(c.x) - 3.0, 0.14, 0.14), 1.5, ALL)
+				s.box(Vector3(sx * 4.0, 6.08, c.y - sz * 0.12), Vector3(0.06, 0.12, 0.06), 1.0, ALL)
 			_head(Vector3(sx * 4.0, 5.5, c.y), Vector3(0, 0, sz), "avenue")
 			_head(base + Vector3(0, 3.4, 0) + Vector3(sx * 0.3, 0, 0), Vector3(sx, 0, 0), "street")
 			_ped(base + Vector3(-sx * 0.2, 2.5, 0), Vector3(-sx, 0, 0), "ped_a")
@@ -560,7 +701,7 @@ func _crossing_furniture() -> void:
 		for z in [-38.0, -32.0]:
 			for x in [-13.6, -11.6]:
 				sh.box(Vector3(x, WALK + 1.2, z), Vector3(0.08, 2.4, 0.08), 1.2)
-		sh.box(Vector3(-12.6, WALK + 2.45, -35.0), Vector3(2.4, 0.1, 6.4), 1.0)
+		sh.box(Vector3(-12.6, WALK + 2.45, -35.0), Vector3(2.4, 0.1, 6.4), 1.0, ALL)
 		surf("street", "wood").box(Vector3(-13.4, WALK + 0.45, -35.0), Vector3(0.4, 0.06, 4.0), 1.0)
 		surf("street", "black").box(Vector3(-13.68, WALK + 1.3, -35.0), Vector3(0.04, 1.6, 5.6), 1.0)
 	_col(Vector3(2.4, 2.5, 6.4), Vector3(-12.6, WALK + 1.25, -35.0), {"albedo": 0.2}, true, false)
@@ -608,14 +749,14 @@ func _head(p: Vector3, nn: Vector3, set_name: String) -> void:
 		return
 	var side := Vector3.UP.cross(nn)
 	var s := surf("street", "signal")
-	s.box_rot(p - nn * 0.12, Vector3(0.36, 1.05, 0.25), atan2(nn.x, nn.z), 0.5)
+	s.box_rot(p - nn * 0.12, Vector3(0.36, 1.05, 0.25), atan2(nn.x, nn.z), 0.5, true)
 	var cols := ["r", "y", "g"]
 	for i in 3:
 		var c := p + Vector3(0, 0.33 - i * 0.33, 0) + nn * 0.011
 		var l := surf("street", "sig_%s_%s" % [set_name, cols[i]])
 		l.quad(c - side * 0.13 - Vector3(0, 0.13, 0), side * 0.26, Vector3(0, 0.26, 0), 0.3, nn)
 		# Visor.
-		s.box_rot(c + nn * 0.12 + Vector3(0, 0.14, 0), Vector3(0.3, 0.02, 0.24), atan2(nn.x, nn.z), 0.5)
+		s.box_rot(c + nn * 0.12 + Vector3(0, 0.14, 0), Vector3(0.3, 0.02, 0.24), atan2(nn.x, nn.z), 0.5, true)
 
 
 func _ped(p: Vector3, nn: Vector3, set_name: String) -> void:
@@ -623,7 +764,7 @@ func _ped(p: Vector3, nn: Vector3, set_name: String) -> void:
 	if not _geo:
 		return
 	var side := Vector3.UP.cross(nn)
-	surf("street", "signal").box_rot(p - nn * 0.1, Vector3(0.36, 0.5, 0.2), atan2(nn.x, nn.z), 0.5)
+	surf("street", "signal").box_rot(p - nn * 0.1, Vector3(0.36, 0.5, 0.2), atan2(nn.x, nn.z), 0.5, true)
 	surf("street", set_name + "_hand").quad(p + nn * 0.001 - side * 0.13 + Vector3(0, 0.0, 0), side * 0.26, Vector3(0, 0.2, 0), 0.3, nn)
 	surf("street", set_name + "_walk").quad(p + nn * 0.001 - side * 0.13 - Vector3(0, 0.21, 0), side * 0.26, Vector3(0, 0.2, 0), 0.3, nn)
 
@@ -667,14 +808,17 @@ func _lamp_geo(l: Dictionary) -> void:
 	var head: Vector3 = l.pos
 	var s := surf("street", "pole")
 	s.cyl(pole, 0.11, head.y + 0.25 - WALK, 8, 2.0)
+	_disc(s, Vector3(pole.x, head.y + 0.25, pole.z), 0.11, 8, Vector3.UP)
 	var d := Vector3(head.x - pole.x, 0, head.z - pole.z)
 	var len := d.length()
 	var dn := d / len
-	s.box_rot((pole + head) * 0.5 + Vector3(0, head.y - (pole.y + head.y) * 0.5 + 0.2, 0) - Vector3(0, 0, 0),
-			Vector3(0.08, 0.08, len), atan2(dn.x, dn.z), 1.0)
 	var led: bool = l.fx == "led_street_100w"
 	var hs := Vector3(0.32, 0.12, 0.72) if led else Vector3(0.36, 0.2, 0.75)
-	surf("street", "housing").box_rot(head + Vector3(0, 0.08, 0) + dn * 0.1, hs, atan2(dn.x, dn.z), 0.5)
+	# The housing just over its lens, the arm running into its top.
+	var hy := head.y + 0.005 + hs.y * 0.5
+	s.box_rot(Vector3((pole.x + head.x) * 0.5, hy + hs.y * 0.5 - 0.04, (pole.z + head.z) * 0.5),
+			Vector3(0.08, 0.08, len), atan2(dn.x, dn.z), 1.0, true)
+	surf("street", "housing").box_rot(Vector3(head.x, hy, head.z) + dn * 0.1, hs, atan2(dn.x, dn.z), 0.5, true)
 	var lens := "lens_led" if led else ("lens_na_failing" if l.failing else "lens_na")
 	var ls := Vector2(0.25, 0.5) if led else Vector2(0.25, 0.4)
 	var side := Vector3.UP.cross(dn)

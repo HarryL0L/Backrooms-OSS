@@ -23,7 +23,8 @@ render_mode specular_schlick_ggx, ambient_light_disabled;
 uniform vec4 facade = vec4(0.0, 2.0, 3.0, 3.0);   // seed, kind, storey (m), bay (m)
 uniform float shop_band = 0.0;                   // shop band height (m), 0 none
 uniform float win_reflect = 0.9;
-uniform float win_top = 1000.0;                  // the roof's height (m)
+uniform float win_top = 1000.0;                  // the wall's top (m)
+uniform vec4 win_mask = vec4(0.0);               // u shift, no windows from u (y) to u (z), v shift (m)
 #endif
 
 uniform vec3 albedo = vec3(0.35);         // linear (a measured albedo)
@@ -83,6 +84,31 @@ vec3 env_reflection(vec3 lp, vec3 r, float rough, float sky_vis) {
 	return lucid_sky_now(r) * sky_vis;
 }
 
+#ifdef WINDOWS
+// What a pane mirrors: the probe of the part of the street it faces (box
+// projected, glass-smooth) and the street heads and signals in it; above
+// the probes' boxes (or in a probe's own capture), the sky with the
+// city's lights under its horizon.
+vec3 glass_reflection(vec3 lp, vec3 wn, vec3 vw, float sky_vis, float cap) {
+	vec3 r = reflect(-vw, wn);
+	if (cap < 0.5) {
+		for (int i = 0; i < 8; i++) {
+			if (i >= probe_n) {
+				break;
+			}
+			vec3 slo = vec3(probe_lo[i].w, probe_sel[i].z, probe_sel[i].x);
+			vec3 shi = vec3(probe_hi[i].w, probe_sel[i].w, probe_sel[i].y);
+			if (all(greaterThanEqual(lp, slo - 0.5)) && all(lessThanEqual(lp, shi + 0.5))) {
+				vec3 d = lucid_box_dir(lp, r, probe_c[i].xyz, probe_lo[i].xyz, probe_hi[i].xyz);
+				vec3 c = textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(0.08, 128.0)).rgb;
+				return c + lamp_reflections(lp, lucid_mirror(wn, vw, 0.05));
+			}
+		}
+	}
+	return lucid_reflection(r, lucid_air.rgb * 2.0) * sky_vis;
+}
+#endif
+
 void vertex() {
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
@@ -135,11 +161,17 @@ void fragment() {
 	vec3 rad = col * v_light * (1.0 - e_spec) + emit_nits / LUCID_UNIT_NITS * (analytic_emitter ? 1.0 - cap : 1.0);
 #ifdef WINDOWS
 	if (abs(wn.y) < 0.5) {
-		float u = abs(wn.x) > abs(wn.z) ? lp.z * sign(wn.x) : -lp.x * sign(wn.z);
-		vec3 r = reflect(-vw, wn);
-		float fr = lucid_fresnel(0.04, dot(vw, wn)) * win_reflect;
-		Facade fc = lucid_facade(u, lp.y, facade.y, facade.x, facade.z, facade.w, shop_band, lucid_reflection(r, lucid_air.rgb * 2.0) * v_sky, fr, win_top);
-		rad = rad * (1.0 - fc.glass - fc.frame) + vec3(0.5, 0.49, 0.46) * v_light * fc.frame + fc.emit;
+		float u0 = abs(wn.x) > abs(wn.z) ? lp.z * sign(wn.x) : -lp.x * sign(wn.z);
+		// (A pane is two faces of glass: 2 x 0.04 at normal incidence.)
+		float fr = lucid_fresnel(0.08, dot(vw, wn)) * win_reflect;
+		Facade fc = lucid_facade(u0 + win_mask.x, lp.y + win_mask.w, facade.y, facade.x, facade.z, facade.w, shop_band,
+				glass_reflection(lp, wn, vw, v_sky, cap), fr, win_top + win_mask.w, v_light);
+		if (u0 > win_mask.y && u0 < win_mask.z) {
+			fc.glass = 0.0;
+			fc.frame = 0.0;
+			fc.emit = vec3(0.0);
+		}
+		rad = lucid_facade_mix(rad, vec3(0.5, 0.49, 0.46) * v_light, fc);
 	}
 #endif
 	// (Not in a probe's capture: the ground's own reflections would only
