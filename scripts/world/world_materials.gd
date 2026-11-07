@@ -74,7 +74,17 @@ func _photo(mats: Array, surface: String, scale: float) -> void:
 	img = img.duplicate()
 	if img.is_compressed():
 		img.decompress()
-	img.resize(1, 1, Image.INTERPOLATE_BILINEAR)
+	# The mean the shader divides by must be in the same space it samples
+	# in: the photo is a source_color (sRGB) texture, read back as linear,
+	# so average its linear values. (Averaging the sRGB bytes made the
+	# detail average ~0.5 instead of 1: every photo material came out at
+	# about half its albedo.) Halving step by step averages every pixel;
+	# one bilinear resize to 1 x 1 would only sample a few.
+	img.convert(Image.FORMAT_RGBA8)
+	img.srgb_to_linear()
+	img.convert(Image.FORMAT_RGBAF)
+	while img.get_width() > 1 or img.get_height() > 1:
+		img.resize(maxi(img.get_width() / 2, 1), maxi(img.get_height() / 2, 1), Image.INTERPOLATE_BILINEAR)
 	var mean := img.get_pixel(0, 0)
 	for m in mats:
 		var sm := materials[m] as ShaderMaterial
@@ -110,6 +120,27 @@ const REALISTIC := {
 }
 
 
+## L.U.C.I.D. (Realistic): the Lobby's surfaces at their measured albedo
+## (Lucid.ALBEDO, mean linear reflectance). {material: [parameter, albedo
+## name, shader mean]}: the shaders darken their base colour with pattern,
+## stains and wear (Realistic), on average by `shader mean` (estimated from
+## each shader's terms), so base = albedo / mean, as an sRGB colour (the
+## uniforms are source_color: the engine converts them back to linear).
+const LUCID := {
+	ChunkBuilder.MAT_WALLPAPER: ["base_color", "wallpaper_yellow_aged", 0.87],
+	ChunkBuilder.MAT_CARPET: ["base_color", "carpet_tan_damp", 0.81],
+	ChunkBuilder.MAT_CEILING_TILE: ["tile_color", "ceiling_tile_aged", 0.77],
+	ChunkBuilder.MAT_TRIM: ["base_color", "trim_offwhite", 0.93],
+}
+
+
+## The sRGB base colour that gives material `m` its Lucid albedo.
+static func lucid_base(m: int) -> Color:
+	var e: Array = LUCID[m]
+	var a: Color = Lucid.ALBEDO[e[1]] / float(e[2])
+	return Color(minf(a.r, 1.0), minf(a.g, 1.0), minf(a.b, 1.0)).linear_to_srgb()
+
+
 ## Switches the materials between their default and Realistic values.
 func set_realistic(on: bool) -> void:
 	if on and not _photos_loaded:
@@ -118,6 +149,13 @@ func set_realistic(on: bool) -> void:
 		var p: Dictionary = REALISTIC[m]
 		for k in p:
 			(materials[m] as ShaderMaterial).set_shader_parameter(k, p[k][1] if on else p[k][0])
+	var trim_default := Color(0.84, 0.82, 0.74)
+	for m in LUCID:
+		var e: Array = LUCID[m]
+		if on and ChunkBuilder.lucid:
+			(materials[m] as ShaderMaterial).set_shader_parameter(e[0], lucid_base(m))
+		elif m == ChunkBuilder.MAT_TRIM:
+			(materials[m] as ShaderMaterial).set_shader_parameter(e[0], trim_default)
 
 
 func set_world_seed(seed_value: int) -> void:

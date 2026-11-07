@@ -18,7 +18,7 @@ varying vec3 v_local;
 varying vec3 v_ln;
 
 void vertex() {
-	v_col = tint_light.a > 0.0 ? tint_light.rgb : COLOR.rgb;
+	v_col = (tint_light.a > 0.0 ? tint_light.rgb : COLOR.rgb) * lucid_exposure.rgb;
 	v_half = INSTANCE_CUSTOM.r;
 	v_local = VERTEX;
 	v_ln = NORMAL;

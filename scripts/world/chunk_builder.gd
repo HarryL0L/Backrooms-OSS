@@ -45,6 +45,15 @@ static var contrast := false
 ## Glow quads around the light fixtures (light_halo.gdshader); off, none are
 ## built, so nothing reads the depth buffer.
 static var halos := true
+## L.U.C.I.D. (Realistic, see Lucid and docs/LUCID.md): every fixture emits
+## its real flux (WorldGen.LUCID_FIXTURE), the bake stores illuminance in
+## engine units (Lucid.lux_to_engine), bounce light comes only from the
+## radiosity (gi, needed) with all bounces, and contact occlusion darkens
+## only the bounce light. Replaces `contrast` and the fake ambient/bounce.
+static var lucid := false
+## Lucid: how far a fixture's light is gathered (m). Must stay within the
+## chunk margin (M + 0.5 cells) so neighbouring chunks agree at the seams.
+const LUCID_RADIUS := 9.5
 const LM_W := 256                # lightmap atlas width (texels)
 const LM_TEXEL := 0.4            # lightmap texel spacing on floors and walls (m)
 const LM_TEXEL_CEIL := 0.8       # ... on ceilings (lit from below, smooth anyway)
@@ -124,6 +133,7 @@ var _halos: bool
 var _detail: bool
 var _dir_lm: bool
 var _gi: bool
+var _lucid: bool
 var coord: Vector2i
 var rx0: int
 var rz0: int
@@ -140,6 +150,8 @@ var lpos := PackedVector3Array()
 var lcol := PackedColorArray()
 var lrad := PackedFloat32Array()
 var lseed := PackedFloat32Array()
+var lexp := PackedFloat32Array()      # Lucid: cos^m exponent of each light's distribution
+var _ind := Color()                   # Lucid: the bounce part of the last shade()
 var cand := []
 var cache := {}
 var bufs := []
@@ -181,6 +193,9 @@ func _init(p_gen: WorldGen, p_coord: Vector2i) -> void:
 	_detail = detail
 	_dir_lm = dir_lm
 	_gi = gi
+	_lucid = lucid and gi
+	if _lucid:
+		_contrast = false
 	rx0 = coord.x * N - M
 	rz0 = coord.y * N - M
 
@@ -241,7 +256,40 @@ func build() -> Dictionary:
 	var out := {"coord": coord, "surfaces": surfaces, "collision": col, "lightmap": _lm_image(), "lightmap_seed": _lm_seed_image()}
 	if _dir_lm:
 		out["lightmap_dir"] = _lm_dir_image()
+	if _lucid and _gi_ready:
+		out["probes"] = _interior_probes()
 	return out
+
+
+## Lucid: the light arriving at each of this chunk's cells from each axis
+## direction (the radiosity's ambient cubes, E / pi in engine units, which
+## is also the mean luminance seen looking that way): N x N x 6, for the
+## camera's metering and for lighting things that move (ChunkManager.light_probe).
+func _interior_probes() -> PackedColorArray:
+	var out := PackedColorArray()
+	out.resize(N * N * 6)
+	for j in N:
+		for i in N:
+			var k := (M + i) + (M + j) * W
+			for f in 6:
+				out[(i + j * N) * 6 + f] = _probe[k * 6 + f] if k * 6 + f < _probe.size() else Color(0, 0, 0)
+	return out
+
+
+## Diagnostics (Lucid): the illuminance the bake computes at world point
+## `p` on a surface facing `nrm`, as {lux, direct, indirect} (lux, the
+## luminance-weighted value). Builds the chunk's lights and radiosity, not
+## its geometry.
+static func probe(g: WorldGen, p: Vector3, nrm: Vector3) -> Dictionary:
+	var cb := ChunkBuilder.new(g, ChunkManager.chunk_of(p))
+	cb._compute_layout()
+	cb._compute_lights()
+	if cb._gi:
+		cb._compute_gi()
+	var c := cb.shade(p + nrm * 0.02, nrm)
+	var ind := cb._ind if cb._lucid else Color(0, 0, 0)
+	var k := Lucid.engine_to_lux(1.0) if cb._lucid else 1.0
+	return {"lux": Lucid.lum(c) * k, "direct": (Lucid.lum(c) - Lucid.lum(ind)) * k, "indirect": Lucid.lum(ind) * k}
 
 
 func _lm_alloc(w: int, h: int) -> Vector2i:
@@ -333,14 +381,27 @@ func _compute_lights() -> void:
 			if s == WorldGen.L_SKY:
 				light_at[i + j * W] = lpos.size()
 				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
-				lcol.push_back(WorldGen.SKY_COLOR * WorldGen.SKY_POWER)
-				lrad.push_back(WorldGen.SKY_RADIUS)
+				if _lucid:
+					var fx: Dictionary = Lucid.FIXTURES.skylight
+					lcol.push_back(Lucid.light_engine(fx))
+					lexp.push_back(fx.m)
+					lrad.push_back(LUCID_RADIUS)
+				else:
+					lcol.push_back(WorldGen.SKY_COLOR * WorldGen.SKY_POWER)
+					lrad.push_back(WorldGen.SKY_RADIUS)
 				lseed.push_back(0.0)
 			elif s == WorldGen.L_ON or s == WorldGen.L_FLICKER:
 				light_at[i + j * W] = lpos.size()
 				lpos.push_back(Vector3((rx0 + i + 0.5) * CELL, ce(i, j) - 0.03, (rz0 + j + 0.5) * CELL))
-				lcol.push_back(WorldGen.LIGHT_COLOR[b] * (WorldGen.LIGHT_POWER[b] * WorldGen.LIGHT_REACH[b]))
-				lrad.push_back(WorldGen.LIGHT_RADIUS[b])
+				if _lucid:
+					# The fixture's real peak intensity (cd) as E / pi at 1 m.
+					var fx: Dictionary = Lucid.FIXTURES[WorldGen.LUCID_FIXTURE[b]]
+					lcol.push_back(Lucid.light_engine(fx, WorldGen.LUCID_LLF[b]))
+					lexp.push_back(fx.m)
+					lrad.push_back(LUCID_RADIUS)
+				else:
+					lcol.push_back(WorldGen.LIGHT_COLOR[b] * (WorldGen.LIGHT_POWER[b] * WorldGen.LIGHT_REACH[b]))
+					lrad.push_back(WorldGen.LIGHT_RADIUS[b])
 				lseed.push_back(gen.light_seed(rx0 + i, rz0 + j) if s == WorldGen.L_FLICKER else 0.0)
 
 
@@ -429,6 +490,8 @@ func _visible(ax: float, az: float, ay: float, bx: float, bz: float, by: float) 
 ## Irradiance at a point. rgb = light, a = share coming from a flickering lamp
 ## (whose seed is left in `_seed`).
 func shade(p: Vector3, nrm: Vector3) -> Color:
+	if _lucid:
+		return _shade_lucid(p, nrm)
 	var li := floori(p.x / CELL) - rx0
 	var lj := floori(p.z / CELL) - rz0
 	_seed = 0.0
@@ -501,7 +564,7 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 		dacc += sd * sun * 3.0 + Vector3.UP * sky
 	if _gi and _gi_ready and not _direct_only:
 		var ind := _gi_sample(u, v, nrm)
-		if b == WorldGen.DARK:
+		if b == WorldGen.DARK:   # (legacy bake only)
 			ind *= 0.3          # the Unlit Halls stay dark
 		r += ind.r
 		g += ind.g
@@ -510,6 +573,99 @@ func shade(p: Vector3, nrm: Vector3) -> Color:
 	_ldir = dacc
 	var share := fl_amt / tot if tot > 0.0 else 0.0
 	return Color(r, g, bl, share)
+
+
+## Lucid: the same, in real units. Direct light from each fixture by the
+## inverse square law and its cos^m distribution, E = I0 cos^m(te) cos(tr)
+## / d^2 (with a soft cut over the last quarter of LUCID_RADIUS), daylight
+## in lux, and the bounce from the radiosity. No ambient floor and no fake
+## bounce term. Returns E / pi in engine units; the bounce part is left in
+## `_ind` (contact occlusion applies to it only, see _ao_mix).
+func _shade_lucid(p: Vector3, nrm: Vector3) -> Color:
+	var li := floori(p.x / CELL) - rx0
+	var lj := floori(p.z / CELL) - rz0
+	_seed = 0.0
+	_ind = Color(0, 0, 0, 0)
+	if li < 0 or lj < 0 or li >= W or lj >= W:
+		return Color(0, 0, 0, 0)
+	var b := bio(li, lj)
+	var r := 0.0
+	var g := 0.0
+	var bl := 0.0
+	var u := p.x / CELL - rx0
+	var v := p.z / CELL - rz0
+	var tot := 0.0
+	var fl_amt := 0.0
+	var fl_best := 0.0
+	var dacc := Vector3.ZERO
+	for k in (_face_lights if _face_on else _candidates(li, lj)):
+		var lp := lpos[k]
+		var dx := lp.x - p.x
+		var dy := lp.y - p.y
+		var dz := lp.z - p.z
+		var d2 := dx * dx + dy * dy + dz * dz
+		var rad := lrad[k]
+		if d2 >= rad * rad:
+			continue
+		var d := sqrt(d2) + 0.0001
+		var ndl := (nrm.x * dx + nrm.y * dy + nrm.z * dz) / d
+		if ndl <= 0.0:
+			continue
+		var m := lexp[k]
+		var ce := dy / d
+		if m > 0.0 and ce <= 0.0:
+			continue
+		if (not _face_on or _face_vis[k] == 2) and not _visible(lp.x / CELL - rx0, lp.z / CELL - rz0, lp.y, u, v, p.y):
+			continue
+		var e := (ce if m == 1.0 else (pow(ce, m) if m > 0.0 else 1.0)) * ndl / maxf(d2, 0.04)
+		e *= 1.0 - smoothstep(rad * 0.75, rad, d)
+		var c := lcol[k]
+		r += c.r * e
+		g += c.g * e
+		bl += c.b * e
+		var lum := e * (c.r + c.g + c.b)
+		tot += lum
+		dacc += Vector3(dx, dy, dz) * (lum / d)
+		if lseed[k] > 0.0:
+			fl_amt += lum
+			if lum > fl_best:
+				fl_best = lum
+				_seed = lseed[k]
+	if b == WorldGen.POOL and gen.gallery(rx0 + li, rz0 + lj):
+		# Daylight through the windows: diffuse skylight on everything, and
+		# the direct sun beam (Lucid.SUN_LUX on a surface facing it) where
+		# it comes through.
+		var sky := Lucid.kelvin_rgb(Lucid.SKY_CLEAR_KELVIN, true) * Lucid.lux_to_engine(
+				WorldGen.LUCID_GALLERY_SKY * (0.8 + 0.2 * nrm.y))
+		var sun := Color(0, 0, 0)
+		var sd := -WorldGen.SUN_TRAVEL.normalized()
+		var ndl := nrm.x * sd.x + nrm.y * sd.y + nrm.z * sd.z
+		if ndl > 0.0 and not _no_sun and _sunlit(u, v, p.y):
+			sun = Lucid.kelvin_rgb(Lucid.SUN_KELVIN, true) * Lucid.lux_to_engine(Lucid.SUN_LUX * ndl)
+		r += sky.r + sun.r
+		g += sky.g + sun.g
+		bl += sky.b + sun.b
+		var dl := sky.r + sky.g + sky.b + sun.r + sun.g + sun.b
+		tot += dl
+		dacc += sd * (sun.r + sun.g + sun.b) + Vector3.UP * (sky.r + sky.g + sky.b)
+	if _gi_ready and not _direct_only:
+		_ind = _gi_sample(u, v, nrm)
+		r += _ind.r
+		g += _ind.g
+		bl += _ind.b
+		tot += _ind.r + _ind.g + _ind.b
+	_ldir = dacc
+	var share := fl_amt / tot if tot > 0.0 else 0.0
+	return Color(r, g, bl, share)
+
+
+## Contact occlusion applied to a shade() result: all of it in the legacy
+## bake; with Lucid only the bounce part (a corner hides part of the room
+## from a point, not the lamp it can see).
+func _ao_mix(light: Color, ao: float) -> Color:
+	if _lucid:
+		return Color(light.r - _ind.r * (1.0 - ao), light.g - _ind.g * (1.0 - ao), light.b - _ind.b * (1.0 - ao), light.a)
+	return Color(light.r * ao, light.g * ao, light.b * ao, light.a)
 
 
 # ---------------------------------------------------- bounce light (gi) ---
@@ -529,6 +685,17 @@ const GI_STRENGTH := 1.5
 const ALB_WALL := [Color(0.72, 0.65, 0.34), Color(0.80, 0.85, 0.88), Color(0.50, 0.50, 0.49), Color(0.72, 0.65, 0.34), Color(0.40, 0.35, 0.30), Color(0.50, 0.50, 0.49)]
 const ALB_FLOOR := [Color(0.52, 0.41, 0.22), Color(0.78, 0.84, 0.88), Color(0.42, 0.42, 0.41), Color(0.52, 0.41, 0.22), Color(0.46, 0.28, 0.20), Color(0.40, 0.40, 0.39)]
 const ALB_CEIL := [Color(0.78, 0.76, 0.66), Color(0.80, 0.85, 0.88), Color(0.45, 0.45, 0.44), Color(0.78, 0.76, 0.66), Color(0.34, 0.31, 0.29), Color(0.45, 0.45, 0.44)]
+
+## Lucid: the measured albedo (Lucid.ALBEDO) of the biome's wall, floor
+## and ceiling (`what` 0, 1, 2) where WorldGen.LUCID_ALBEDO names one, so
+## the bounce has the colour and strength of the real materials.
+func _alb(table: Array, b: int, what: int) -> Color:
+	if _lucid:
+		var name: String = WorldGen.LUCID_ALBEDO[b][what]
+		if name != "":
+			return Lucid.ALBEDO[name]
+	return table[b]
+
 
 var _direct_only := false
 var _probe := PackedColorArray()      # W*W*6: +x -x +y -y +z -z per cell
@@ -559,10 +726,10 @@ func _compute_gi() -> void:
 			var A := CELL * CELL
 			list.push_back(ppos.size())
 			ppos.push_back(Vector3(cx, f + 0.02, cz)); pnrm.push_back(Vector3.UP); parea.push_back(A)
-			palb.push_back(ALB_FLOOR[b]); pcell.push_back(i + j * W)
+			palb.push_back(_alb(ALB_FLOOR, b, 1)); pcell.push_back(i + j * W)
 			list.push_back(ppos.size())
 			ppos.push_back(Vector3(cx, c - 0.02, cz)); pnrm.push_back(Vector3.DOWN); parea.push_back(A)
-			palb.push_back(ALB_CEIL[b]); pcell.push_back(i + j * W)
+			palb.push_back(_alb(ALB_CEIL, b, 2)); pcell.push_back(i + j * W)
 			var h := c - f
 			var my := f + h * 0.5
 			for side in 4:
@@ -582,7 +749,7 @@ func _compute_gi() -> void:
 					continue
 				list.push_back(ppos.size())
 				ppos.push_back(Vector3(cx, my, cz) - n * (CELL * 0.5 - 0.1)); pnrm.push_back(n); parea.push_back(area)
-				palb.push_back(ALB_WALL[b]); pcell.push_back(i + j * W)
+				palb.push_back(_alb(ALB_WALL, b, 0)); pcell.push_back(i + j * W)
 			by_cell[i + j * W] = list
 	# Direct light on each patch.
 	var pe := PackedColorArray()
@@ -633,10 +800,23 @@ func _compute_gi() -> void:
 	for k in ppos.size():
 		pb[k] = pe[k] * palb[k]
 	_gather(links, pb, plo, phi)
+	var first := _probe.duplicate() if _lucid else PackedColorArray()
 	for k in ppos.size():
 		var ind := _cube(pcell[k], pnrm[k])
 		pb[k] = (pe[k] + ind) * palb[k]
 	_gather(links, pb, plo, phi)
+	if _lucid:
+		# All bounces, not two: each further bounce is about the second
+		# one times the same ratio (second / first), a geometric series.
+		var s1 := 0.0
+		var s2 := 0.0
+		for k in _probe.size():
+			s1 += first[k].r + first[k].g + first[k].b
+			s2 += _probe[k].r + _probe[k].g + _probe[k].b
+		var ratio := clampf((s2 - s1) / s1, 0.0, 0.8) if s1 > 0.0 else 0.0
+		var tail := 1.0 / (1.0 - ratio)
+		for k in _probe.size():
+			_probe[k] = first[k] + (_probe[k] - first[k]) * tail
 	_gi_ready = true
 
 
@@ -662,8 +842,9 @@ func _gather(links: Array, pb: PackedColorArray, plo: int, phi: int) -> void:
 				else: acc[5] -= c * z
 				t += 4
 			var o := (i + j * W) * 6
+			var gs := 1.0 if _lucid else GI_STRENGTH
 			for f in 6:
-				_probe[o + f] = acc[f] * GI_STRENGTH
+				_probe[o + f] = acc[f] * gs
 
 
 ## Bounce light arriving from direction `n` at cell k (ambient cube).
@@ -869,7 +1050,7 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 					else:
 						light = shade(sp, nrm)
 						var ao := _ao_xz(sp)
-						light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+						light = _ao_mix(light, ao)
 						light.a = light.a + floorf(_seed)  # pack seed in integer part
 						cache[key] = light
 					var sd := floorf(light.a)
@@ -878,7 +1059,7 @@ func _grid(mat: int, p0: Vector3, du: Vector3, dv: Vector3, us: PackedFloat32Arr
 				else:
 					light = shade(sp, nrm)
 					var ao := _ao_y(p.y, f, c)
-					light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+					light = _ao_mix(light, ao)
 			var t: Vector2
 			match uv_mode:
 				0:
@@ -1030,7 +1211,7 @@ func _bake_face(p0: Vector3, du: Vector3, dv: Vector3, nrm: Vector3, ao_mode: in
 					ao *= _ao_corner(sp, nrm)
 				if _seed > 0.0:
 					seeds[_seed] = seeds.get(_seed, 0.0) + light.a * (light.r + light.g + light.b)
-				vals[k] = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+				vals[k] = _ao_mix(light, ao)
 				if _dir_lm:
 					dirs[k] = _ldir
 				tseed[k] = _seed
@@ -1208,7 +1389,18 @@ func _emit_cell(li: int, lj: int) -> void:
 		var y := c - 0.012
 		var emit := Color(0.05, 0.05, 0.05, 0.0)
 		var sd := 0.0
-		if s != WorldGen.L_DEAD:
+		if _lucid and s == WorldGen.L_DEAD:
+			# A dead panel's lens only reflects the room's light.
+			var dl := shade(Vector3(cx, y - 0.05, cz), Vector3.DOWN) * Lucid.ALBEDO.diffuser_acrylic
+			emit = Color(dl.r, dl.g, dl.b, 0.0)
+		elif _lucid:
+			# The lens's real luminance (cd/m2) in engine units.
+			var fx: Dictionary = Lucid.FIXTURES[WorldGen.LUCID_FIXTURE[b]]
+			var lc := Lucid.face_engine(fx, WorldGen.LUCID_LLF[b])
+			emit = Color(lc.r, lc.g, lc.b, 0.0)
+			if s == WorldGen.L_FLICKER:
+				sd = gen.light_seed(gx, gz)
+		elif s != WorldGen.L_DEAD:
 			var lc: Color = WorldGen.LIGHT_COLOR[b] * (WorldGen.LIGHT_POWER[b] * EMIT_SCALE)
 			emit = Color(lc.r, lc.g, lc.b, 0.0)
 			if s == WorldGen.L_FLICKER:
@@ -1264,7 +1456,7 @@ func _emit_water(xa: float, za: float) -> void:
 			var sp := p + Vector3.UP * 0.05 + _nudge(p)
 			var light := shade(sp, Vector3.UP)
 			var ao := _ao_xz(sp)
-			lit.append(Color(light.r * ao, light.g * ao, light.b * ao, light.a))
+			lit.append(_ao_mix(light, ao))
 			sds.push_back(_seed)
 	_no_sun = false
 	var sub_n := _water_sub
@@ -1533,7 +1725,7 @@ func _smooth_grid(mat: int, pos: PackedVector3Array, nrm: PackedVector3Array, uv
 		var light := shade(p + n * 0.05, n)
 		if ao:
 			var a := _ao_y(p.y, f, c)
-			light = Color(light.r * a, light.g * a, light.b * a, light.a)
+			light = _ao_mix(light, a)
 		var tan := Vector3.UP.cross(n)
 		if tan.length_squared() < 0.01:
 			tan = Vector3.RIGHT
@@ -1607,7 +1799,7 @@ func _quad4(mat: int, a: Vector3, b2: Vector3, c2: Vector3, d: Vector3, nrm: Vec
 	for p in [a, b2, c2, d]:
 		var light := shade(p + nrm * 0.05, nrm)
 		var ao := _ao_y(p.y, f, c)
-		light = Color(light.r * ao, light.g * ao, light.b * ao, light.a)
+		light = _ao_mix(light, ao)
 		var t: Vector2
 		match uv_mode:
 			0:
@@ -1913,6 +2105,8 @@ func _emit_skylight(cx: float, cz: float, _f: float, c: float) -> void:
 	var pb := buf(MAT_LIGHT)
 	var st := pb.v.size()
 	var lc := WorldGen.SKY_COLOR * (WorldGen.SKY_POWER * EMIT_SCALE * 1.4)
+	if _lucid:
+		lc = Lucid.face_engine(Lucid.FIXTURES.skylight)
 	var emit := Color(lc.r, lc.g, lc.b, 0.0)
 	var corners := [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
 	for k in 4:

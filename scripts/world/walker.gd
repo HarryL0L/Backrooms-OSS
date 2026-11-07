@@ -202,6 +202,11 @@ func _update_light(delta: float, dim := 1.0) -> void:
 	var lv := gen.light_level_near(global_position + Vector3.UP * 1.2, 4)
 	var tint: Color = WorldGen.BOUNCE_TINT[bio].lerp(Color.WHITE, 0.5)
 	var c: Color = tint * clampf(lv * 0.4, 0.05, 1.1) + WorldGen.AMBIENT[bio] * 2.0
+	if ChunkBuilder.lucid:
+		# L.U.C.I.D.: the real light on its front at chest height, half from
+		# above (the figure shader applies the camera's exposure).
+		var p := global_position + Vector3.UP * 1.2
+		c = (gen.lucid_light_near(p, Vector3.UP) + gen.lucid_light_near(p, -global_basis.z)) * 0.5
 	body.set_env_light(c * dim)
 
 

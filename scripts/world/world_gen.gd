@@ -46,6 +46,27 @@ const LIGHT_RADIUS := [7.5, 7.0, 13.0, 6.0, 7.0, 8.0]
 ## How much light reaches the floor, as well as the fittings' own glow: the
 ## warehouse's high-bay lights hang 6 m up (light falls off with distance).
 const LIGHT_REACH := [1.0, 1.0, 2.3, 1.0, 1.0, 1.0]
+## L.U.C.I.D. (Realistic): the real fixture each biome's lights are
+## (Lucid.FIXTURES), and its light loss factor (aged lamps, dirty lenses:
+## IES maintenance factor). Yellow Halls: 3-lamp T8 lensed troffers, old;
+## Tiled Baths: 2 x 2 LED panels; Grey Floors: T5HO high bays 6 m up;
+## Unlit Halls: dim, warm, failing T12 troffers; Pipeworks: caged 100 W
+## bulbs; Car Park: T8 strip lights.
+const LUCID_FIXTURE := ["troffer_t8_3lamp", "panel_led_2x2", "highbay_t5ho_6lamp", "troffer_t12_dim", "incandescent_100w", "strip_t8_2lamp"]
+const LUCID_LLF := [0.8, 0.9, 0.85, 1.0, 1.0, 0.85]
+## Lucid: the measured albedo (Lucid.ALBEDO) of each biome's wall, floor
+## and ceiling for the bounce light ("" = keep ChunkBuilder's own colour).
+const LUCID_ALBEDO := [["wallpaper_yellow_aged", "carpet_tan_damp", "ceiling_tile_aged"], ["pool_tile_white", "pool_tile_white", "pool_tile_white"],
+		["concrete", "concrete", "concrete"], ["wallpaper_yellow_aged", "carpet_tan_damp", "ceiling_tile_aged"], ["", "", ""], ["concrete", "concrete", "concrete"]]
+## Lucid: whether the biome's surfaces are glossy enough to show the
+## fixtures' specular highlights (FixtureLights). The Lobby's paper, carpet
+## and mineral-fibre tiles are matt, and a recessed troffer sends nothing
+## up at the ceiling, so its highlight lights would only add light the bake
+## already has.
+const LUCID_GLINTS := [false, true, true, false, true, true]
+## Lucid: diffuse skylight reaching the sun galleries' floor through their
+## rows of tall windows (lux; daylight factor ~13 % of a clear sky).
+const LUCID_GALLERY_SKY := 2000.0
 const AMBIENT := [Color(0.07, 0.07, 0.045), Color(0.09, 0.10, 0.10), Color(0.018, 0.019, 0.021), Color(0.005, 0.004, 0.003), Color(0.012, 0.01, 0.008), Color(0.012, 0.013, 0.014)]
 # Approximate colour of light after bouncing off the room surfaces.
 const BOUNCE_TINT := [Color(0.9, 0.88, 0.55), Color(0.85, 0.95, 1.0), Color(0.72, 0.68, 0.56), Color(0.9, 0.75, 0.45), Color(0.6, 0.5, 0.42), Color(0.62, 0.63, 0.62)]
@@ -467,6 +488,35 @@ func light_level_near(p: Vector3, radius := 2) -> float:
 				var lp := Vector3((gx + 0.5) * CELL, CEIL_H[b], (gz + 0.5) * CELL)
 				total += LIGHT_POWER[b] * LIGHT_REACH[b] / (1.0 + lp.distance_squared_to(p) * 0.3)
 	return total
+
+
+## L.U.C.I.D.: illuminance at p on a surface facing `n` from the real
+## fixtures within `radius` cells (inverse square, cos^m; walls ignored),
+## times LUCID_INTERREFLECT for the bounce light, as E / pi in engine units
+## (Lucid.lux_to_engine). For things placed or moving where no baked probe
+## is at hand (props, walkers).
+func lucid_light_near(p: Vector3, n := Vector3.UP, radius := 3) -> Color:
+	var c := cell_of(p)
+	var sum := Color(0, 0, 0)
+	for dz in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
+			var gx := c.x + dx
+			var gz := c.y + dz
+			var b := biome_at(gx, gz)
+			var s := light_state(gx, gz, b)
+			if s == L_ON or s == L_FLICKER:
+				var fx: Dictionary = Lucid.FIXTURES[LUCID_FIXTURE[b]]
+				var lp := Vector3((gx + 0.5) * CELL, CEIL_H[b] - 0.03, (gz + 0.5) * CELL)
+				var to := lp - p
+				var d := to.length()
+				var e := Lucid.illuminance(1.0, fx.m, to.y / d, n.dot(to) / d, d)
+				sum += Lucid.light_engine(fx, LUCID_LLF[b]) * e
+	return sum * LUCID_INTERREFLECT
+
+
+## Lucid: total over direct light in the Lobby's rooms (from the bake's
+## radiosity, see _test/lucid_shots.gd PROBE=1), for lucid_light_near().
+const LUCID_INTERREFLECT := 1.1
 
 
 ## Which way the light comes from around p: the pull of the lit fixtures

@@ -32,5 +32,5 @@ void fragment() {
 	ROUGHNESS = roughness;
 	SPECULAR = 0.3;
 	vec3 n = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
-	EMISSION = col * env_light + col * flashlight(v_wpos, n, CAMERA_POSITION_WORLD, 1.0 - roughness);
+	EMISSION = col * env_light * lucid_exposure.rgb + col * flashlight(v_wpos, n, CAMERA_POSITION_WORLD, 1.0 - roughness);
 }

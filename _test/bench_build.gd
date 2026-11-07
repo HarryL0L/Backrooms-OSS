@@ -1,6 +1,6 @@
 extends Node
 # Dev benchmark: time ChunkBuilder.build() for a block of chunks (single thread).
-# Run: godot --headless --path . res://_test/bench_build.tscn [-- small] [realistic] [no_gi] [no_detail] [lm=<scale>]
+# Run: godot --headless --path . res://_test/bench_build.tscn [-- small] [realistic] [no_gi] [no_detail] [no_lucid] [lm=<scale>]
 # (a scene, so the autoloads the builder needs are there)
 
 func _ready() -> void:
@@ -19,6 +19,8 @@ func _ready() -> void:
 	ChunkBuilder.detail = pr and not args.has("no_detail")
 	ChunkBuilder.dir_lm = false
 	ChunkBuilder.gi = pr and not args.has("no_gi")
+	# `no_lucid`: the Realistic bake without L.U.C.I.D. (the old fudged one).
+	ChunkBuilder.lucid = ChunkBuilder.gi and not args.has("no_lucid")
 	var gen := WorldGen.new(12345)
 	var c0 := ChunkManager.chunk_of(gen.spawn_position())
 	var t := Time.get_ticks_usec()

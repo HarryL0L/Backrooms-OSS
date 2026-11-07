@@ -35,11 +35,17 @@ float flicker(float seed, float t) {
 // rooms look the same. Set by Settings.apply().
 global uniform float dark_lift;
 
+// L.U.C.I.D. (Realistic, see scripts/render/lucid.gd): the camera's exposure
+// relative to the bake's storage exposure, times its white balance gains
+// (rgb), applied to all baked light and emitters before tone mapping;
+// a = 1 when on. (1, 1, 1, 0) in the other presets: no change.
+global uniform vec4 lucid_exposure;
+
 vec3 baked_light(vec4 custom0, float seed, float t) {
 	float f = flicker(seed, t);
 	vec3 l = custom0.rgb * (1.0 - custom0.a * (1.0 - f));
 	float lum = dot(l, vec3(0.3, 0.59, 0.11));
-	return l + vec3(1.0, 0.95, 0.84) * dark_lift * (1.0 - smoothstep(0.0, 0.45, lum));
+	return (l + vec3(1.0, 0.95, 0.84) * dark_lift * (1.0 - smoothstep(0.0, 0.45, lum))) * lucid_exposure.rgb;
 }
 
 uniform sampler2D lightmap : hint_default_black, filter_linear, repeat_disable;
@@ -69,6 +75,7 @@ vec3 lightmap_light(vec3 vertex_light, vec3 lm) {
 	}
 	ivec2 sz = textureSize(lightmap, 0);
 	vec4 s = texture(lightmap, lm.xy / vec2(sz));
+	s.rgb *= lucid_exposure.rgb;
 	if (s.a < 0.002) {
 		return s.rgb;
 	}
@@ -163,6 +170,10 @@ bool below_reflection_plane(vec3 wpos, vec3 cam) {
 // cos(outer angle), cos(inner angle)).
 global uniform vec3 flash_pos;
 global uniform vec3 flash_dir;
+// L.U.C.I.D.: the flashlight's peak intensity as engine-unit colour (E / pi
+// at 1 m, see Lucid.light_engine); the shader flashlight then follows the
+// inverse square law and the camera's exposure.
+global uniform vec4 lucid_flash;
 global uniform vec4 flash_params;
 
 vec3 flashlight(vec3 wpos, vec3 n, vec3 cam, float gloss) {
@@ -181,6 +192,12 @@ vec3 flashlight(vec3 wpos, vec3 n, vec3 cam, float gloss) {
 	float ndl = max(dot(n, l), 0.0);
 	vec3 v = normalize(cam - wpos);
 	float spec = pow(max(dot(n, normalize(l + v)), 0.0), mix(8.0, 96.0, gloss)) * gloss * 1.5;
+	if (lucid_exposure.a > 0.5) {
+		float nd = d / flash_params.y;
+		nd *= nd;
+		float win = max(1.0 - nd * nd, 0.0);
+		return lucid_flash.rgb * lucid_exposure.rgb * cone * win * win / max(d * d, 0.01) * (ndl + spec * ndl);
+	}
 	return vec3(1.0, 0.93, 0.80) * 5.0 * cone * att * (ndl + spec * ndl);
 }
 

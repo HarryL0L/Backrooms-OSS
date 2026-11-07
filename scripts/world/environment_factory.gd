@@ -35,7 +35,8 @@ static func apply_ultra(e: Environment, ssr: bool, ssao: bool, ssil: bool, vol: 
 	e.volumetric_fog_ambient_inject = 0.0
 
 
-## Realistic: what the camera does with each place's light, per biome
+## Realistic without L.U.C.I.D. (lightmaps off; Lucid's camera replaces all
+## of this otherwise): what the camera does with each place's light, per biome
 ## (Yellow Halls, Tiled Baths, Grey Floors, Unlit Halls, Pipeworks, Car
 ## Park). White balance: a cheap camera lets the Lobby's yellow walls pull
 ## everything warm (even the ceiling tiles look cream), while big, dim or
@@ -77,6 +78,31 @@ static func camera_lut(white: Color, black: Color) -> Texture2D:
 	return t
 
 
+## Veiling glare as a colour correction ramp: `flare` (linear light) added
+## to every pixel's linear value (the ramp is looked up in display space,
+## so it is built through the sRGB curve). Cached.
+static func flare_lut(flare: Color) -> Texture2D:
+	var key := "flare" + str(flare)
+	if _luts.has(key):
+		return _luts[key]
+	var g := Gradient.new()
+	var offs := PackedFloat32Array()
+	var cols := PackedColorArray()
+	for k in 17:
+		var x := float(k) / 16.0
+		var lin := Color(x, x, x).srgb_to_linear()
+		offs.push_back(x)
+		cols.push_back(Color(minf(lin.r + flare.r, 1.0), minf(lin.g + flare.g, 1.0), minf(lin.b + flare.b, 1.0)).linear_to_srgb())
+	g.offsets = offs
+	g.colors = cols
+	var t := GradientTexture1D.new()
+	t.gradient = g
+	t.width = 256
+	t.use_hdr = true
+	_luts[key] = t
+	return t
+
+
 ## The Realistic preset's grade, like a phone or compact camera's own
 ## processing: AgX tone mapping (bright tubes clip to white like a real
 ## sensor instead of to a flat colour), slightly muted colour and a tight,
@@ -84,7 +110,9 @@ static func camera_lut(white: Color, black: Color) -> Texture2D:
 ## skips its widest blur levels, two passes fewer. Off: the default stylised
 ## look. `biome`: whose camera balance and exposure (see REAL_WHITE).
 static func realistic_grade(e: Environment, on: bool, biome := 0) -> void:
-	if on:
+	if on and ChunkBuilder.lucid:
+		lucid_grade(e)
+	elif on:
 		e.tonemap_mode = Environment.TONE_MAPPER_AGX
 		e.tonemap_white = 8.0
 		e.adjustment_contrast = 1.0
@@ -112,6 +140,39 @@ static func realistic_grade(e: Environment, on: bool, biome := 0) -> void:
 		e.set_glow_level(2, 0.8)
 		e.set_glow_level(3, 0.6)
 		e.set_glow_level(4, 0.3)
+
+
+## L.U.C.I.D. (Realistic): the camera's image pipeline once exposure and
+## white balance are done (in the world shaders, see Lucid). AgX maps the
+## exposed scene values (1.0 = sensor saturation, so a lit troffer at ~15
+## clips to white and mid grey sits at ~0.18) with its standard white
+## point. Saturation x1.15 is a phone's "standard" picture profile (camera
+## JPEG engines boost colour over the sensor's colorimetric rendering,
+## which AgX gives); there is no tint, the colour cast comes from the
+## lights' and the camera's Kelvin.
+## The only post grade is veiling glare: a lens scatters a small share of
+## the image's light over the whole frame, lifting black a little towards
+## the scene's own colour (LUCID_FLARE of the mean, here the yellow walls).
+## The bloom is a lens's tight glow around what clips (threshold 1.0, the
+## sensor's saturation), without the two widest blur levels.
+const LUCID_FLARE := 0.03
+
+static func lucid_grade(e: Environment) -> void:
+	e.tonemap_mode = Environment.TONE_MAPPER_AGX
+	e.tonemap_agx_white = 16.29
+	e.tonemap_agx_contrast = 1.25
+	e.adjustment_contrast = 1.0
+	e.adjustment_saturation = 1.15
+	var wall: Color = Lucid.ALBEDO.wallpaper_yellow_aged
+	e.adjustment_color_correction = flare_lut(wall * (LUCID_FLARE / Lucid.lum(wall) * 0.1))
+	e.glow_intensity = 0.25
+	e.glow_bloom = 0.0
+	e.glow_hdr_threshold = 1.0
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	e.set_glow_level(1, 1.0)
+	e.set_glow_level(2, 0.4)
+	e.set_glow_level(3, 0.0)
+	e.set_glow_level(4, 0.0)
 
 
 ## The same camera for the other levels' own environments: call it last on

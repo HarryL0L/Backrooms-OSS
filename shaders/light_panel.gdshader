@@ -9,7 +9,7 @@ varying float v_on;
 
 void vertex() {
 	VERTEX = clip_below_water(VERTEX, CAMERA_POSITION_WORLD);
-	v_emit = CUSTOM0.rgb * flicker(UV2.x, world_time);
+	v_emit = CUSTOM0.rgb * flicker(UV2.x, world_time) * lucid_exposure.rgb;
 	v_on = UV2.y;
 	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
 }
@@ -19,6 +19,7 @@ void fragment() {
 	vec2 cells = fract(UV * 45.0) - 0.5;
 	float prism = 0.9 + 0.1 * smoothstep(0.5, 0.2, length(cells));
 	vec3 lit = v_emit * prism;
-	vec3 dead = vec3(0.09, 0.09, 0.085) * prism;
+	// (L.U.C.I.D.: a dead panel carries the room light its lens reflects.)
+	vec3 dead = (lucid_exposure.a > 0.5 ? v_emit : vec3(0.09, 0.09, 0.085)) * prism;
 	ALBEDO = mix(dead, lit, v_on) + dither(FRAGCOORD.xy);
 }

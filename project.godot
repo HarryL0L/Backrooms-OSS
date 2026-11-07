@@ -86,6 +86,14 @@ realistic={
 "type": "float",
 "value": 0.0
 }
+lucid_exposure={
+"type": "vec4",
+"value": Vector4(1, 1, 1, 0)
+}
+lucid_flash={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
 flash_pos={
 "type": "vec3",
 "value": Vector3(0, 0, 0)

@@ -284,11 +284,11 @@ const PRESETS := [
 	{"graphics/render_scale": 1.0, "graphics/fsr": true, "graphics/water_ripples": true, "graphics/lightmaps": true, "graphics/film_grain": true, "graphics/aa": 2, "graphics/view_distance": 5, "graphics/water_reflections": 2,
 		"graphics/lens_fx": true, "graphics/flashlight_shadows": true, "graphics/halos": true, "graphics/bloom": true, "graphics/light_highlights": true, "graphics/realistic": false},
 	# Realistic: our own look for phones, like real camera footage of the
-	# places: a cheap camera's exposure and white balance per place (warm in
-	# the Lobby, cool and underexposed in night spaces), photographed
-	# materials (assets/textures, CC0) with real wear, glossy floors that
-	# mirror the lights, and a contrasty bake (falloff between the lamps,
-	# contact shadows, bounce light, trim) done on the world threads. It
+	# places: L.U.C.I.D. (docs/LUCID.md), real fixtures in real light units
+	# baked with bounce light on the world threads, measured albedos, and a
+	# physical camera (metered exposure, white balance in Kelvin, AgX),
+	# photographed materials (assets/textures, CC0) with real wear, glossy
+	# floors that mirror the lights, contact shadows and trim. It
 	# costs a phone less than Medium: no screen effects for the realism, no
 	# lens fringing, halos or film grain (the body cam adds sensor noise in
 	# the dark only), MSAA 2x (nearly free on tile GPUs) instead of 4x. On a
@@ -369,6 +369,9 @@ func apply() -> void:
 	ChunkBuilder.contrast = realistic
 	ChunkBuilder.detail = realistic
 	ChunkBuilder.gi = realistic and ChunkBuilder.lightmaps
+	# L.U.C.I.D. (docs/LUCID.md): real light units, fixtures and camera; it
+	# replaces the contrast bake's fudges (needs the radiosity).
+	ChunkBuilder.lucid = ChunkBuilder.gi
 	# The halos read the depth buffer, which costs a tile GPU an extra pass;
 	# off, they are not built at all. That read also comes out wrong with
 	# MSAA 2x on the Mobile renderer (glows show through walls in a band at

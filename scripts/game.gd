@@ -52,6 +52,11 @@ var _built_lm_scale := 1.0
 var _built_detail := false
 var _built_halos := true
 var _adapt := 1.0          # Realistic camera exposure (multiplier)
+## L.U.C.I.D.: the physical camera exposing the Backrooms in Realistic
+## (null otherwise). See _eye_adaptation and docs/LUCID.md.
+var lucid_cam: Lucid.Camera = null
+var _meter: LucidMeter = null
+var _meter_frame := 0
 var field: FieldLevel          # the Meadow, only while you're in it
 var mall: MallLevel            # the Dead Mall, only while you're in it
 var _in_mall := false
@@ -951,6 +956,8 @@ func _process(delta: float) -> void:
 		w.allowed = lining.allowed
 	presence.allowed = lining.allowed
 	if _away():
+		if Lucid.active != null:
+			Lucid.push(null)
 		return
 	_scan_t -= delta
 	if _scan_t <= 0.0:
@@ -969,19 +976,51 @@ func _process(delta: float) -> void:
 		env.volumetric_fog_density = lerpf(env.volumetric_fog_density, EnvironmentFactory.VOL_DENSITY[maxi(_biome, 0)], k)
 
 
-## Realistic: the camera's exposure for the place you're in (see
-## EnvironmentFactory.REAL_EXPOSURE), eased over a second or so when it
-## changes. It never brightens the dark: dim places stay underexposed, like
-## a phone camera at night.
+## Realistic: the camera (L.U.C.I.D.). It meters what it looks at (LucidMeter:
+## a log average of spots across the view, each lit by the real fixtures,
+## the baked bounce and the flashlight) and exposes for it like a phone in
+## program mode within its real limits (Lucid.Camera: f/2, 1/30 s, ISO
+## 1600), so dim places stay underexposed. White balance follows the
+## place's light, leaving the warmth a phone leaves.
+## Lucid: what the camera's metering aims for, in stops over the ISO 2720
+## reflected-light calibration (K = 12.5 puts the metered average at 0.10
+## of saturation; +0.8 puts it at 0.18, mid grey, as phone cameras do).
+const LUCID_COMPENSATION := 0.8
+
 func _eye_adaptation(delta: float) -> void:
 	var base: float = Settings.get_value("graphics/brightness")
-	if not _realistic:
+	if not _realistic or not ChunkBuilder.lucid:
 		_adapt = 1.0
 		env.tonemap_exposure = base
+		if lucid_cam != null:
+			lucid_cam = null
+			Lucid.push(null)
 		return
-	var target: float = EnvironmentFactory.REAL_EXPOSURE[maxi(_biome, 0)]
-	_adapt = move_toward(_adapt, target, delta * 0.6)
-	env.tonemap_exposure = base * _adapt
+	if lucid_cam == null:
+		lucid_cam = Lucid.Camera.new()
+		lucid_cam.compensation = LUCID_COMPENSATION
+	if _meter == null or _meter.gen != gen:
+		_meter = LucidMeter.new(gen, chunks)
+	env.tonemap_exposure = base
+	var eye := player.camera.global_position
+	# One metering spot every other frame (a few physics rays); all nine
+	# at once while the camera has not settled yet.
+	_meter_frame += 1
+	var spots := LucidMeter.SPOTS.size() if _meter.luminance() < 0.0 else (1 if _meter_frame % 2 == 0 else 0)
+	var flash := [player.flash_rig.global_position, -player.flash_rig.global_basis.z] if player.flashlight_on else []
+	var ex: Array[RID] = [player.get_rid()]
+	for k in spots:
+		_meter.step(player.get_world_3d().direct_space_state, eye, player.camera.global_basis, flash, ex)
+	var nits := _meter.luminance()
+	if nits >= 0.0:
+		lucid_cam.meter(nits, delta, _meter.peak())
+		var b := maxi(_biome, 0)
+		var k: float = Lucid.FIXTURES[WorldGen.LUCID_FIXTURE[b]].kelvin
+		if b == WorldGen.POOL and gen.gallery(gen.cell_of(eye).x, gen.cell_of(eye).y):
+			k = Lucid.SUN_KELVIN
+		lucid_cam.balance(k, delta)
+		lucid_cam.settle()
+	Lucid.push(lucid_cam)
 
 
 func _track_biome() -> void:
@@ -1006,7 +1045,7 @@ func _set_biome(b: int, announce: bool) -> void:
 	_biome_candidate = -1
 	_fog_color = EnvironmentFactory.FOG[b]
 	_fog_density = EnvironmentFactory.FOG_DENSITY[b]
-	if _realistic:
+	if _realistic and not ChunkBuilder.lucid:
 		# The camera rebalances for the new light (its exposure follows in
 		# _eye_adaptation).
 		env.adjustment_color_correction = EnvironmentFactory.camera_lut(EnvironmentFactory.REAL_WHITE[b],

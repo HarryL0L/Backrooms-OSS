@@ -5,13 +5,18 @@ extends Node3D
 ## the lightmaps, so on the Mobile renderer these lights are tuned to add
 ## almost no diffuse light and only real-time specular highlights: the glints
 ## of the panels on pool tiles, puddles and water that move as you walk.
-## On Forward+ (desktop) they also light the volumetric fog.
+## On Forward+ (desktop) they also light the volumetric fog. With L.U.C.I.D.
+## they carry the fixture's real intensity under the camera's exposure, and
+## none are placed where the surfaces are matt (WorldGen.LUCID_GLINTS).
 
 const COUNT := 6
 const FADE_TIME := 0.3
 ## Bounce strength under VoxelGI: the lights' direct diffuse is kept low
 ## (the lightmaps already have it), their bounce has to stand for the panel.
 const GI_BOUNCE := 2.0
+## L.U.C.I.D.: share of a fixture's real energy left in the light's diffuse
+## (its specular is scaled back up by 1 / LUCID_LEAK).
+const LUCID_LEAK := 0.02
 
 var gen: WorldGen
 var target: Node3D
@@ -25,6 +30,8 @@ var _base := PackedFloat32Array()
 var _fade := PackedFloat32Array()
 var _scan := 0.0
 var _forward_plus := false
+var _lucid := PackedByteArray()      # slot placed as a L.U.C.I.D. fixture
+var _lcol := PackedColorArray()      # its engine-unit light colour (Lucid.light_engine)
 
 const NONE := Vector2i(1 << 30, 1 << 30)
 
@@ -48,6 +55,8 @@ func _ready() -> void:
 	_seeds.resize(COUNT)
 	_base.resize(COUNT)
 	_fade.resize(COUNT)
+	_lucid.resize(COUNT)
+	_lcol.resize(COUNT)
 
 
 ## With VoxelGI on (experimental), these lights also feed its bounce light.
@@ -74,7 +83,16 @@ func _process(delta: float) -> void:
 		l.visible = _fade[i] > 0.0
 		if l.visible:
 			var fl := WorldGen.flicker(_seeds[i], t) if _seeds[i] > 0.0 else 1.0
-			l.light_energy = _base[i] * fl * _fade[i]
+			if _lucid[i] == 1 and not _forward_plus:
+				# L.U.C.I.D.: the fixture's real intensity, inverse square,
+				# under the camera's current exposure; it shows only as a
+				# specular highlight (the diffuse is baked): 2 % energy,
+				# specular x 50.
+				var ln := Lucid.light_node(_lcol[i])
+				l.light_color = ln[1]
+				l.light_energy = ln[0] * LUCID_LEAK * fl * _fade[i]
+			else:
+				l.light_energy = _base[i] * fl * _fade[i]
 
 
 func _place() -> void:
@@ -92,8 +110,12 @@ func _place() -> void:
 			var gz := c.y + dz
 			var b := gen.biome_at(gx, gz)
 			var s := gen.light_state(gx, gz, b)
+			if Lucid.active != null and not WorldGen.LUCID_GLINTS[b]:
+				continue    # (matt surfaces: nothing to add, see LUCID_GLINTS)
 			if s == WorldGen.L_ON or s == WorldGen.L_FLICKER or s == WorldGen.L_SKY:
-				var lp := Vector3((gx + 0.5) * WorldGen.CELL, WorldGen.CEIL_H[b] - 0.25, (gz + 0.5) * WorldGen.CELL)
+				# (Lucid: at the lens, so the ceiling beside it gets nothing,
+				# as from the real recessed fitting.)
+				var lp := Vector3((gx + 0.5) * WorldGen.CELL, WorldGen.CEIL_H[b] - (0.05 if Lucid.active != null else 0.25), (gz + 0.5) * WorldGen.CELL)
 				found.append([lp.distance_squared_to(p), lp, b, s, Vector2i(gx, gz)])
 	found.sort_custom(func(a: Array, bb: Array) -> bool: return a[0] < bb[0])
 	# Keep the nearest fixtures the player can actually see (no highlights from
@@ -136,4 +158,12 @@ func _place() -> void:
 		l.omni_range = WorldGen.LIGHT_RADIUS[b] * (1.2 if sky else 0.8)
 		var energy := 0.9 if sky else 0.35 * sqrt(WorldGen.LIGHT_REACH[b])
 		_base[slot] = energy if _forward_plus else energy * 0.12
+		_lucid[slot] = 1 if Lucid.active != null else 0
+		if _lucid[slot] == 1:
+			var fx: Dictionary = Lucid.FIXTURES.skylight if sky else Lucid.FIXTURES[WorldGen.LUCID_FIXTURE[b]]
+			_lcol[slot] = Lucid.light_engine(fx, 1.0 if sky else WorldGen.LUCID_LLF[b])
+			l.omni_range = ChunkBuilder.LUCID_RADIUS
+		l.omni_attenuation = 2.0 if _lucid[slot] == 1 else 1.0
+		if not _forward_plus:
+			l.light_specular = 1.0 / LUCID_LEAK if _lucid[slot] == 1 else 24.0
 		_seeds[slot] = gen.light_seed(key.x, key.y) if e[3] == WorldGen.L_FLICKER else 0.0

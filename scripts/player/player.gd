@@ -225,7 +225,7 @@ func set_flashlight(on: bool) -> void:
 	var changed := on != flashlight_on
 	flashlight_on = on
 	flashlight.visible = on and not shader_flashlight
-	flash_fill.visible = on and not shader_flashlight
+	flash_fill.visible = on and not shader_flashlight and not _lucid_flash
 	_push_flash_globals()
 	if changed:
 		flashlight_toggled.emit(on)
@@ -685,7 +685,44 @@ func _update_flash_rig(delta: float) -> void:
 	flash_rig.global_transform = Transform3D(Basis(q), target.origin)
 	if shader_flashlight and flashlight_on:
 		_push_flash_globals()
+	_update_lucid_flash()
 	_update_bounce(delta)
+
+
+var _lucid_flash := false
+var _legacy_flash := []
+
+
+## L.U.C.I.D.: the flashlight as the real torch it is (Lucid.FIXTURES
+## flashlight: 200 lm, 2000 cd peak, 30 degree spill), its light falling
+## off by the inverse square law and exposed by the same camera as the
+## baked light. The fill light that only faked the spill is not needed.
+func _update_lucid_flash() -> void:
+	var on := Lucid.active != null and not (mall_mode or side_mode or field_mode)
+	if on != _lucid_flash:
+		_lucid_flash = on
+		if on:
+			_legacy_flash = [flashlight.light_energy, flashlight.light_color, flashlight.spot_attenuation, flashlight.spot_angle,
+					flashlight.spot_angle_attenuation]
+			var fx: Dictionary = Lucid.FIXTURES.flashlight
+			flashlight.spot_attenuation = 2.0
+			flashlight.spot_angle = fx.spill
+			# A reflector's beam: a hot centre falling off smoothly into the
+			# spill (about half at 10 degrees, a fifth at 20).
+			flashlight.spot_angle_attenuation = 0.35
+			flash_bounce.omni_attenuation = 2.0
+		elif _legacy_flash.size() == 5:
+			flashlight.light_energy = _legacy_flash[0]
+			flashlight.light_color = _legacy_flash[1]
+			flashlight.spot_attenuation = _legacy_flash[2]
+			flashlight.spot_angle = _legacy_flash[3]
+			flashlight.spot_angle_attenuation = _legacy_flash[4]
+			flash_bounce.omni_attenuation = 1.2
+		flash_fill.visible = flashlight_on and not shader_flashlight and not on
+	if on:
+		var ln := Lucid.light_node(Lucid.light_engine(Lucid.FIXTURES.flashlight))
+		flashlight.light_energy = ln[0]
+		flashlight.light_color = ln[1]
 
 
 ## Bounce light from the flashlight on any renderer: one small light where the
@@ -705,6 +742,13 @@ func _update_bounce(delta: float) -> void:
 			var alb := _albedo_at(hit.position, n)
 			var lum := (alb.r + alb.g + alb.b) / 3.0
 			target_e = BOUNCE_ENERGY * lum * clampf(1.0 - d / flashlight.spot_range, 0.0, 1.0)
+			if _lucid_flash:
+				# The lit patch (radius d tan(beam)) reflects rho I0 pi
+				# tan^2(beam) lumens, whatever the distance; as a Lambertian
+				# point source that is I = rho I0 tan^2(beam) candela.
+				var fx: Dictionary = Lucid.FIXTURES.flashlight
+				var tb := tan(deg_to_rad(fx.beam * 1.5))
+				target_e = Lucid.light_node(Color(1, 1, 1) * Lucid.lux_to_engine(lum * fx.peak_cd * tb * tb))[0]
 			var p: Vector3 = hit.position + n * 0.45
 			if _bounce_e <= 0.001:
 				flash_bounce.global_position = p

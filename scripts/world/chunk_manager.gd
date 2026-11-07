@@ -308,8 +308,30 @@ func _make_chunk(data: Dictionary) -> Node3D:
 		cs.shape = shape
 		body.add_child(cs)
 		root.add_child(body)
+	if data.has("probes"):
+		root.set_meta("probes", data.probes)
 	add_child(root)
 	return root
+
+
+## L.U.C.I.D.: light arriving at point p from direction n (the baked ambient
+## cube of p's cell: E / pi in engine units, which is also the mean
+## luminance a camera sees looking along n). Alpha -1: no probe here (chunk
+## not loaded, or not built with Lucid).
+func light_probe(p: Vector3, n: Vector3) -> Color:
+	var c := chunk_of(p)
+	var ch: Node3D = _chunks.get(c)
+	if ch == null or not ch.has_meta("probes"):
+		return Color(0, 0, 0, -1)
+	var pr: PackedColorArray = ch.get_meta("probes")
+	var i := clampi(floori(p.x / WorldGen.CELL) - c.x * WorldGen.CHUNK, 0, WorldGen.CHUNK - 1)
+	var j := clampi(floori(p.z / WorldGen.CELL) - c.y * WorldGen.CHUNK, 0, WorldGen.CHUNK - 1)
+	var o := (i + j * WorldGen.CHUNK) * 6
+	var col := pr[o + (0 if n.x > 0.0 else 1)] * (n.x * n.x)
+	col += pr[o + (2 if n.y > 0.0 else 3)] * (n.y * n.y)
+	col += pr[o + (4 if n.z > 0.0 else 5)] * (n.z * n.z)
+	col.a = 1.0
+	return col
 
 
 func set_shadows(on: bool) -> void:

@@ -184,6 +184,10 @@ static func _compute(g: WorldGen, r: Vector2i, res: Dictionary) -> void:
 				continue
 			var centre := Vector3((gx + 0.5) * C, 0.0, (gz + 0.5) * C)
 			var light := clampf(g.light_level_near(centre + Vector3.UP * 1.2) * 0.22, 0.04, 0.8)
+			if ChunkBuilder.lucid:
+				# L.U.C.I.D.: the real light there (the prop shader applies
+				# the camera's exposure).
+				light = Lucid.lum(g.lucid_light_near(centre + Vector3.UP * 0.6))
 			var cx := chaos(g, gx, gz)
 			# Far out, things have come loose: a bucket stuck upside down in
 			# the ceiling, a bin sunk into the carpet.

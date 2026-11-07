@@ -22,7 +22,7 @@ void vertex() {
 	vp.xyz += normalize(-vp.xyz) * min(size * 0.5, dist * 0.5);
 	vp.xy += (UV - 0.5) * size;
 	VERTEX = vp.xyz;
-	v_col = CUSTOM0.rgb * flicker(UV2.x, world_time);
+	v_col = CUSTOM0.rgb * flicker(UV2.x, world_time) * lucid_exposure.rgb;
 	// Fade very close (inside the glow) and far away (fog takes over).
 	v_fade = smoothstep(0.8, 3.0, dist) * (1.0 - smoothstep(35.0, 60.0, dist));
 	if (CAMERA_POSITION_WORLD.y < REFLECT_PLANE) {
