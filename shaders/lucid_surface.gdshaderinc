@@ -172,13 +172,22 @@ void fragment() {
 	// After rain (lucid_wet): darker, smoother, puddles in the low spots.
 	float fz = f0;
 	if (wet > 0.0 || puddles > 0.0) {
-		float film = puddles > 0.0 ? puddle(lp.xz, sqrt(abs(determinant(mat2(dFdx(lp.xz), dFdy(lp.xz)))))) * step(0.6, wn.y) : 0.0;
+		float pw = sqrt(abs(determinant(mat2(dFdx(lp.xz), dFdy(lp.xz)))));
+		float film = puddles > 0.0 ? puddle(lp.xz, pw) * step(0.6, wn.y) : 0.0;
 		// Water evens out the texture's roughness variation.
 		rough = mix(rough, roughness, wet * 0.7);
 		lucid_wet(col, rough, fz, wet, film);
 		// The water fills the texture's pits (half its relief left),
 		// and a puddle's surface is flat.
 		nw = normalize(mix(nw, wn, max(film, wet * 0.5)));
+		// Falling rain (lucid_ripples): rings on the puddles, and weaker
+		// on the water film of a soaked surface.
+		float rs = (film + 0.15 * clamp(wet * 2.0 - 1.0, 0.0, 1.0)) * step(0.6, wn.y);
+		if (rs > 0.0 && lucid_rain.y > 0.0) {
+			vec3 rp = lucid_ripples(lp, pw);
+			nw = normalize(nw + vec3(rp.x, 0.0, rp.y) * rs);
+			rough = sqrt(rough * rough + rp.z * rp.z * rs);
+		}
 		NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
 	}
 	// Specular anti-aliasing (Kaplanyan 2016, like Godot's own): the normal's

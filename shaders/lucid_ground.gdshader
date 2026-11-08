@@ -82,6 +82,8 @@ void fragment() {
 		float rough = 0.75;
 		float fz = 0.04;
 		lucid_wet(alb, rough, fz, wet, film);
+		// Falling rain roughens the water (its rings, finer than a pixel here).
+		rough = sqrt(rough * rough + 0.0049 * lucid_rain.y * film);
 		vec3 vw = normalize(CAMERA_POSITION_WORLD - wp);
 		vec3 up = vec3(0.0, 1.0, 0.0);
 		float e_spec = lucid_spec_albedo(vw.y, rough, fz);

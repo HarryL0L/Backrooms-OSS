@@ -25,7 +25,11 @@ the bake, instancing, the sky), the `shaders/lucid_*` shaders,
 `bake/probes.res`; rerun after any change to the plan: ~85 s headless),
 `tools/lucid/night_city_audio.py`, `_test/levels/night_city_dusk.gd` (the
 same level in its dusk state, for the harness). Lighting: docs/LUCID.md,
-stage 3.
+stage 3. Rain: `scripts/render/lucid_rain.gd`, `shaders/lucid_rain.gdshader`,
+the rings in `shaders/lucid_street.gdshaderinc`, the lens drops in
+`shaders/eye_lens.gdshader` and `scripts/ui/hud.gd`,
+`tools/lucid/night_city_rain.py` (its placeholder sounds); docs/LUCID.md,
+"Rain".
 
 ## Layout (level space: metres, X east, Z south, ground 0 at the crossing)
 
@@ -182,6 +186,39 @@ adds a `scale_*` view of each to `shots()`; run `level_shots` with
 `--set graphics/human_eye=false` for the eye (1.62 m, plain lens) and
 without it for the body cam (chest, 128 degree fisheye).
 
+## Rain
+
+It never stops raining in the Blue Hour, yet the sky is clear blue: no
+clouds anywhere (docs/OPEN_WORLD.md). Settings > Rain turns it off
+(`graphics/rain`, default on); Potato and Low draw a lighter rain (1500 +
+500 drops, 200 splashes, 96 drips instead of 4000 + 1600, 600, 240).
+
+| What | Real value | Source | Here |
+| --- | --- | --- | --- |
+| Rain rate | moderate 2.6-7.6 mm/h | AMS Glossary, "Rain" | 6 mm/h |
+| Drop sizes | N(D) = 8000 exp(-4.1 R^-0.21 D) /m3/mm | Marshall & Palmer 1948 | lambda 2.81 /mm: 696 drops of 0.5 mm and up per m3, mean 0.86 mm, drawn up to 4.5 mm |
+| Fall speed | 2.0 (0.5 mm), 4.0 (1), 6.5 (2), 8.0 (3), 9 (4.5 mm) m/s | Gunn & Kinzer 1949; fit v = 9.65 - 10.3 exp(-0.6 D), Atlas et al. 1973 | the fit, per drop |
+| Wind | light air to light breeze | | 1 m/s from the west-north-west (+-20 % per drop): ~15 degree slant |
+| Streak length | v x exposure time | Garg & Nayar 2007 | the night camera's 1/8 s (four merged 1/30 s frames): 0.25-1 m |
+| Streak opacity | D / (v t) of the exposure x D / pixel width | Garg & Nayar 2007 | D^2 / ((v t + w) w), w = drop or 2.5 px |
+| Drop brightness | what it scatters: I cos^m / d^2 x phase; plus its surround, inverted over ~165 degrees | Garg & Nayar 2004; Mie / geometric optics of water spheres | 8 nearest lights + 8 lit signals, phase 0.88 HG(0.85) + 0.12 HG(-0.3); surround: the probe light x 0.2, the sky looking up |
+| Impacts (1 mm and up) | 852 /m2/s at 6 mm/h | integral of N(D) v(D) | splashes (60 ms crowns) within 6 m; rings on the water |
+| Ripple rings | capillary waves 2-3 cm, ~0.2 m/s, gone in ~0.5 s | | 0.2 m cells (two layers) + 0.33 m cells, one ring a cycle each |
+| Scattering by the rain | 5.6e-4 /m (geometric cross-section) | integral of N(D) pi D^2 / 4 | half of it added to the haze's in the lamps' airglow |
+| Drips | a pendant drop leaves an edge at ~4.5 mm | (capillary length of water, 2.7 mm) | grows 0.4 s, falls with drag to 9 m/s terminal, splashes |
+| Lens drops | 696 /m3 x speed toward the lens x a 12 cm2 window | | 0.8/s standing facing the wind, ~2/s walking into it, none under cover |
+
+Where it does not rain (boxes in level space): under the bus shelter's
+roof (x -13.8..-11.4, z -38.2..-31.8, under 2.55 m), the fire stair (x
+45..47.6, z 12.4..17.8, under its top landing at the roof), the water tank
+on its stand. Drips fall from the shelter roof's long edges, under the
+stair's lowest landing and half landing, the four signal mast arms, the
+tank roof's eaves, the parapet coping over both streets and the bulkhead's
+coping. Sound: rain on hard surfaces everywhere (6 dB down under cover),
+patter on the metal of the shelter roof and the stair's landings, drips
+under the shelter's edge and the stair (procedural placeholders, see
+LICENSE.md).
+
 ## What happens
 
 - Signals cycle (60 s) at the crossing and at ~150 crossings down the
@@ -194,6 +231,8 @@ without it for the body cam (chest, 128 degree fisheye).
   minute or two, from a random direction 300 m off.
 - The camera exposes and balances like a phone filming at night (see
   docs/LUCID.md, stage 3).
+- It rains (above), and the body cam's lens collects drops that run and
+  dry.
 
 ## Performance (Realistic preset, worst view of the harness)
 
@@ -206,9 +245,18 @@ pedestrian heads and third barricade rails: baked vertices 65.5k ->
 specular only on baked surfaces) plus the moon, no real-time shadows,
 textures 1024 px or less (VRAM compressed, mipmaps), assets ~4 MB.
 
+Rain (Realistic, body cam on, lavapipe 1280 x 720, mean of 60 frames, on
+vs off at the crossing, under a head, in the alley, under the shelter):
+one draw call more (28 -> 29 at the crossing), +12.9k primitives (6440
+quads, all placed in the vertex shader; Potato and Low 2296 quads), frame
+time 349 -> 381 ms (+9 %, relative only; the ripples are a few ALU per wet
+pixel, the lens drops a loop inside the body cam's existing pass). Sounds
++0.4 MB.
+
 ## Left to do
 
-- Real CC0 recordings for the city sounds (Freesound was unreachable).
+- Real CC0 recordings for the city sounds and the rain (Freesound was
+  unreachable; the rain's are procedural placeholders).
 - Parked cars, trees, street furniture variety (manholes, drain inlets,
   bollards, benches); curb ramps at the crosswalks; interiors behind the
   shop windows (now a procedural glow).

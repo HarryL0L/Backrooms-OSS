@@ -77,6 +77,7 @@ func defaults() -> Dictionary:
 		"graphics/realtime_lights": true,
 		"graphics/light_highlights": true,
 		"graphics/water_ripples": true,
+		"graphics/rain": true,
 		"graphics/lightmaps": true,
 		"graphics/preset": 2 if is_mobile else 3,
 		"graphics/auto_quality": true,

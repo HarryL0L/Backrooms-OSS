@@ -15,6 +15,8 @@ uniform vec4 fail_lamp = vec4(55.0, 8.0, 5.1, 1.0);   // the failing head's lens
 uniform vec4 sig_pos[8];                 // lit signal lenses (level space)
 uniform vec4 sig_rad[8];                 // their luminance (engine units)
 uniform vec4 sig_dir[8];                 // the way they face
+uniform vec4 rain_cover[4];              // sheltered from the rain: x0, z0, x1, z1 (level space)
+uniform vec4 rain_cover_top = vec4(-1e6); // and under these heights
 
 // After rain (wet = moisture 0..1, film = standing water 0..1), as a
 // porous surface takes water (Lagarde 2013): first the pores fill (up to
@@ -68,6 +70,55 @@ float puddle(vec2 p, float w) {
 	float t = 0.78 - 0.22 * puddles;
 	float aa = min(fwidth(low), 0.1);
 	return smoothstep(t - aa, t + 0.03 + aa, low);
+}
+
+// Rain on water (lucid_rain.y): every drop that lands sends out a ring of
+// capillary waves. Drops of 1 mm and up land at about 850 per m2 a second
+// in 6 mm/h rain (Marshall-Palmer sizes at Atlas' fall speeds); a ring
+// runs out at about 0.2 m/s with a wavelength of 2-3 cm and is gone in
+// half a second (a few hundred alive per m2). Here: cells of 0.2 m (two
+// staggered layers) and 0.33 m (the bigger drops' wider rings), each with a
+// ring born at a random spot every cycle. Returns the water's slope (x, z)
+// and, in z, the roughness the rings add where they are finer than the
+// pixel (w: its footprint, m): far off they fade into a rougher, wider
+// lobe instead of shimmering noise. lp: level space.
+vec2 lucid_ring(vec2 p, float t, float seed, float rate, float k) {
+	vec2 id = floor(p);
+	float ph = t * rate + lucid_hash(id + seed);
+	float age = fract(ph);
+	float cyc = floor(ph);
+	vec2 c = vec2(lucid_hash(id + cyc * 0.37 + seed), lucid_hash(id.yx + cyc * 0.61 + seed)) * 0.3 + 0.35;
+	vec2 d = p - id - c;
+	float r = length(d);
+	float x = (r - age * 0.4) * k;
+	// A short wave train behind its front, dying as it spreads.
+	float env = (1.0 - age) * (1.0 - age) * exp(-x * x * 0.08);
+	return d / max(r, 1e-3) * (cos(x) * env);
+}
+
+vec3 lucid_ripples(vec3 lp, float w) {
+	float s = lucid_rain.y;
+	for (int i = 0; i < 4; i++) {
+		if (lp.x > rain_cover[i].x && lp.x < rain_cover[i].z && lp.z > rain_cover[i].y && lp.z < rain_cover[i].w && lp.y < rain_cover_top[i]) {
+			s = 0.0;
+		}
+	}
+	if (s <= 0.0) {
+		return vec3(0.0);
+	}
+	float t = TIME;
+	vec2 g = vec2(0.0);
+	// 2.5 cm waves in 0.2 m cells: resolved while the pixel is under ~8 mm.
+	float fine = 1.0 - smoothstep(0.004, 0.009, w);
+	if (fine > 0.0) {
+		g += (lucid_ring(lp.xz * 5.0, t, 0.0, 2.1, 50.0) + lucid_ring(lp.xz * 5.0 + 0.5, t, 3.1, 2.3, 50.0)) * (0.35 * fine);
+	}
+	// 4 cm waves in 0.33 m cells.
+	float coarse = 1.0 - smoothstep(0.009, 0.02, w);
+	if (coarse > 0.0) {
+		g += lucid_ring(lp.xz * 3.0 + 0.25, t, 7.7, 1.8, 50.0) * (0.2 * coarse);
+	}
+	return vec3(g, 0.07 * (1.0 - 0.6 * fine)) * s;
 }
 
 // The street heads and the lit signals mirrored at lp (level space): the

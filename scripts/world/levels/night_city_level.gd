@@ -110,6 +110,17 @@ var _aps: Array[AudioStreamPlayer3D] = []
 var _buzz: AudioStreamPlayer3D
 var _siren_t := 40.0
 var _baked := false
+## Rain (LucidRain, docs/LUCID.md "Rain"): it never stops raining in the
+## Blue Hour, under a clear sky (Settings > Rain turns it off).
+var _rain: LucidRain
+var _rain_on := false
+var _rain_t := 0.0
+var _cam_prev := Vector3.INF
+var _cam_vel := Vector3.ZERO
+var _rain_snd: AudioStreamPlayer
+var _rain_db := 0.0
+var _rain_nodes: Array[Node] = []
+var _rain_heads := []
 ## Scale reference (QA only): grey 1.75 m people where proportions are
 ## judged, in debug builds with QA_FIGURES=1 in the environment (never in
 ## the shipped level). Level space (y: on what), facing (yaw, degrees; 0
@@ -156,6 +167,8 @@ func build(p_seed: int) -> void:
 	fall_kill = 7.0
 	environment = _environment()
 	_build_audio()
+	_rain_settings()
+	Settings.changed.connect(_rain_settings)
 	_qa_figures()
 	var roof: Transform3D = lay.spots.roof_door
 	add_exit(Transform3D(roof.basis, city.to_global(roof.origin)), "none", "", {"label": "Go back down the stairs"})
@@ -200,6 +213,8 @@ func _materials() -> void:
 		_sp(sm, "lens_na", _lens_na)
 		_sp(sm, "road_paint", d.get("paint", false))
 		_sp(sm, "untile", d.get("untile", false))
+		if float(d.get("wet", 0.0)) > 0.0:
+			_rain_covers(sm)
 		_sp(sm, "ground_origin", o)
 		_sp(sm, "baked", _baked)
 		_sp(sm, "const_light", Color(1, 1, 1) * Lucid.lux_to_engine(2.0))
@@ -577,15 +592,19 @@ func light_at(p: Vector3) -> Color:
 
 func on_enter() -> void:
 	player.can_climb = false
+	_rain_globals()
 	_update(0.0)
 
 
 func on_leave() -> void:
 	Lucid.clear_level()
+	HUD.lens_rain = 0.0
+	HUD.lens_wipe = true
 
 
 func _exit_tree() -> void:
 	Lucid.clear_level()
+	HUD.lens_rain = 0.0
 
 
 func save_state() -> Dictionary:
@@ -646,6 +665,7 @@ func _update(delta: float) -> void:
 	_moon.visible = mn[0] > 0.0
 	_moon.look_at_from_position(Vector3.ZERO, -md, Vector3.UP if absf(md.y) < 0.99 else Vector3.BACK)
 	_real_lights(delta)
+	_rain_update(delta)
 
 
 ## Program exposure and auto white balance from nine spots across the view
@@ -917,6 +937,14 @@ func _signals() -> void:
 			_sp(sm, "sig_pos", sp)
 			_sp(sm, "sig_rad", sr)
 			_sp(sm, "sig_dir", sd)
+		if _rain != null:
+			# The rain: the same lenses as intensities (I = luminance x area), in world space.
+			var wp := PackedVector4Array()
+			var wi := PackedVector4Array()
+			for i in sp.size():
+				wp.append(sp[i] + Vector4(0.0, LEVEL_Y, 0.0, 0.0))
+				wi.append(sr[i] * (PI * 0.15 * 0.15 / PI))
+			_rain.set_signals(wp, wi, sd)
 	# Accessible signal sounds: a locator tick every second, a rapid tick
 	# while a crossing has its walk.
 	var walking := signal_state(s, "ped_a") == "walk" or signal_state(s, "ped_s") == "walk"
@@ -967,6 +995,168 @@ func _real_lights(delta: float) -> void:
 				l.global_position.z, Lucid.lum(c) * (1.0 if led else -1.0)))
 
 
+# --------------------------------------------------------------------- rain ---
+
+## Where no rain falls (level space): under the bus shelter's roof, the
+## fire stair (its top landing over the rest), the water tank on its stand.
+func _cover_boxes() -> Array[AABB]:
+	var roof: float = LAYOUT.A_ROOF
+	return [AABB(Vector3(-13.8, -1.0, -38.2), Vector3(2.4, LAYOUT.WALK + 3.4, 6.4)),
+			AABB(Vector3(45.0, -1.0, 12.4), Vector3(2.6, roof + 1.0, 5.4)),
+			AABB(Vector3(39.25, roof - 1.0, 34.65), Vector3(4.7, 8.6, 4.7))]
+
+
+func _rain_covers(sm: ShaderMaterial) -> void:
+	var r := PackedVector4Array()
+	var t := Vector4(-1e6, -1e6, -1e6, -1e6)
+	var boxes := _cover_boxes()
+	for i in 4:
+		if i < boxes.size():
+			r.append(Vector4(boxes[i].position.x, boxes[i].position.z, boxes[i].end.x, boxes[i].end.z))
+			t[i] = boxes[i].end.y
+		else:
+			r.append(Vector4.ZERO)
+	_sp(sm, "rain_cover", r)
+	_sp(sm, "rain_cover_top", t)
+
+
+## Rain on or off (Settings > Rain); Potato and Low get a lighter rain.
+func _rain_settings() -> void:
+	var on := bool(Settings.get_value("graphics/rain"))
+	if on == _rain_on:
+		return
+	_rain_on = on
+	if on and _rain == null:
+		_build_rain()
+	if _rain != null:
+		_rain.visible = on
+	for n in _rain_nodes:
+		if n is AudioStreamPlayer3D:
+			(n as AudioStreamPlayer3D).playing = on
+		elif n is AudioStreamPlayer:
+			(n as AudioStreamPlayer).playing = on
+	_rain_globals()
+
+
+func _rain_globals() -> void:
+	var sig := LucidRain.sigma(_rain.rate) if _rain != null else 0.0
+	# x: the drops' scattering in the lamps' airglow (half their
+	# cross-section: their phase function, g ~0.8, sends about half as much
+	# sideways as the haze's g = 0.6); y: rings on the water.
+	RenderingServer.global_shader_parameter_set("lucid_rain", Vector4(sig * 0.5, 1.0, 0.0, 0.0) if _rain_on else Vector4.ZERO)
+	if not _rain_on:
+		HUD.lens_rain = 0.0
+
+
+func _build_rain() -> void:
+	var o := Vector3(0.0, LEVEL_Y, 0.0)
+	var roof: float = LAYOUT.A_ROOF
+	var w: float = LAYOUT.WALK
+	_rain = LucidRain.new()
+	_rain.name = "Rain"
+	add_child(_rain)
+	if low:
+		_rain.setup(1500, 200, 96, 500, o)
+	else:
+		_rain.setup(4000, 600, 240, 1600, o)
+	_sp(_rain.material, "roof_y", roof)
+	var boxes: Array[AABB] = []
+	for b in _cover_boxes():
+		boxes.append(AABB(b.position + o, b.size))
+	_rain.set_covers(boxes)
+	# Drips from real edges: [from, to, fall (m)] (level space; a ring:
+	# centre twice and its radius). The shelter roof's two long edges, under
+	# the stair's lowest landing and half landing (through the grating), the
+	# four signal mast arms, the tank roof's eaves, the parapet's coping over
+	# the avenue and the street, the bulkhead's coping over its door.
+	var hm := (LAYOUT.STAIR_Y[0] + LAYOUT.STAIR_Y[1]) * 0.5
+	var edges := [[Vector3(-11.42, w + 2.4, -38.1), Vector3(-11.42, w + 2.4, -31.9), 2.4],
+			[Vector3(-13.78, w + 2.4, -38.1), Vector3(-13.78, w + 2.4, -31.9), 2.4],
+			[Vector3(45.2, LAYOUT.G0 - 0.1, 13.0), Vector3(47.4, LAYOUT.G0 - 0.1, 13.0), LAYOUT.G0 - 0.1 - w],
+			[Vector3(45.2, hm - 0.1, 17.2), Vector3(47.4, hm - 0.1, 17.2), hm - 0.1 - w],
+			[Vector3(11.3, 6.11, -7.8), Vector3(3.5, 6.11, -7.8), 6.1],
+			[Vector3(-11.3, 6.11, 7.8), Vector3(-3.5, 6.11, 7.8), 6.1],
+			[Vector3(11.3, 6.11, 7.8), Vector3(11.3, 6.11, 1.75), 6.1],
+			[Vector3(-11.3, 6.11, -7.8), Vector3(-11.3, 6.11, -1.75), 6.1],
+			[Vector3(41.6, roof + 7.6, 37.0), Vector3(41.6, roof + 7.6, 37.0), 7.6, 2.4],
+			[Vector3(14.9, roof + 1.1, 10.5), Vector3(14.9, roof + 1.1, 39.5), roof + 1.1 - w],
+			[Vector3(15.5, roof + 1.1, 9.9), Vector3(44.5, roof + 1.1, 9.9), roof + 1.1 - w],
+			[Vector3(33.92, roof + 3.0, 31.1), Vector3(33.92, roof + 3.0, 35.9), 3.0]]
+	for e in edges:
+		e[0] += o
+		e[1] += o
+	_rain.set_drips(edges)
+	_sig_key = ""
+
+
+## Each frame: the camera's exposure and motion, the lights near it, the
+## lens and the sound under cover.
+func _rain_update(delta: float) -> void:
+	if not _rain_on or _rain == null or player == null or player.camera == null:
+		return
+	var c := player.camera.global_position
+	if _cam_prev.is_finite() and delta > 0.0:
+		var v := (c - _cam_prev) / delta
+		# (A teleport is not motion; it starts a clean lens.)
+		if v.length() > 15.0:
+			v = Vector3.ZERO
+			HUD.lens_wipe = true
+		_cam_vel = _cam_vel.lerp(v, minf(delta * 8.0, 1.0))
+	_cam_prev = c
+	# The camera's exposure time (at night its four merged 1/30 s frames:
+	# 1/8 s, so a drop draws a streak v / 8 long).
+	_rain.follow(player.camera, clampf(cam.shutter, 1.0 / 500.0, 1.0 / 8.0), _cam_vel.limit_length(8.0), float(OS.get_environment("RAIN_GAIN")) if OS.has_environment("RAIN_GAIN") else 1.0)
+	var me := c - Vector3(0.0, LEVEL_Y, 0.0)
+	_rain_t -= delta
+	if _rain_t <= 0.0:
+		_rain_t = 0.4
+		# The eight nearest lights: the four nearest street heads first, each
+		# kept in its slot while it stays among them (drops fall round them),
+		# then the next nearest lights (heads at their levels, bulbs).
+		var cand := []
+		for i in lay.lamps.size():
+			var l: Dictionary = lay.lamps[i]
+			if l.get("fx", "") != "":
+				cand.append([(l.pos as Vector3).distance_squared_to(me), i])
+		cand.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+		var heads := []
+		for cd in cand:
+			if heads.size() < 4 and not lay.lamps[cd[1]].get("bulb", false):
+				heads.append(cd[1])
+		var slots := [-1, -1, -1, -1]
+		for k in 4:
+			if k < _rain_heads.size() and heads.has(_rain_heads[k]):
+				slots[k] = _rain_heads[k]
+		for hd in heads:
+			if not slots.has(hd):
+				slots[slots.find(-1)] = hd
+		_rain_heads = slots
+		var order := slots.duplicate()
+		for cd in cand:
+			if order.size() >= 8:
+				break
+			if not order.has(cd[1]):
+				order.append(cd[1])
+		var lights := []
+		for li in order:
+			if li < 0:
+				lights.append([Vector3.ZERO, -1.0, Color(0, 0, 0)])
+				continue
+			var l: Dictionary = lay.lamps[li]
+			var fx: Dictionary = Lucid.FIXTURES[l.fx]
+			var lv: float = lamp_lvl[int(l.idx)] if int(l.get("idx", -1)) >= 0 else 1.0
+			var m: float = fx.get("m", 0.0)
+			lights.append([city.to_global(l.pos), m if m > 0.0 else -1.0, Lucid.light_engine(fx, float(l.get("llf", 1.0))) * lv])
+		# The surround a drop refracts: the light round it on surfaces of ~0.2.
+		_rain.set_lights(lights, _probe(me) * 0.2)
+	var under := _rain.covered(c, -0.3)
+	# Drops on the body cam's lens (none under cover).
+	HUD.lens_rain = 0.0 if under else _rain.lens_rate(-player.camera.global_transform.basis.z, _cam_vel)
+	if _rain_snd:
+		_rain_db = lerpf(_rain_db, -6.0 if under else 0.0, minf(delta * 3.0, 1.0))
+		_rain_snd.volume_db = -8.0 + _rain_db
+
+
 # -------------------------------------------------------------------- audio ---
 
 func _build_audio() -> void:
@@ -981,6 +1171,26 @@ func _build_audio() -> void:
 			_sounds[n] = st
 	if _sounds.has("city_hum"):
 		add_loop(_sounds.city_hum, Vector3.INF, -9.0)
+	# Rain (procedural placeholders, see LICENSE.md): everywhere, quieter
+	# under cover; pattering on the metal of the shelter roof, the fire
+	# stair's landings and the tank's hoops; drips off the shelter and the
+	# stair.
+	for n: String in ["rain", "rain_metal"]:
+		if ResourceLoader.exists(DIR + "audio/" + n + ".ogg"):
+			_sounds[n] = load(DIR + "audio/" + n + ".ogg")
+	if _sounds.has("rain"):
+		_rain_snd = add_loop(_sounds.rain, Vector3.INF, -8.0) as AudioStreamPlayer
+		_rain_nodes.append(_rain_snd)
+	if _sounds.has("rain_metal"):
+		for at in [Vector3(-12.6, 2.6, -35.0), Vector3(46.2, 4.6, 13.0), Vector3(46.2, 11.2, 15.0), Vector3(46.2, 17.8, 13.0)]:
+			_rain_nodes.append(add_loop(_sounds.rain_metal, city.to_global(at), -12.0, {"unit_size": 2.0, "max_distance": 25.0}))
+	for at in [Vector3(-11.4, 0.3, -35.0), Vector3(46.3, 0.3, 13.0)]:
+		_rain_nodes.append(add_loop("drip", city.to_global(at), -16.0, {"unit_size": 1.5, "max_distance": 15.0}))
+	for n in _rain_nodes:
+		if n is AudioStreamPlayer3D:
+			(n as AudioStreamPlayer3D).playing = false
+		elif n is AudioStreamPlayer:
+			(n as AudioStreamPlayer).playing = false
 	if _sounds.has("wind_high"):
 		var w := add_loop(_sounds.wind_high, city.to_global(Vector3(30, 30, 25)), -6.0, {"unit_size": 30.0, "max_distance": 120.0})
 		w.name = "wind"
@@ -1099,7 +1309,24 @@ func shots() -> Array:
 		{"name": "qa_win_B", "transform": _view(Vector3(47.5, sy[2], 16.4), 270.0, 10.0), "wait": 3.0},
 		{"name": "qa_win_D1", "transform": _view(Vector3(20.0, 0.15, -8.5), 0.0, 25.0), "wait": 3.0},
 		{"name": "qa_backdrop", "transform": _view(Vector3(85.0, 0.15, 9.0), 270.0, 12.0), "wait": 3.0},
-	] + (_scale_shots() if _qa() else []) + (_ground_shots() if OS.get_environment("QA_GROUND") == "1" else [])
+	] + (_scale_shots() if _qa() else []) + (_ground_shots() if OS.get_environment("QA_GROUND") == "1" else []) \
+			+ (_rain_shots() if OS.get_environment("QA_RAIN") == "1" else [])
+
+
+## Rain QA views (QA_RAIN=1): the crossing, the avenue grazing, under an
+## avenue head looking up into its cone, the alley, the roof, under the bus
+## shelter, on the fire stair.
+func _rain_shots() -> Array:
+	var sy: Array = LAYOUT.STAIR_Y
+	return [
+		{"name": "r_cross", "transform": _view(Vector3(6.0, 0.0, 6.0), 40.0, 2.0), "wait": 3.0},
+		{"name": "r_graze", "transform": _view(Vector3(4.0, 0.0, -12.0), 0.0, -4.0), "wait": 3.0},
+		{"name": "r_lamp", "transform": _view(Vector3(5.5, 0.0, 25.0), 10.0, 18.0), "wait": 3.0},
+		{"name": "r_alley", "transform": _view(Vector3(48.0, 0.15, 30.0), 10.0, 3.0), "wait": 3.0},
+		{"name": "r_roof", "transform": _view(Vector3(25.0, LAYOUT.A_ROOF, 22.0), 300.0, 0.0), "wait": 3.0},
+		{"name": "r_shelter", "transform": _view(Vector3(-12.5, 0.15, -34.0), 270.0, 2.0), "wait": 3.0},
+		{"name": "r_stair", "transform": _view(Vector3(46.9, sy[3], 13.0), 20.0, -10.0), "wait": 3.0},
+	]
 
 
 ## Ground QA views (QA_GROUND=1): the asphalt, its paint and puddles, the
@@ -1149,6 +1376,9 @@ func _scale_shots() -> Array:
 ## crossing, along the roof to the stair, down two storeys of it, then the
 ## crossing from the street.
 func film() -> void:
+	if OS.get_environment("QA_RAIN") == "1":
+		await _film_rain()
+		return
 	var t := arrival()
 	player.teleport(t.origin, _yaw_of(t))
 	await get_tree().create_timer(2.0).timeout
@@ -1164,6 +1394,26 @@ func film() -> void:
 	await _ride([o + Vector3(30, 1.75, 8.0), o + Vector3(10, 1.75, 4.0), o + Vector3(0, 1.75, 0)], deg_to_rad(90.0), 9.0, 0.05)
 	await _ride([o + Vector3(0, 1.75, -0.5)], deg_to_rad(180.0), 4.0, 0.08)
 	await _ride([o + Vector3(0, 1.75, -1.0)], deg_to_rad(330.0), 4.0, 0.15)
+
+
+## The rain film (QA_RAIN=1, ~40 s): under the bus shelter looking out at
+## the rain beyond its roof and the drips off its edge, out into the rain
+## to the avenue head, up into its cone, down at the rings in a puddle,
+## then along the avenue to the crossing's signals.
+func _film_rain() -> void:
+	var o := Vector3(0.0, LEVEL_Y, 0.0)
+	var e: float = LAYOUT.WALK + (1.38 if Player.human_eye() else 1.62)
+	player.teleport(o + Vector3(-12.9, LAYOUT.WALK, -35.0), deg_to_rad(270.0))
+	await get_tree().create_timer(5.0).timeout
+	await _ride([o + Vector3(-12.6, e, -34.6)], deg_to_rad(300.0), 3.0, 0.1)
+	await _ride([o + Vector3(-10.2, e, -33.0), o + Vector3(-8.5, e - LAYOUT.WALK, -30.0)], deg_to_rad(330.0), 5.0, 0.05)
+	await _ride([o + Vector3(-8.3, e - LAYOUT.WALK, -27.5)], deg_to_rad(345.0), 4.0, 0.55)
+	await _ride([o + Vector3(-8.0, e - LAYOUT.WALK, -26.0)], deg_to_rad(20.0), 4.0, -0.75)
+	# (Rides chained: between them the player has no collision.)
+	await _ride([o + Vector3(-7.9, e - LAYOUT.WALK, -25.7)], deg_to_rad(28.0), 3.0, -0.7)
+	await _ride([o + Vector3(-7.0, e - LAYOUT.WALK, -20.0), o + Vector3(-5.0, e - LAYOUT.WALK, -14.0)], deg_to_rad(10.0), 7.0, 0.0)
+	await _ride([o + Vector3(-3.0, e - LAYOUT.WALK, -9.0)], deg_to_rad(330.0), 5.0, 0.12)
+	await _ride([o + Vector3(-2.0, e - LAYOUT.WALK, -7.0)], deg_to_rad(60.0), 4.0, 0.05)
 
 
 func _ride(eyes: Array, yaw: float, time: float, pitch: float) -> void:

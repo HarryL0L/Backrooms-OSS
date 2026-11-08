@@ -23,6 +23,15 @@ var _prompt: Label
 var _title_t := 0.0
 var _vignette_boost := 0.0
 var _realistic := false
+## Raindrops arriving on the body cam's lens a second (set by a level where
+## it rains: LucidRain.lens_rate). They sit, some run down leaving a wet
+## track, and dry off; shaders/eye_lens.gdshader draws them.
+static var lens_rain := 0.0
+## Set to start with a dry lens (a teleport).
+static var lens_wipe := false
+const LENS_DROPS := 12
+var _drops: Array[Dictionary] = []
+var _drop_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
@@ -171,6 +180,50 @@ func _apply_settings() -> void:
 	_copy.visible = _eye.visible and _lens.visible
 
 
+## Drops on the body cam's lens: Poisson arrivals at lens_rain a second, a
+## random size (out of focus, a drop 2-3 mm across on the window in front of
+## the lens covers 6-14 % of the picture's height), most just sit and dry
+## off in 6-14 s, about a third start to run down after a second or three,
+## wobbling and leaving a fading wet track.
+func _lens_drops(delta: float) -> void:
+	if lens_wipe:
+		lens_wipe = false
+		_drops.clear()
+		_eye_mat.set_shader_parameter("drop_n", 0)
+	if lens_rain <= 0.0 and _drops.is_empty():
+		return
+	if lens_rain > 0.0 and _drop_rng.randf() < 1.0 - exp(-lens_rain * delta):
+		if _drops.size() >= LENS_DROPS:
+			_drops.pop_front()
+		_drops.append({"x": _drop_rng.randf_range(0.06, 0.94), "y": _drop_rng.randf_range(0.04, 0.85),
+				"r": _drop_rng.randf_range(0.03, 0.07), "age": 0.0, "life": _drop_rng.randf_range(6.0, 14.0),
+				"run": _drop_rng.randf_range(1.0, 3.0) if _drop_rng.randf() < 0.35 else INF, "v": 0.0, "y0": 0.0,
+				"seed": _drop_rng.randf() * 10.0})
+	var d4 := PackedVector4Array()
+	var t4 := PackedVector4Array()
+	var i := 0
+	while i < _drops.size():
+		var d := _drops[i]
+		d.age += delta
+		if d.age > d.life or d.y > 1.1:
+			_drops.remove_at(i)
+			continue
+		if d.age > d.run:
+			if d.v == 0.0:
+				d.y0 = d.y
+			d.v = minf(d.v + delta * 0.15, 0.12)
+			d.y += d.v * delta
+			d.x += sin(d.age * 3.0 + d.seed) * 0.004 * delta
+		var a := minf(d.age / 0.15, 1.0) * clampf((d.life - d.age) / 2.0, 0.0, 1.0)
+		d4.append(Vector4(d.x, d.y, d.r * (0.8 if d.v > 0.0 else 1.0), a))
+		t4.append(Vector4(d.y0, a * 0.6 if d.v > 0.0 else 0.0, d.seed, 0.0))
+		i += 1
+	_eye_mat.set_shader_parameter("drop_n", d4.size())
+	if not d4.is_empty():
+		_eye_mat.set_shader_parameter("drops", d4)
+		_eye_mat.set_shader_parameter("trails", t4)
+
+
 ## What pressing Use would do, under the middle of the view ("" hides it).
 func set_prompt(text: String) -> void:
 	_prompt.text = text
@@ -238,6 +291,7 @@ func _process(delta: float) -> void:
 	if _eye.visible:
 		var vs := get_viewport_rect().size
 		_eye_mat.set_shader_parameter("aspect", vs.x / maxf(vs.y, 1.0))
+		_lens_drops(delta)
 	if _post.visible:
 		_post_mat.set_shader_parameter("vignette", (0.12 if _realistic else 0.42) + _vignette_boost)
 	if _loading.visible:

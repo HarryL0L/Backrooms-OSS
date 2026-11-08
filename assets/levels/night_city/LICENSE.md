@@ -29,3 +29,11 @@ ffmpeg to Ogg Vorbis, mono): the city's hum, wind between the towers, a far
 siren, a ballast's buzz, the accessible pedestrian signal's locator and walk
 ticks, and a sodium lamp's igniter restriking. Real CC0 recordings could
 replace them file for file later (log them here).
+
+`audio/rain.ogg` (stereo, 20 s loop: rain on hard city surfaces) and
+`audio/rain_metal.ogg` (mono, 10 s loop: drops on sheet metal) are
+PROCEDURAL PLACEHOLDERS made by `tools/lucid/night_city_rain.py` (numpy,
+ffmpeg; Freesound was tried again on 2026-11-08 and was still blocked), to
+be replaced by CC0 field recordings of moderate rain in a street and of rain
+on a metal roof, with each sound's licence checked on its own page. No
+third-party material is in them.

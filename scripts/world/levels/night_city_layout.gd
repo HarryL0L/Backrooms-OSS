@@ -770,7 +770,12 @@ func _crossing_furniture() -> void:
 		sh.box(Vector3(-12.6, WALK + 2.45, -35.0), Vector3(2.4, 0.1, 6.4), 1.0, ALL)
 		surf("street", "wood").box(Vector3(-13.4, WALK + 0.45, -35.0), Vector3(0.4, 0.06, 4.0), 1.0)
 		surf("street", "black").box(Vector3(-13.68, WALK + 1.3, -35.0), Vector3(0.04, 1.6, 5.6), 1.0)
-	_col(Vector3(2.4, 2.5, 6.4), Vector3(-12.6, WALK + 1.25, -35.0), {"albedo": 0.2}, true, false)
+	# (Its back panel, roof and bench: you can stand under it out of the rain.)
+	_col(Vector3(0.1, 2.5, 6.4), Vector3(-13.68, WALK + 1.25, -35.0), {"albedo": 0.2}, true, false)
+	_col(Vector3(2.4, 0.1, 6.4), Vector3(-12.6, WALK + 2.45, -35.0), {"albedo": 0.2}, true, false)
+	_col(Vector3(0.4, 0.48, 4.0), Vector3(-13.4, WALK + 0.24, -35.0), {"albedo": 0.2}, true, false)
+	for z in [-38.0, -32.0]:
+		_col(Vector3(0.08, 2.4, 0.08), Vector3(-11.6, WALK + 1.2, z), {}, true, false)
 	# Barricades: where the crossing ends, across road and sidewalks.
 	var ends := [[Vector2(BOUND.position.x, 0), true], [Vector2(BOUND.end.x, 0), true],
 			[Vector2(0, BOUND.position.y), false], [Vector2(0, BOUND.end.y), false]]

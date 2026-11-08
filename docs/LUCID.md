@@ -57,6 +57,9 @@ textured rendering: one multiply per pixel for exposure, and no extra lights.
    - Wetness: darker (Lekner & Dorf), smoother, puddles: the Blue Hour
      after rain.
    - Air: the haze lit by the nearest street heads (single scattering).
+   - Rain as a camera records it (the Blue Hour, where it never stops):
+     falling drops as exposure-length streaks lit by the lamps, rings on
+     the water, drips, drops on the body cam's lens (see "Rain").
 
 ## What stage 1 does
 
@@ -746,7 +749,7 @@ pixel, so a puddle's edge does not stair-step or crawl at grazing views.
 - **The far ground**'s wear is smooth value noise (hashed 2 m squares
   showed as a checkerboard on the far streets).
 
-The Blue Hour is after rain: the road soaked (puddles 0.5), the alley
+The Blue Hour is wet from its endless rain (see Rain): the road soaked (puddles 0.5), the alley
 0.9, sidewalks and curbs damp (0.55: dark, matt), the plaza 0.6, the roof
 0.5 with ponding. The far ground shader uses the same model, so the two
 agree where they meet. The Lobby's damp carpet patches are darker by the
@@ -768,6 +771,112 @@ At the night state's 3.3e-4 /m (12 km visibility) that is a faint glow of
 about 0.3 cd/m2 a metre from a head, as strong as the real haze makes it.
 It is added in `lucid_finish_at` (city surfaces, buildings, the far ground)
 and in the sky. Indoor dust is not modelled.
+
+### Rain (`LucidRain`, `shaders/lucid_rain.gdshader`)
+
+It never stops raining in the Blue Hour, under a clear sky. Moderate rain,
+6 mm/h (the AMS glossary's moderate: 2.5-7.6 mm/h), from real drop
+statistics, drawn as what the physical camera records in its exposure
+time. Settings > Rain (`graphics/rain`, default on) turns it off; Potato
+and Low get a lighter version. The sky is untouched.
+
+**Drops.** Sizes follow Marshall & Palmer (1948):
+N(D) = 8000 exp(-lambda D) /m3/mm, lambda = 4.1 R^-0.21 = 2.81 /mm at
+6 mm/h, so 696 drops of 0.5 mm and up in every cubic metre (mean 0.86
+mm). Fall speeds are Gunn & Kinzer's (1949) in Atlas et al.'s (1973) fit,
+v = 9.65 - 10.3 exp(-0.6 D): 2.0 m/s at 0.5 mm, 4.0 at 1 mm, 6.5 at 2 mm,
+8.0 at 3 mm. A 1 m/s wind (+-20 % per drop) slants them about 15 degrees.
+
+**Streaks.** A drop moving at v for the exposure time t is a streak v t
+long (the camera's own velocity subtracted: walking slants it). At night
+the night camera's four merged 1/30 s frames make t = 1/8 s
+(`Lucid.night_camera`), so 0.25 m at 0.5 mm, 0.5 m at 1 mm, 1 m at 3 mm.
+The streak is as wide as the drop or 2.5 pixels, whichever is wider, and
+as opaque as the drop covers it: the share of the exposure it spends over
+each point (D / v t) times the share of the width it fills, so
+alpha = D^2 / ((v t + w) w), and mixed over what is behind (a drop also
+hides what it is in front of). Rendered drops stand for many real ones
+(the mean over a pixel is kept, its grain is coarser): 4000 drops in a
+14 x 12 x 14 m box round the camera (each for 409), and 1600 more in 5 x
+6 x 5 m boxes round the four nearest street heads, where they are bright
+enough to be seen from farther off (each for 261; they fill in only
+outside the camera's box). Both boxes are anchored in the world and
+wrapped (you walk through the drops), thinned at their walls so nothing
+pops. Faded in from 0.3 to 0.9 m off the lens (out of focus there).
+
+**What a drop shows** (engine radiance): the lights it scatters toward the
+eye, L = I f(theta) / d^2 x p(Theta) / 4 for the eight nearest lights (the
+street heads at their levels, I0 cos^1.2 from the nadir, nothing above the
+horizontal; the bulbs all round) and the eight lit signal lenses (a +-15
+degree beam), with a water drop's phase function p (normalised to 1 over
+the sphere: geometric optics sends most of the light forward through it
+and a little back; 0.88 HG(0.85) + 0.12 HG(-0.3)); plus the surround it
+refracts turned over over a wide cone (Garg & Nayar 2004): looking up the
+sky model, level the lit street and walls (the probe light round the
+camera on surfaces of 0.2) and the sky, looking down the street. So drops
+backlit by a head blaze, the cone under a head glitters, drops in the dark
+and against the sky are nearly gone, and nothing is added that the lights
+and the surround do not send.
+
+**Shelters.** Boxes the drops cannot enter (they end on the roof): the bus
+shelter, the fire stair (its top landing over the rest), the water tank on
+its stand. The same boxes keep the rings off the ground under them, stop
+drops reaching the lens and muffle the sound.
+
+**Splashes and drips.** 600 crowns at random spots within 6 m of the
+camera, each there for 60 ms of the exposure (drops of 1 mm and up land at
+852 per m2 a second: each drawn crown stands for 68). Drips at twelve real
+edges (the shelter roof's two long edges, under the stair's lowest landing
+and half landing, the four signal mast arms, the tank roof's eaves, the
+parapet's coping over both streets, the bulkhead's coping): a 4.5 mm drop
+grows for 0.4 s, falls with air drag (v = 9 tanh(g t / 9) m/s, so the 20 m off
+the parapet take 2.9 s) as a streak of its speed times the exposure, and
+splashes.
+
+**Rings on the water** (`lucid_ripples` in `lucid_street.gdshaderinc`,
+normal perturbation only, so the probes' and the heads' reflections
+shimmer): every drop that lands on standing water sends out a ring of
+capillary waves, 2-3 cm long, running out at ~0.2 m/s, gone in half a
+second. Two staggered layers of 0.2 m cells and one of 0.33 m (the bigger
+drops' wider rings), each with a ring born at a random spot every cycle.
+Full on puddles, 15 % on the water film of a soaked surface (`wet` over
+0.5). Where the rings are finer than the pixel (8-20 mm footprints) they
+fade into a rougher lobe (+0.07 roughness, in quadrature) instead of
+shimmering noise; the far ground gets only that.
+
+**Air.** Falling rain scatters light too: its geometric cross-section,
+the integral of N(D) pi D^2 / 4, is 5.6e-4 /m. Half of it (its phase
+function, g ~0.8, sends about half as much sideways as the haze's g = 0.6)
+is added to the haze's scattering in the airglow round the heads
+(`lucid_rain.x`): the glow round each head about doubles, as it does in
+rain. The haze's extinction (the sky, the far city) is left as it is.
+
+**The lens** (body cam on): drops arrive at the rate the visible drops
+sweep through a 12 cm2 window, 696 /m3 x the rain's speed toward the lens
+(fall, wind, minus walking) x the window: 0.8 a second standing facing a
+1 m/s wind, about 2 walking into it, more looking up, none under a
+shelter. `HUD._lens_drops` keeps up to 12: each a soft blurred blob 6-14 %
+of the picture across that shows the scene round it shrunk and turned
+over; a third run down after a second or three, wobbling, leaving a
+fading wet track; they dry off in 6-14 s. Drawn in the body cam's lens pass
+(`eye_lens.gdshader`: a loop over the drops, eight taps of blur inside
+them), no extra full-screen pass.
+
+**The one factor not from the physics** is a `visibility` uniform,
+default 1 (kept for tuning; a phone's sharpening makes thin bright lines a
+little stronger than their mean).
+
+**Sound**: a procedural placeholder (`tools/lucid/night_city_rain.py`,
+see the level's LICENSE.md) until a CC0 recording: rain on hard
+surfaces everywhere (6 dB quieter under a shelter), pattering on metal at
+the shelter roof and the fire stair's landings, drips.
+
+**Cost**: one draw call (6440 quads; 2296 on Potato and Low), the vertex
+shader doing the work (each vertex finds its drop, its streak and its 16
+lights; the fragment shader is a mix). Lavapipe, Realistic, body cam on:
++1 draw call, +12.9k primitives, +9 % frame time (relative). The rings
+add a few ALU per wet pixel; the lens drops are a loop inside the body
+cam's existing pass.
 
 ### Stage 3 fixes
 
@@ -833,6 +942,18 @@ and in the sky. Indoor dust is not modelled.
 - `pool_tile.gdshader`: `panel_rad`, `panel_cover()`.
 - `_test/levels/level_shots.gd`: `PERF=1` (mean frame time over 60
   frames a shot), `SHOTS=<list>`.
+- Rain: `LucidRain` (`scripts/render/lucid_rain.gd`): `rate` (mm/h),
+  `wind`, `setup(streaks, splashes, drips, lamp_drops, origin)`,
+  `set_covers(world AABBs)`, `set_drips([from, to, fall, ring radius])`,
+  `follow(camera, shutter, cam_vel, amount)`, `set_lights([pos, cos
+  exponent or -1, engine intensity])`, `set_signals()`, `covered(p)`,
+  `lens_rate(look, cam_vel)`; statics `mp_lambda`, `fall_speed`,
+  `density`, `impacts`, `sigma`. Global `lucid_rain` (x the drops'
+  scattering in the airglow, y rings on the water); `lucid_street` uniforms
+  `rain_cover[4]`, `rain_cover_top`, function `lucid_ripples(lp, footprint)`.
+  `HUD.lens_rain` (drops a second on the body cam's lens),
+  `HUD.lens_wipe`. `QA_RAIN=1` adds the rain shots (`r_*`) and makes the
+  film the rain film.
 
 ### Validation (stage 4)
 
@@ -932,8 +1053,8 @@ Regressions:
 - The mall's panel map is 0.1 m a texel. A panel's reflection on terrazzo
   at 0.08 is about as sharp as the map. The map has the lowest panel over
   each spot only.
-- Wetness is a fixed state of the level (after rain), not a weather
-  simulation. The bake's bounce does not see the darker wet ground (a few %
+- Wetness is a fixed state of the level, not a weather simulation (the
+  rain adds rings, not water). The bake's bounce does not see the darker wet ground (a few %
   less bounce in reality).
 - Airglow only for the four nearest heads, isotropic in azimuth, without
   the extinction along the path (under 1 % at these distances).
@@ -1073,3 +1194,8 @@ under a 0.74 ceiling: 1 / (1 - ρ_floor ρ_ceiling) = 1.08. The total of
 11. Armstrong Fine Fissured, LR 0.82 / 0.85: https://www.partssource.com/parts/armstrong/1729A
 12. Lagarde & de Rousiers, Moving Frostbite to Physically Based Rendering 3.0 (2014), physical camera and EV100: https://blog.selfshadow.com/publications/s2014-shading-course/frostbite/s2014_pbs_frostbite_slides.pdf
 13. Kim et al. 2002 Planckian locus spline: https://en.wikipedia.org/wiki/Planckian_locus
+14. Marshall & Palmer (1948), The distribution of raindrops with size, J. Meteor. 5, 165-166: https://doi.org/10.1175/1520-0469(1948)005%3C0165:TDORWS%3E2.0.CO;2
+15. Gunn & Kinzer (1949), The terminal velocity of fall for water droplets in stagnant air, J. Meteor. 6, 243-248: https://doi.org/10.1175/1520-0469(1949)006%3C0243:TTVOFF%3E2.0.CO;2
+16. Atlas, Srivastava & Sekhon (1973), Doppler radar characteristics of precipitation at vertical incidence (v = 9.65 - 10.3 exp(-0.6 D)): https://doi.org/10.1029/RG011i001p00001
+17. Garg & Nayar (2004), Detection and removal of rain from videos; (2007) Vision and rain (a drop's radiance, streak visibility vs exposure): https://www.cs.columbia.edu/CAVE/projects/rain_detection/
+18. AMS Glossary of Meteorology, "Rain" (light < 2.5, moderate 2.6-7.6, heavy > 7.6 mm/h): https://glossary.ametsoc.org/wiki/Rain

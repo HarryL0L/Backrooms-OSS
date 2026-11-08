@@ -76,6 +76,10 @@ global uniform vec4 lucid_glow2;
 global uniform vec4 lucid_glow3;
 global uniform vec4 lucid_glow_led;
 global uniform vec4 lucid_glow_na;
+// Rain (LucidRain): x the falling drops' scattering coefficient (1/m),
+// added to the haze's in the airglow; y the rain on standing water (0 none
+// .. 1, lucid_ripples).
+global uniform vec4 lucid_rain;
 
 vec3 lucid_glow_one(vec4 g, vec3 cam, vec3 vd, float d) {
 	if (g.w == 0.0) {
@@ -100,8 +104,9 @@ vec3 lucid_airglow(vec3 wpos, vec3 cam) {
 	vec3 vd = dv / max(d, 1e-4);
 	vec3 s = lucid_glow_one(lucid_glow0, cam, vd, d) + lucid_glow_one(lucid_glow1, cam, vd, d)
 			+ lucid_glow_one(lucid_glow2, cam, vd, d) + lucid_glow_one(lucid_glow3, cam, vd, d);
-	// x pi: engine intensity is I0 / (pi UNIT_NITS).
-	return s * (0.9 * lucid_air.a * 3.14159265);
+	// x pi: engine intensity is I0 / (pi UNIT_NITS). Falling rain scatters
+	// too (its drops' cross-section, lucid_rain.x).
+	return s * ((0.9 * lucid_air.a + lucid_rain.x) * 3.14159265);
 }
 
 // lucid_finish for a point at wpos seen from cam, with the lamps' airglow.

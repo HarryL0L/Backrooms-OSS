@@ -614,5 +614,6 @@ static func clear_level() -> void:
 	RenderingServer.global_shader_parameter_set("lucid_exposure", Vector4(1, 1, 1, 0))
 	RenderingServer.global_shader_parameter_set("lucid_sky", Vector4(0, 0, 1, 0))
 	RenderingServer.global_shader_parameter_set("lucid_air", Vector4(0, 0, 0, 0))
+	RenderingServer.global_shader_parameter_set("lucid_rain", Vector4(0, 0, 0, 0))
 	for i in 4:
 		RenderingServer.global_shader_parameter_set("lucid_glow%d" % i, Vector4.ZERO)
