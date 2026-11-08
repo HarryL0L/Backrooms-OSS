@@ -44,7 +44,7 @@ uniform float roof_y = 19.5;
 uniform vec4 cover[4];                    // sheltered: x0, z0, x1, z1 (world)
 uniform vec4 cover_top = vec4(-1e6);      // under these heights (world)
 uniform vec4 lamp_p[8];                   // lights: position (world), w: cos exponent (< 0: all round)
-uniform vec4 lamp_i[8];                   // rgb: peak intensity (engine units of E / pi at 1 m)
+uniform vec4 lamp_i[8];                   // rgb: peak intensity (engine units of E / pi at 1 m), a: its drops' share (< 0: none)
 uniform vec4 sig_p[8];                    // lit signal lenses (world)
 uniform vec4 sig_i[8];                    // their intensity (engine units of E / pi at 1 m)
 uniform vec4 sig_d[8];                    // their axes
@@ -85,7 +85,7 @@ vec3 drop_light(vec3 p, vec3 to_eye) {
 	float up = clamp(0.3 - to_eye.y * 1.5, 0.0, 1.0);
 	vec3 l = mix(env, lucid_sky_now(-to_eye), up);
 	for (int i = 0; i < 8; i++) {
-		if (lamp_i[i].a <= 0.0) {
+		if (lamp_i[i].a < 0.0) {
 			continue;
 		}
 		vec3 d = p - lamp_p[i].xyz;
@@ -169,7 +169,7 @@ void vertex() {
 		vec3 ec = abs(head - cam - vec3(0.0, box_lift, 0.0)) / (box * 0.5);
 		float in_cam = (1.0 - smoothstep(0.7, 1.0, max(ec.x, ec.z))) * (1.0 - smoothstep(0.75, 1.0, ec.y));
 		// (A light's drops make up what the camera's box leaves out.)
-		a = kind > 2.5 ? a * (1.0 - in_cam) * lamp_per * step(0.0, lamp_p[li].w) * lamp_i[li].a : a * drops_per;
+		a = kind > 2.5 ? a * (1.0 - in_cam) * lamp_per * step(0.0, lamp_p[li].w) * max(lamp_i[li].a, 0.0) : a * drops_per;
 		// Not under a shelter: the drop ends on its roof.
 		float top = cover_at(head);
 		if (top > -1e5) {

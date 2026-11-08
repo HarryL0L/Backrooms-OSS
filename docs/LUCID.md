@@ -748,6 +748,20 @@ pixel, so a puddle's edge does not stair-step or crawl at grazing views.
   in the wet reflections. About 1.4 MB more video memory.
 - **The far ground**'s wear is smooth value noise (hashed 2 m squares
   showed as a checkerboard on the far streets).
+- **The far ground has a hole under the near tiles** (`NEAR_GROUND`, the
+  crossing's 190 x 140 m to the next building lines, 0.25 m of overlap at
+  the seam). It was one 14 km plane 3 cm under the near road, and on a
+  phone the road flickered from frame to frame, over all of it at once, to
+  the far ground's shading (no probe reflection, no signals, no rings;
+  sharp lamp streaks): its two triangles reach 7 km behind the camera, and
+  the depth a phone's rasterizer interpolates across a triangle that big
+  (clipped at a near plane 5 cm away, far outside the screen) was off by
+  more than the 2 % the 3 cm gap makes. Desktop GPUs and lavapipe do not
+  show it; a 4 % depth error emulated on the far ground does.
+- **The switchable heads' levels are pushed when the level is built**: the
+  shaders' `lamp_lvl` defaults to 0, so their share of the baked light was
+  missing until the failing head first flickered (up to three minutes in,
+  by the seed) and then came on all at once over the street.
 
 The Blue Hour is wet from its endless rain (see Rain): the road soaked (puddles 0.5), the alley
 0.9, sidewalks and curbs damp (0.55: dark, matt), the plaza 0.6, the roof
@@ -770,7 +784,11 @@ L = sigma_s I p (atan((d - tc) / h) + atan(tc / h)) / h
 At the night state's 3.3e-4 /m (12 km visibility) that is a faint glow of
 about 0.3 cd/m2 a metre from a head, as strong as the real haze makes it.
 It is added in `lucid_finish_at` (city surfaces, buildings, the far ground)
-and in the sky. Indoor dust is not modelled.
+and in the sky. Indoor dust is not modelled. The four are the nearest of
+the six nearest heads (picked every 0.4 s), sorted every frame, each faded
+over the last 6 m before the first one left out is as near (`_fade_weights`,
+the same for the real lights they also drive): when the nearest four change
+as you walk past a pair of heads, no glow pops on or off.
 
 ### Rain (`LucidRain`, `shaders/lucid_rain.gdshader`)
 
@@ -802,7 +820,11 @@ hides what it is in front of). Rendered drops stand for many real ones
 enough to be seen from farther off (each for 261; they fill in only
 outside the camera's box). Both boxes are anchored in the world and
 wrapped (you walk through the drops), thinned at their walls so nothing
-pops. Faded in from 0.3 to 0.9 m off the lens (out of focus there).
+pops. Faded in from 0.3 to 0.9 m off the lens (out of focus there). A
+head's box of drops fades out over the last 6 m before the fifth nearest
+head is as near (and the next one's in), and of the eight lights the last
+four fade the same way against the first left out, so drops round a light
+do not appear and vanish at once when the nearest change.
 
 **What a drop shows** (engine radiance): the lights it scatters toward the
 eye, L = I f(theta) / d^2 x p(Theta) / 4 for the eight nearest lights (the

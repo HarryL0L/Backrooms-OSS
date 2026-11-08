@@ -51,6 +51,9 @@ const FAIL_ON := 80.0
 const FAIL_OFF := 45.0
 const FAIL_WARM := 75.0
 const REAL_LIGHTS := 4
+## Lights used nearest-first fade out over this many metres before the
+## next nearest takes their place (_fade_weights).
+const FADE_BAND := 6.0
 ## Stage 4: the street heads' lens luminance (engine units), for their
 ## analytic reflections (the same as the lenses drawn).
 var _lens_led := Lucid.fixture_rgb(Lucid.FIXTURES.led_street_100w) * (Lucid.face_luminance(Lucid.FIXTURES.led_street_100w) / Lucid.UNIT_NITS)
@@ -74,6 +77,13 @@ const PROBE_PROJECT := {2: [Vector3(-400, 0, -400), Vector3(400, 30, 400)]}
 ## selecting box's x and z extents are the avenue's and the street's
 ## building lines), so the corner blocks' walls are where they stand.
 const PROBE_PLUS := [2]
+## The near tiles' ground (level XZ: the crossing's road and sidewalks to
+## the next building lines, the corner blocks): the far ground has a hole
+## here. Under them, 3 cm below the road, a phone's depth test let it
+## through, a frame at a time, over the whole road (its 14 km triangles'
+## depth is interpolated with too little precision): the road's probe
+## reflections, signals and rings went out and came back as you walked.
+const NEAR_GROUND := Rect2(-95.0, -70.0, 190.0, 140.0)
 var probe_bytes := 0
 var probe_ms := 0
 var _sig_key := ""
@@ -96,7 +106,7 @@ var _lamp_mats: Array[ShaderMaterial] = []
 var _sky: MeshInstance3D
 var _moon: DirectionalLight3D
 var _lights: Array[SpotLight3D] = []
-var _light_lamp: Array[int] = []
+var _light_cand: Array[Dictionary] = []
 var _light_t := 0.0
 var _probes := []
 var _fail_idx := -1
@@ -164,6 +174,10 @@ func build(p_seed: int) -> void:
 	for l in lay.lamps:
 		if l.get("failing", false):
 			_fail_idx = l.idx
+	# The lamps' levels from the start (the shaders' default is 0: every
+	# switchable head's share of the light was missing until the failing
+	# head first flickered, a minute or more in, and then came on at once).
+	_push_levels()
 	fall_kill = 7.0
 	environment = _environment()
 	_build_audio()
@@ -336,10 +350,8 @@ func _backdrop() -> void:
 	_sp(_ground_mat, "lens_led", _lens_led)
 	_sp(_ground_mat, "lens_na", _lens_na)
 	_kit_mats.append(_ground_mat)
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(14000, 14000)
 	var g := MeshInstance3D.new()
-	g.mesh = plane
+	g.mesh = _ground_ring(7000.0, NEAR_GROUND.grow(-0.25))
 	g.material_override = _ground_mat
 	g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	g.position = Vector3(0, -0.03, 0)
@@ -376,6 +388,33 @@ func _backdrop() -> void:
 	# Far-field lighting numbers for the blocks (worked out once).
 	_sp(_block_mat, "e_street_led", _facade_light(true))
 	_sp(_block_mat, "e_street_na", _facade_light(false))
+
+
+## A flat square (half size `half`, XZ, facing up) round a rectangular
+## hole: four strips, the north and south ones the full width.
+static func _ground_ring(half: float, hole: Rect2) -> ArrayMesh:
+	var x0 := hole.position.x
+	var z0 := hole.position.y
+	var x1 := hole.end.x
+	var z1 := hole.end.y
+	var v := PackedVector3Array()
+	for q: Rect2 in [Rect2(-half, -half, half * 2.0, z0 + half), Rect2(-half, z1, half * 2.0, half - z1),
+			Rect2(-half, z0, x0 + half, z1 - z0), Rect2(x1, z0, half - x1, z1 - z0)]:
+		var a := Vector3(q.position.x, 0.0, q.position.y)
+		var b := Vector3(q.end.x, 0.0, q.position.y)
+		var c := Vector3(q.end.x, 0.0, q.end.y)
+		var d := Vector3(q.position.x, 0.0, q.end.y)
+		v.append_array([a, b, c, a, c, d])
+	var n := PackedVector3Array()
+	n.resize(v.size())
+	n.fill(Vector3.UP)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = v
+	arr[Mesh.ARRAY_NORMAL] = n
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
 
 
 ## Splits instance entries ({pos, ...}) into 8 directions x (nearer /
@@ -485,7 +524,6 @@ func _lamps_real() -> void:
 		l.visible = false
 		add_child(l)
 		_lights.append(l)
-		_light_lamp.append(-1)
 
 
 func _load_probes() -> void:
@@ -962,27 +1000,34 @@ func _real_lights(delta: float) -> void:
 	var me := player.global_position - Vector3(0.0, LEVEL_Y, 0.0)
 	if _light_t <= 0.0:
 		_light_t = 0.4
-		var cand := []
+		# The few nearest heads (two more than there are lights) ...
+		var all := []
 		for l in lay.lamps:
 			if int(l.get("idx", -1)) < 0 or l.get("bulb", false):
 				continue
-			cand.append([(l.pos as Vector3).distance_squared_to(me), int(l.idx)])
-		cand.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
-		for i in _lights.size():
-			_light_lamp[i] = cand[i][1] if i < cand.size() else -1
+			all.append([(l.pos as Vector3).distance_squared_to(me), l])
+		all.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+		_light_cand.clear()
+		for i in mini(all.size(), _lights.size() + 2):
+			_light_cand.append(all[i][1])
+	# ... and each frame the lights go to the nearest of them, each faded by
+	# how much nearer it is than the first one left out (_fade_weights): a
+	# light and its haze glow no longer pop on and off when the nearest
+	# four change as you walk past a pair of heads.
+	var cand := []
+	for l: Dictionary in _light_cand:
+		cand.append([(l.pos as Vector3).distance_squared_to(me), l])
+	cand.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+	var w := _fade_weights(cand, _lights.size())
 	for i in _lights.size():
-		var idx := _light_lamp[i]
 		var l := _lights[i]
-		if idx < 0:
+		if i >= w.size() or w[i] <= 0.0:
 			l.visible = false
 			RenderingServer.global_shader_parameter_set("lucid_glow%d" % i, Vector4.ZERO)
 			continue
-		var lamp: Dictionary = {}
-		for x in lay.lamps:
-			if int(x.get("idx", -1)) == idx:
-				lamp = x
-				break
-		var c := Lucid.light_engine(Lucid.FIXTURES[lamp.fx], float(lamp.llf)) * lamp_lvl[idx]
+		var lamp: Dictionary = cand[i][1]
+		var idx := int(lamp.idx)
+		var c := Lucid.light_engine(Lucid.FIXTURES[lamp.fx], float(lamp.llf)) * (lamp_lvl[idx] * w[i])
 		var ln := Lucid.light_node_cam(c, cam)
 		l.light_energy = ln[0]
 		l.light_color = ln[1]
@@ -994,6 +1039,18 @@ func _real_lights(delta: float) -> void:
 		RenderingServer.global_shader_parameter_set("lucid_glow%d" % i, Vector4(l.global_position.x, l.global_position.y,
 				l.global_position.z, Lucid.lum(c) * (1.0 if led else -1.0)))
 
+
+## How much of each of the `n` nearest lights to use, from `cand` ([distance
+## squared, ...] sorted nearest first): full until it is FADE_BAND metres
+## from being as far as the first one left out, then fading to nothing
+## there, so the set of nearest lights changes without a light popping.
+static func _fade_weights(cand: Array, n: int) -> PackedFloat32Array:
+	var w := PackedFloat32Array()
+	w.resize(mini(n, cand.size()))
+	var edge: float = sqrt(cand[n][0]) if cand.size() > n else INF
+	for i in w.size():
+		w[i] = clampf((edge - sqrt(cand[i][0])) / FADE_BAND, 0.0, 1.0)
+	return w
 
 # --------------------------------------------------------------------- rain ---
 
@@ -1120,9 +1177,14 @@ func _rain_update(delta: float) -> void:
 				cand.append([(l.pos as Vector3).distance_squared_to(me), i])
 		cand.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
 		var heads := []
+		var head_edge := INF
 		for cd in cand:
-			if heads.size() < 4 and not lay.lamps[cd[1]].get("bulb", false):
-				heads.append(cd[1])
+			if not lay.lamps[cd[1]].get("bulb", false):
+				if heads.size() < 4:
+					heads.append(cd[1])
+				else:
+					head_edge = sqrt(cd[0])
+					break
 		var slots := [-1, -1, -1, -1]
 		for k in 4:
 			if k < _rain_heads.size() and heads.has(_rain_heads[k]):
@@ -1132,21 +1194,30 @@ func _rain_update(delta: float) -> void:
 				slots[slots.find(-1)] = hd
 		_rain_heads = slots
 		var order := slots.duplicate()
+		var edge := INF
 		for cd in cand:
+			if order.has(cd[1]):
+				continue
 			if order.size() >= 8:
+				edge = sqrt(cd[0])
 				break
-			if not order.has(cd[1]):
-				order.append(cd[1])
+			order.append(cd[1])
+		# Each faded as it nears the first left out (_fade_weights): the next
+		# lights' scatter, and the drops round a head (it keeps its light
+		# while it is among the eight), so neither pops in or out.
 		var lights := []
-		for li in order:
+		for k in order.size():
+			var li: int = order[k]
 			if li < 0:
-				lights.append([Vector3.ZERO, -1.0, Color(0, 0, 0)])
+				lights.append([Vector3.ZERO, -1.0, Color(0, 0, 0), 0.0])
 				continue
 			var l: Dictionary = lay.lamps[li]
 			var fx: Dictionary = Lucid.FIXTURES[l.fx]
 			var lv: float = lamp_lvl[int(l.idx)] if int(l.get("idx", -1)) >= 0 else 1.0
 			var m: float = fx.get("m", 0.0)
-			lights.append([city.to_global(l.pos), m if m > 0.0 else -1.0, Lucid.light_engine(fx, float(l.get("llf", 1.0))) * lv])
+			var fade := clampf(((head_edge if k < 4 else edge) - me.distance_to(l.pos)) / FADE_BAND, 0.0, 1.0)
+			lights.append([city.to_global(l.pos), m if m > 0.0 else -1.0,
+					Lucid.light_engine(fx, float(l.get("llf", 1.0))) * (lv if k < 4 else lv * fade), fade if k < 4 else 1.0])
 		# The surround a drop refracts: the light round it on surfaces of ~0.2.
 		_rain.set_lights(lights, _probe(me) * 0.2)
 	var under := _rain.covered(c, -0.3)

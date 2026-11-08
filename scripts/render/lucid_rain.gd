@@ -193,8 +193,9 @@ func follow(c: Camera3D, shutter: float, cam_vel: Vector3, amount: float) -> voi
 
 
 ## The lights a drop scatters: [world position, cos exponent (< 0 all
-## round), engine intensity Color] (8 at most), and the surround's
-## radiance (engine units).
+## round), engine intensity Color, share of its drops (the four nearest
+## heads' boxes of drops, 0..1, faded as they hand over)] (8 at most), and
+## the surround's radiance (engine units).
 func set_lights(lights: Array, env: Color) -> void:
 	var p := PackedVector4Array()
 	var c := PackedVector4Array()
@@ -204,10 +205,11 @@ func set_lights(lights: Array, env: Color) -> void:
 			var at: Vector3 = l[0]
 			var col: Color = l[2]
 			p.append(Vector4(at.x, at.y, at.z, float(l[1])))
-			c.append(Vector4(col.r, col.g, col.b, 1.0 if col.r + col.g + col.b > 0.0 else 0.0))
+			var share: float = l[3] if l.size() > 3 else 1.0
+			c.append(Vector4(col.r, col.g, col.b, share if col.r + col.g + col.b > 0.0 else -1.0))
 		else:
 			p.append(Vector4.ZERO)
-			c.append(Vector4.ZERO)
+			c.append(Vector4(0.0, 0.0, 0.0, -1.0))
 	_param("lamp_p", p)
 	_param("lamp_i", c)
 	_param("env", Vector3(env.r, env.g, env.b))
