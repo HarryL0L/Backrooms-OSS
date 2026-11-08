@@ -1,5 +1,5 @@
 extends SideLevel
-## The Blue Hour: an endless modern city stopped in the middle of a clear
+## The Blue Hour: an endless modern city stopped in the middle of a stormy
 ## night. Every street lamp is on, thousands of windows are lit, the
 ## signals still cycle through green, yellow and red for nobody; no
 ## people, no cars, only the hum. You come out of a roof door onto a
@@ -10,14 +10,15 @@ extends SideLevel
 ##
 ## The testbed of L.U.C.I.D. stage 3 (docs/LUCID.md): the roamable part is
 ## baked per vertex (tools/lucid/city_bake.gd: street lamps with shadows,
-## a night and a dusk state with the sky through a gather and the moon,
-## sky visibility, relightable slots), the backdrop is instanced boxes with
+## an overcast and a dusk state with the sky through a gather, sky
+## visibility, relightable slots), the backdrop is instanced boxes with
 ## procedural windows, analytic lamp pools in the ground and thousands of
 ## point-source lamps, all in real units under a phone camera filming at
-## night (Lucid.night_camera). The blue is the real colour of a light-
-## polluted moonlit sky under a white balance set by the street lamps and
-## windows, plus the eye's mesopic shift. Plan: night_city_layout.gd;
-## sizes and sources: assets/levels/night_city/SPEC.md.
+## night (Lucid.night_camera). A thunderstorm (LucidStorm): a low overcast
+## lit orange-grey from below by the city, the tower tops lost in its
+## scud, rain that comes in heavy bursts, lightning far off with its
+## thunder. Plan: night_city_layout.gd; sizes and sources:
+## assets/levels/night_city/SPEC.md.
 
 const NAME := "Level 12.1 - The Blue Hour"
 const INTRO := "Every light in the city is on. There is nobody left to have switched them on."
@@ -33,7 +34,9 @@ const BLOCKS := preload("res://shaders/lucid_blocks.gdshader")
 const GROUND := preload("res://shaders/lucid_ground.gdshader")
 const POINTS := preload("res://shaders/lucid_points.gdshader")
 const SKY := preload("res://shaders/lucid_sky.gdshader")
-const STATE_A := "night"
+## The baked light states (tools/lucid/city_bake.gd bakes these two;
+## "night", the clear moonlit sky, is in Lucid.STATES too).
+const STATE_A := "overcast"
 const STATE_B := "dusk"
 ## The photo textures' linear means (detail averages 1) and roughness means.
 const TEX_MEAN := {"asphalt": [Color(0.0936, 0.0844, 0.0645), 0.745], "concrete": [Color(0.4817, 0.4817, 0.4817), 0.516],
@@ -121,7 +124,7 @@ var _buzz: AudioStreamPlayer3D
 var _siren_t := 40.0
 var _baked := false
 ## Rain (LucidRain, docs/LUCID.md "Rain"): it never stops raining in the
-## Blue Hour, under a clear sky (Settings > Rain turns it off).
+## Blue Hour, harder in the storm's bursts (Settings > Rain turns it off).
 var _rain: LucidRain
 var _rain_on := false
 var _rain_t := 0.0
@@ -131,6 +134,11 @@ var _rain_snd: AudioStreamPlayer
 var _rain_db := 0.0
 var _rain_nodes: Array[Node] = []
 var _rain_heads := []
+## The storm (LucidStorm, docs/LUCID.md "The storm"): the cloud deck, the
+## bursts, the lightning, the thunder.
+var _storm: LucidStorm
+var _wind: Node
+var _haze := 0.0
 ## Scale reference (QA only): grey 1.75 m people where proportions are
 ## judged, in debug builds with QA_FIGURES=1 in the environment (never in
 ## the shipped level). Level space (y: on what), facing (yaw, degrees; 0
@@ -168,6 +176,7 @@ func build(p_seed: int) -> void:
 	_backdrop()
 	_lamps_real()
 	_sky_dome()
+	_build_storm()
 	_load_probes()
 	if _baked:
 		_capture_probes.call_deferred()
@@ -183,6 +192,8 @@ func build(p_seed: int) -> void:
 	_build_audio()
 	_rain_settings()
 	Settings.changed.connect(_rain_settings)
+	Settings.changed.connect(_storm_settings)
+	_storm_settings()
 	_qa_figures()
 	var roof: Transform3D = lay.spots.roof_door
 	add_exit(Transform3D(roof.basis, city.to_global(roof.origin)), "none", "", {"label": "Go back down the stairs"})
@@ -382,6 +393,7 @@ func _backdrop() -> void:
 	_points_mat = ShaderMaterial.new()
 	_points_mat.shader = POINTS
 	_sp(_points_mat, "cycle", CYCLE)
+	_sp(_points_mat, "halos", not low)
 	_kit_mats.append(_points_mat)
 	for list in _sectors(lay.points, 1e9).values():
 		LucidCity.instance(LucidCity.point_multimesh(list), _points_mat, city)
@@ -488,12 +500,21 @@ func _lamp_model(spec: Dictionary, fx_name: String) -> ArrayMesh:
 func _sky_dome() -> void:
 	_sky_mat = ShaderMaterial.new()
 	_sky_mat.shader = SKY
+	# Before every other transparent thing (depth_draw_never puts the dome in
+	# the transparent pass, sorted nearest: it was drawn over the far lights
+	# against the sky, their halos in the mist and the lightning bolt).
+	_sky_mat.render_priority = -1
 	_kit_mats.append(_sky_mat)
 	var sm := SphereMesh.new()
 	sm.radius = 7000.0
 	sm.height = 14000.0
 	sm.radial_segments = 32
 	sm.rings = 16
+	# The deck over the two downtowns and the river (level space = world x, z).
+	var dt: Array = LAYOUT.DOWNTOWN
+	_sp(_sky_mat, "downtown", Vector4(dt[0].x, dt[0].z, dt[1].x, dt[1].z))
+	_sp(_sky_mat, "river", LAYOUT.RIVER)
+	_sp(_sky_mat, "octaves", 2 if low else 4)
 	_sky = MeshInstance3D.new()
 	_sky.mesh = sm
 	_sky.material_override = _sky_mat
@@ -623,7 +644,7 @@ func albedo_at(p: Vector3, _n: Vector3) -> Color:
 
 
 func light_at(p: Vector3) -> Color:
-	var e := _probe(p - Vector3(0.0, LEVEL_Y, 0.0))
+	var e := _probe(p - Vector3(0.0, LEVEL_Y, 0.0)) + (_storm.light(Vector3.UP) * 0.5 if _storm != null else Color(0, 0, 0))
 	var x := cam.shader_exposure()
 	return Color(minf(e.r * x.r, 1.0), minf(e.g * x.g, 1.0), minf(e.b * x.b, 1.0))
 
@@ -636,12 +657,14 @@ func on_enter() -> void:
 
 func on_leave() -> void:
 	Lucid.clear_level()
+	LucidStorm.clear()
 	HUD.lens_rain = 0.0
 	HUD.lens_wipe = true
 
 
 func _exit_tree() -> void:
 	Lucid.clear_level()
+	LucidStorm.clear()
 	HUD.lens_rain = 0.0
 
 
@@ -671,11 +694,18 @@ func _update(delta: float) -> void:
 	_signals()
 	if not _qa_bodies.is_empty():
 		_qa_light()
-	# The camera: meter, white balance, then everything that follows it.
+	# The storm a frame on (the deck, the bursts, a flash), then the camera:
+	# meter, white balance, then everything that follows it.
+	var haze := lerpf(a.haze, b.haze, blend)
+	_haze = haze
+	if _storm != null:
+		_storm.cover = lerpf(a.get("cloud", 0.0), b.get("cloud", 0.0), blend)
+		var eye := player.camera.global_position if player != null and player.camera != null else city.to_global(Vector3(25, 1.7, 25))
+		_storm.update(delta, eye)
+		_sp(_sky_mat, "drift", _storm.drift)
 	if player != null and player.camera != null:
 		_meter(delta)
 	var sky := LucidCity.push_sky(a, b, blend)
-	var haze := lerpf(a.haze, b.haze, blend)
 	Lucid.push_level(cam, blend, 1.0, (sky.horizon as Color) * Lucid.UNIT_NITS, haze)
 	var e_up := Lucid.sky_illuminance(a, Vector3.UP, 8).lerp(Lucid.sky_illuminance(b, Vector3.UP, 8), blend) * (1.0 / (PI * Lucid.UNIT_NITS))
 	var e_side := Lucid.sky_illuminance(a, Vector3.RIGHT, 8).lerp(Lucid.sky_illuminance(b, Vector3.RIGHT, 8), blend) * (1.0 / (PI * Lucid.UNIT_NITS))
@@ -704,6 +734,8 @@ func _update(delta: float) -> void:
 	_moon.look_at_from_position(Vector3.ZERO, -md, Vector3.UP if absf(md.y) < 0.99 else Vector3.BACK)
 	_real_lights(delta)
 	_rain_update(delta)
+	if _wind is AudioStreamPlayer3D and _storm != null:
+		(_wind as AudioStreamPlayer3D).volume_db = -6.0 + 9.0 * _storm.intensity
 
 
 ## Program exposure and auto white balance from nine spots across the view
@@ -738,7 +770,9 @@ func _meter(delta: float) -> void:
 		var e := LucidCity._lamps_open(_meter_ctx, p, nn) if p.y < 12.0 else Color(0, 0, 0)
 		# (Lit windows are light sources: like a phone's matrix metering, it
 		# exposes for the lit surfaces and lets the windows clip.)
-		col = (e + _natural(p)) * (alb * Lucid.UNIT_NITS)
+		# (A flash: about half the sky is open round a surface.)
+		var fl := _storm.light(nn) * 0.5 if _storm != null else Color(0, 0, 0)
+		col = (e + _natural(p) + fl) * (alb * Lucid.UNIT_NITS)
 		# Stage 4: wet ground after rain mirrors the lamps (the meter sees
 		# that too; the shaders' roughness after the water: road 0.19,
 		# damp sidewalks ~0.75), and darkens (Lekner & Dorf: ~0.55).
@@ -751,6 +785,8 @@ func _meter(delta: float) -> void:
 		var a: Dictionary = Lucid.STATES[STATE_A]
 		var b: Dictionary = Lucid.STATES[STATE_B]
 		col = Lucid.sky_nits(a, dir).lerp(Lucid.sky_nits(b, dir), blend)
+		if _storm != null:
+			col += _storm.sky_nits(dir, _haze)
 	_meter_spots[_meter_i] = col
 	_meter_i = (_meter_i + 1) % 9
 	var logsum := 0.0
@@ -1099,8 +1135,11 @@ func _rain_globals() -> void:
 	var sig := LucidRain.sigma(_rain.rate) if _rain != null else 0.0
 	# x: the drops' scattering in the lamps' airglow (half their
 	# cross-section: their phase function, g ~0.8, sends about half as much
-	# sideways as the haze's g = 0.6); y: rings on the water.
-	RenderingServer.global_shader_parameter_set("lucid_rain", Vector4(sig * 0.5, 1.0, 0.0, 0.0) if _rain_on else Vector4.ZERO)
+	# sideways as the haze's g = 0.6); y: rings on the water; z: the rings'
+	# clock (faster in a burst); w: the rain's extinction (its geometric
+	# cross-section: the diffraction stays in the beam), with the haze's.
+	var rings := _storm.rings if _storm != null else 0.0
+	RenderingServer.global_shader_parameter_set("lucid_rain", Vector4(sig * 0.5, 1.0, rings, sig) if _rain_on else Vector4.ZERO)
 	if not _rain_on:
 		HUD.lens_rain = 0.0
 
@@ -1160,6 +1199,10 @@ func _rain_update(delta: float) -> void:
 			HUD.lens_wipe = true
 		_cam_vel = _cam_vel.lerp(v, minf(delta * 8.0, 1.0))
 	_cam_prev = c
+	# The storm's rain now (its bursts) and wind (its gusts).
+	if _storm != null:
+		_rain.set_rate(_storm.rate, _storm.wind)
+	_rain_globals()
 	# The camera's exposure time (at night its four merged 1/30 s frames:
 	# 1/8 s, so a drop draws a streak v / 8 long).
 	_rain.follow(player.camera, clampf(cam.shutter, 1.0 / 500.0, 1.0 / 8.0), _cam_vel.limit_length(8.0), float(OS.get_environment("RAIN_GAIN")) if OS.has_environment("RAIN_GAIN") else 1.0)
@@ -1225,7 +1268,65 @@ func _rain_update(delta: float) -> void:
 	HUD.lens_rain = 0.0 if under else _rain.lens_rate(-player.camera.global_transform.basis.z, _cam_vel)
 	if _rain_snd:
 		_rain_db = lerpf(_rain_db, -6.0 if under else 0.0, minf(delta * 3.0, 1.0))
-		_rain_snd.volume_db = -8.0 + _rain_db
+		# Louder in a burst: the drops' impacts go about as the rate.
+		_rain_snd.volume_db = -8.0 + _rain_db + 10.0 * log(_rain.rate / 6.0) / log(10.0)
+
+
+# -------------------------------------------------------------------- storm ---
+
+## Thunder recordings (procedural placeholders, tools/lucid/night_city_thunder.py)
+## by distance class: [name, the distance it was made for (m), up to (m)].
+const THUNDER := [["thunder_near", 1600.0, 2600.0], ["thunder_mid", 4000.0, 6500.0], ["thunder_far", 9000.0, 1e9]]
+
+
+func _build_storm() -> void:
+	_storm = LucidStorm.new()
+	_storm.name = "Storm"
+	add_child(_storm)
+	_storm.setup(seed_value, LEVEL_Y, low)
+	_storm.thunder.connect(_thunder)
+	if OS.get_environment("QA_STORM") == "1":
+		_storm.calm(1e5)
+
+
+## Settings > Reduce flashing: the flashes' light spread over a quarter
+## second (no flicker), dimmer and half as often.
+func _storm_settings() -> void:
+	if _storm != null:
+		_storm.reduce = bool(Settings.get_value("gameplay/reduce_flashing"))
+
+
+## Thunder arriving `dist` m from the flash's nearest point, from `dir`:
+## the recording of its distance class (near: a crack then the rumble;
+## far: a low roll, the highs gone), 6 dB down for each doubling of the
+## distance (spherical spreading; the air's absorption is in the class).
+func _thunder(dist: float, dir: Vector3) -> void:
+	if player == null:
+		return
+	var cls: Array = THUNDER[THUNDER.size() - 1]
+	for c: Array in THUNDER:
+		if dist < float(c[2]):
+			cls = c
+			break
+	var names := []
+	for k in [1, 2]:
+		var n := "%s_%d" % [cls[0], k]
+		if not _sounds.has(n) and ResourceLoader.exists(DIR + "audio/" + n + ".ogg"):
+			_sounds[n] = load(DIR + "audio/" + n + ".ogg")
+		if _sounds.has(n):
+			names.append(n)
+	if names.is_empty():
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = _sounds[names[randi() % names.size()]]
+	p.bus = "World"
+	p.attenuation_model = AudioStreamPlayer3D.ATTENUATION_DISABLED
+	# (Thunder 2 km off is ~30 dB over heavy rain: well over the loops.)
+	p.volume_db = 9.0 + 20.0 * log(float(cls[1]) / dist) / log(10.0)
+	add_child(p)
+	p.global_position = player.camera.global_position + dir * 40.0 + Vector3(0, 15.0, 0)
+	p.play()
+	p.finished.connect(p.queue_free)
 
 
 # -------------------------------------------------------------------- audio ---
@@ -1265,6 +1366,7 @@ func _build_audio() -> void:
 	if _sounds.has("wind_high"):
 		var w := add_loop(_sounds.wind_high, city.to_global(Vector3(30, 30, 25)), -6.0, {"unit_size": 30.0, "max_distance": 120.0})
 		w.name = "wind"
+		_wind = w
 	if _sounds.has("lamp_buzz"):
 		_buzz = add_loop(_sounds.lamp_buzz, city.to_global(lay.FAILING), -18.0, {"unit_size": 2.5, "max_distance": 30.0}) as AudioStreamPlayer3D
 	for h in lay.heads:
@@ -1348,6 +1450,8 @@ func _view(at: Vector3, yaw_deg: float, pitch_deg := 0.0) -> Transform3D:
 func shots() -> Array:
 	var roof: float = LAYOUT.A_ROOF
 	var sy: Array = LAYOUT.STAIR_Y
+	if OS.get_environment("QA_STORM") == "1":
+		return _storm_shots()
 	return [
 		{"name": "arrival", "transform": arrival(), "wait": 3.0},
 		{"name": "roof_edge", "transform": _view(Vector3(15.9, roof, 10.9), 45.0, -22.0), "wait": 4.0},
@@ -1382,6 +1486,41 @@ func shots() -> Array:
 		{"name": "qa_backdrop", "transform": _view(Vector3(85.0, 0.15, 9.0), 270.0, 12.0), "wait": 3.0},
 	] + (_scale_shots() if _qa() else []) + (_ground_shots() if OS.get_environment("QA_GROUND") == "1" else []) \
 			+ (_rain_shots() if OS.get_environment("QA_RAIN") == "1" else [])
+
+
+## Storm QA views (QA_STORM=1; the storm calm unless a shot calls for it;
+## run with --fixed-fps 30 so a flash lands in the saved frame): the avenue
+## to the north-north-east downtown and its towers in the scud, the roof
+## skyline to the west downtown, the deck overhead, a far flash to ground
+## with its bolt in the west-north-west (just before, during, just after),
+## a nearer flash lighting the city from the crossing (before, during),
+## the crossing in a burst's heavy rain.
+func _storm_shots() -> Array:
+	var roof: float = LAYOUT.A_ROOF
+	var calm := func() -> void: _storm.calm(1e5)
+	var far := func(lead: float) -> Callable:
+		return func() -> void:
+			_storm.calm(1e5)
+			_storm.flash(deg_to_rad(5.0), 2200.0, true, true, 3.0 + lead, 1.0)
+	var near := func(lead: float) -> Callable:
+		return func() -> void:
+			_storm.calm(1e5)
+			_storm.flash(deg_to_rad(320.0), 1800.0, true, false, 3.0 + lead, 1.0)
+	var heavy := func() -> void:
+		_storm.burst(0.5, 1000.0, 35.0)
+	return [
+		{"name": "st_avenue", "transform": _view(Vector3(2.0, 0.0, -24.0), 345.0, 14.0), "wait": 3.0, "call": calm},
+		{"name": "st_skyline", "transform": _view(Vector3(20.0, roof, 20.0), 70.0, 6.0), "wait": 3.0, "call": calm},
+		{"name": "st_towers", "transform": _view(Vector3(28.0, roof, 14.0), 333.0, 10.0), "wait": 3.0, "call": calm},
+		{"name": "st_towers_w", "transform": _view(Vector3(18.0, roof, 26.0), 75.0, 10.0), "wait": 3.0, "call": calm},
+		{"name": "st_deck", "transform": _view(Vector3(25.0, roof, 25.0), 300.0, 55.0), "wait": 3.0, "call": calm},
+		{"name": "st_flash_0", "transform": _view(Vector3(28.0, roof, 14.0), 350.0, 6.0), "wait": 3.0, "call": far.call(0.25)},
+		{"name": "st_flash_1", "transform": _view(Vector3(28.0, roof, 14.0), 350.0, 6.0), "wait": 3.0, "call": far.call(-0.03)},
+		{"name": "st_flash_2", "transform": _view(Vector3(28.0, roof, 14.0), 350.0, 6.0), "wait": 3.0, "call": far.call(-0.75)},
+		{"name": "st_city_0", "transform": _view(Vector3(6.0, 0.0, 6.0), 20.0, 8.0), "wait": 3.0, "call": near.call(0.25)},
+		{"name": "st_city_1", "transform": _view(Vector3(6.0, 0.0, 6.0), 20.0, 8.0), "wait": 3.0, "call": near.call(-0.03)},
+		{"name": "st_heavy", "transform": _view(Vector3(6.0, 0.0, 6.0), 40.0, 2.0), "wait": 5.0, "call": heavy},
+	]
 
 
 ## Rain QA views (QA_RAIN=1): the crossing, the avenue grazing, under an
@@ -1447,6 +1586,9 @@ func _scale_shots() -> Array:
 ## crossing, along the roof to the stair, down two storeys of it, then the
 ## crossing from the street.
 func film() -> void:
+	if OS.get_environment("QA_STORM") == "1":
+		await _film_storm()
+		return
 	if OS.get_environment("QA_RAIN") == "1":
 		await _film_rain()
 		return
@@ -1485,6 +1627,30 @@ func _film_rain() -> void:
 	await _ride([o + Vector3(-7.0, e - LAYOUT.WALK, -20.0), o + Vector3(-5.0, e - LAYOUT.WALK, -14.0)], deg_to_rad(10.0), 7.0, 0.0)
 	await _ride([o + Vector3(-3.0, e - LAYOUT.WALK, -9.0)], deg_to_rad(330.0), 5.0, 0.12)
 	await _ride([o + Vector3(-2.0, e - LAYOUT.WALK, -7.0)], deg_to_rad(60.0), 4.0, 0.05)
+
+
+## The storm film (QA_STORM=1, ~45 s, record with --fixed-fps 30): on the
+## roof in moderate rain looking north-north-east at the downtown's towers
+## in the scud as a burst starts and the rain thickens; a flash to ground
+## 2.4 km off in the north, its bolt under the deck, its thunder 7 s later;
+## to the parapet over the crossing; a strong flash (three times the
+## median) 1.8 km off in the north-west lights the city, its thunder 5 s
+## after; then up at the deck as it rolls.
+func _film_storm() -> void:
+	var o := Vector3(0.0, LEVEL_Y, 0.0)
+	var e: float = LAYOUT.A_ROOF + (1.38 if Player.human_eye() else 1.62)
+	_storm.calm(1e5)
+	player.teleport(o + Vector3(28.0, LAYOUT.A_ROOF, 16.0), deg_to_rad(345.0))
+	await get_tree().create_timer(2.0).timeout
+	_storm.burst(16.0, 1000.0, 35.0)
+	_storm.flash(deg_to_rad(5.0), 2400.0, true, true, 5.0, 1.0)
+	await _ride([o + Vector3(27.5, e, 13.5)], deg_to_rad(352.0), 9.0, 0.1)
+	await _ride([o + Vector3(20.0, e, 12.0)], deg_to_rad(59.0), 8.0, -0.3)
+	_storm.flash(deg_to_rad(320.0), 1800.0, true, false, 5.0, 3.0)
+	await _ride([o + Vector3(17.5, e, 11.5)], deg_to_rad(59.0), 7.0, -0.3)
+	await _ride([o + Vector3(17.3, e, 11.4)], deg_to_rad(50.0), 7.0, -0.12)
+	await _ride([o + Vector3(17.6, e, 12.0)], deg_to_rad(20.0), 7.0, 0.6)
+	await _ride([o + Vector3(18.0, e, 12.5)], deg_to_rad(340.0), 5.0, 0.1)
 
 
 func _ride(eyes: Array, yaw: float, time: float, pitch: float) -> void:

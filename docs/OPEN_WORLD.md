@@ -15,8 +15,10 @@ city in the rain, and every road brings you back.
   (the city is too big to walk). The twist: however far you go, the roads
   loop back to the same crossing and the same failing lamp. The odometer
   says 40 km; you pass the same parked car again.
-- It never stops raining in the Blue Hour, yet the sky is clear blue: no
-  clouds anywhere.
+- It never stops raining in the Blue Hour, under a low storm overcast lit
+  orange-grey by the city (the tower tops lost in its scud), heavier in
+  bursts, with lightning far off and its thunder (docs/LUCID.md, "The
+  storm").
 
 ## Stages
 

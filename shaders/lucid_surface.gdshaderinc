@@ -3,11 +3,11 @@
 // defined lucid_facade.gdshader, the same with lit windows. The light was baked per vertex by LucidCity
 // (tools/lucid/city_bake.gd), in engine units (E / pi):
 //   CUSTOM0: rgb every street lamp's light (direct + its bounce), a sky visibility
-//   CUSTOM1: rgb natural light of state A (night: sky, moon, lit windows), a slot share 0
+//   CUSTOM1: rgb natural light of state A (overcast: sky, lit windows), a slot share 0
 //   CUSTOM2: rgb natural light of state B (dusk), a slot share 1
 //   CUSTOM3: slot lamp indices / 255 (rgb), a slot share 2
 // Light = lamps x (1 - dot(shares, 1 - slot levels)) x lamp level
-//       + mix(state A, state B, blend).
+//       + mix(state A, state B, blend) + a lightning flash x sky visibility.
 // Stage 4 (lucid_spec.gdshaderinc): one physically based specular, taken
 // from the diffuse: GGX with the material's F0 and roughness, after rain
 // darker and smoother by its wetness (puddles in the low spots); what it
@@ -91,7 +91,9 @@ vec3 env_reflection(vec3 lp, vec3 r, float rough, float sky_vis) {
 		vec3 shi = vec3(probe_hi[i].w, probe_sel[i].w, probe_sel[i].y);
 		if (all(greaterThanEqual(lp, slo - 0.5)) && all(lessThanEqual(lp, shi + 0.5))) {
 			vec3 d = probe_dir(i, lp, r);
-			return textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(rough, 128.0)).rgb;
+			// (A flash lights the sky in the probe: its share added.)
+			return textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(rough, 128.0)).rgb
+					+ lucid_lightning_sky(r) * sky_vis;
 		}
 	}
 	return lucid_sky_now(r) * sky_vis;
@@ -114,7 +116,7 @@ vec3 glass_reflection(vec3 lp, vec3 wn, vec3 vw, float sky_vis, float cap) {
 			if (all(greaterThanEqual(lp, slo - 0.5)) && all(lessThanEqual(lp, shi + 0.5))) {
 				vec3 d = probe_dir(i, lp, r);
 				vec3 c = textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(0.08, 128.0)).rgb;
-				return c + lamp_reflections(lp, lucid_mirror(wn, vw, 0.05));
+				return c + lamp_reflections(lp, lucid_mirror(wn, vw, 0.05)) + lucid_lightning_sky(r) * sky_vis;
 			}
 		}
 	}
@@ -134,6 +136,8 @@ void vertex() {
 		v_light = const_light;
 		v_sky = 0.5;
 	}
+	// A flash: the lit cloud through the open share of the sky.
+	v_light += lucid_lightning_light(v_wn) * v_sky;
 }
 
 void fragment() {

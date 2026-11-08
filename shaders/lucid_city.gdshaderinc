@@ -47,15 +47,82 @@ vec3 lucid_mesopic(vec3 c) {
 	return mix(c, LUCID_SCOTOPIC * v, s);
 }
 
-// Air between the eye and a point d metres away.
-vec3 lucid_air_light(vec3 c, float d) {
-	float t = exp(-lucid_air.a * d);
-	return c * t + lucid_air.rgb * (1.0 - t);
+// Rain (LucidRain): x the falling drops' scattering coefficient (1/m),
+// added to the haze's in the airglow; y the rain on standing water (0 none
+// .. 1, lucid_ripples); z the rings' clock (s: it runs faster in heavier
+// rain); w the rain's extinction (1/m), added to the haze's.
+global uniform vec4 lucid_rain;
+
+// The storm (LucidStorm, docs/LUCID.md "The storm").
+// The cloud deck: x its base (world y), y cover (0 clear .. 1), z the
+// extinction in the cloud (1/m), w the scale height (m) of its mist under
+// the base (the scud and wet haze the tower tops vanish into).
+global uniform vec4 lucid_cloud;
+// Lightning: the patch of cloud base a flash lights from inside. xyz its
+// centre from the camera (m), w its radius (m).
+global uniform vec4 lucid_lightning_p;
+// rgb its radiance at the centre (engine units), w how far its glow
+// spreads through the deck (m).
+global uniform vec4 lucid_lightning_l;
+// rgb E / pi the flash gives a surface open to the whole sky, facing away
+// from it (engine units); w the extra toward it, x max(n . d, 0).
+global uniform vec4 lucid_lightning_e;
+
+// The mist's optical depth under the base up to height y (integral of
+// sigma_c exp((y - base) / H), sigma_c inside the cloud).
+float lucid_mist_f(float y) {
+	float yb = lucid_cloud.x;
+	return lucid_cloud.z * (lucid_cloud.w * exp((min(y, yb) - yb) / lucid_cloud.w) + max(y - yb, 0.0));
 }
 
-// Scene-referred engine units -> the value for the frame buffer (AgX after).
-vec3 lucid_finish(vec3 c, float d) {
-	return lucid_mesopic(lucid_air_light(c, d)) * lucid_exposure.rgb;
+// Optical depth of the cloud's mist between a and b (world). The scud is
+// patchy: thicker and thinner by half a kilometre or so round the far end,
+// drifting with the wind, so some tower tops show through and others are
+// gone.
+float lucid_mist_tau(vec3 a, vec3 b) {
+	if (lucid_cloud.y <= 0.0) {
+		return 0.0;
+	}
+	float d = distance(a, b);
+	float dy = b.y - a.y;
+	float s;
+	if (abs(dy) < 0.5) {
+		float ym = 0.5 * (a.y + b.y);
+		s = lucid_cloud.z * exp((min(ym, lucid_cloud.x) - lucid_cloud.x) / lucid_cloud.w);
+	} else {
+		s = (lucid_mist_f(b.y) - lucid_mist_f(a.y)) / dy;
+	}
+	float tau = lucid_cloud.y * s * d;
+	if (tau > 0.02) {
+		vec2 q = (b.xz - vec2(9.0, 3.5) * TIME) / 600.0;
+		vec2 i = floor(q);
+		vec2 f = fract(q);
+		f = f * f * (3.0 - 2.0 * f);
+		float n = mix(mix(lucid_hash(i), lucid_hash(i + vec2(1.0, 0.0)), f.x),
+				mix(lucid_hash(i + vec2(0.0, 1.0)), lucid_hash(i + vec2(1.0, 1.0)), f.x), f.y);
+		tau *= 0.3 + 1.4 * n;
+	}
+	return tau;
+}
+
+// E / pi a flash gives a surface facing n, open to the whole sky
+// (multiply by the sky visibility).
+vec3 lucid_lightning_light(vec3 n) {
+	if (lucid_lightning_e.r + lucid_lightning_e.g + lucid_lightning_e.b <= 0.0) {
+		return vec3(0.0);
+	}
+	return lucid_lightning_e.rgb * (1.0 + lucid_lightning_e.w * max(dot(n, normalize(lucid_lightning_p.xyz)), 0.0));
+}
+
+// Air between the eye (cam) and wpos (Koschmieder): the haze and the
+// rain's extinction (their airlight the horizon's luminance) and the
+// cloud's mist (its airlight the cloud base's), lit up by a flash too.
+vec3 lucid_air_at(vec3 c, vec3 wpos, vec3 cam) {
+	float th = (lucid_air.a + lucid_rain.w) * length(wpos - cam);
+	float tm = lucid_mist_tau(cam, wpos);
+	float t = exp(-th - tm);
+	vec3 air = (lucid_air.rgb * th + lucid_sky_zenith.rgb * tm) / max(th + tm, 1e-6) + lucid_lightning_e.rgb * 0.5;
+	return c * t + air * (1.0 - t);
 }
 
 // Stage 4: the haze lit by the four nearest street lamps (globals
@@ -76,11 +143,6 @@ global uniform vec4 lucid_glow2;
 global uniform vec4 lucid_glow3;
 global uniform vec4 lucid_glow_led;
 global uniform vec4 lucid_glow_na;
-// Rain (LucidRain): x the falling drops' scattering coefficient (1/m),
-// added to the haze's in the airglow; y the rain on standing water (0 none
-// .. 1, lucid_ripples).
-global uniform vec4 lucid_rain;
-
 vec3 lucid_glow_one(vec4 g, vec3 cam, vec3 vd, float d) {
 	if (g.w == 0.0) {
 		return vec3(0.0);
@@ -114,11 +176,10 @@ vec3 lucid_airglow(vec3 wpos, vec3 cam) {
 // (no airglow, night shift or exposure: the surface that mirrors it adds
 // those along its own view).
 vec3 lucid_finish_at(vec3 c, vec3 wpos, vec3 cam, float cap) {
-	float d = length(wpos - cam);
 	if (cap > 0.5) {
-		return lucid_air_light(c, d);
+		return lucid_air_at(c, wpos, cam);
 	}
-	return lucid_mesopic(lucid_air_light(c, d) + lucid_airglow(wpos, cam)) * lucid_exposure.rgb;
+	return lucid_mesopic(lucid_air_at(c, wpos, cam) + lucid_airglow(wpos, cam)) * lucid_exposure.rgb;
 }
 
 // The physical sky (Lucid.sky_nits): zenith, horizon excess fading with
@@ -136,10 +197,34 @@ vec3 lucid_sky_nits(vec3 dir, vec3 zen, vec3 hor, vec3 glow, vec3 glow_dir, floa
 	return c;
 }
 
-// The sky now along dir (engine units).
-vec3 lucid_sky_now(vec3 dir) {
+// A flash's light in the sky along dir (engine units): the lit patch of
+// cloud base (a gaussian of its radius and a long glow through the deck),
+// seen through the air (haze and rain), plus that air lit by it (half the
+// flash's E / pi, brighter toward it: forward scattering).
+vec3 lucid_lightning_sky(vec3 dir) {
+	if (lucid_lightning_l.r + lucid_lightning_l.g + lucid_lightning_l.b <= 0.0) {
+		return vec3(0.0);
+	}
+	vec3 f = lucid_lightning_p.xyz;
+	float t = dir.y > 0.002 ? f.y / dir.y : 1e6;
+	float tr = exp(-min((lucid_air.a + lucid_rain.w) * t, 60.0));
+	vec2 q = dir.xz * min(t, 1e6) - f.xz;
+	float r = length(q);
+	float rr = r / lucid_lightning_p.w;
+	vec3 patch = lucid_lightning_l.rgb * (exp(-rr * rr) + 0.12 * exp(-r / lucid_lightning_l.w));
+	vec3 air = lucid_lightning_e.rgb * (0.5 + 0.5 * lucid_lightning_e.w * max(dot(dir, normalize(f)), 0.0));
+	return patch * tr + air * (1.0 - tr);
+}
+
+// The steady sky model along dir (engine units).
+vec3 lucid_sky_steady(vec3 dir) {
 	return lucid_sky_nits(dir, lucid_sky_zenith.rgb, lucid_sky_horizon.rgb, lucid_sky_glow.rgb,
 			lucid_sky_glow_dir.xyz, max(lucid_sky_zenith.a, 0.01));
+}
+
+// The sky now along dir (engine units), with a flash.
+vec3 lucid_sky_now(vec3 dir) {
+	return lucid_sky_steady(dir) + lucid_lightning_sky(dir);
 }
 
 // What a window or a glass wall mirrors along r: the sky above, and

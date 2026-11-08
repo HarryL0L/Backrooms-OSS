@@ -37,3 +37,11 @@ ffmpeg; Freesound was tried again on 2026-11-08 and was still blocked), to
 be replaced by CC0 field recordings of moderate rain in a street and of rain
 on a metal roof, with each sound's licence checked on its own page. No
 third-party material is in them.
+
+`audio/thunder_near_1/2.ogg`, `audio/thunder_mid_1/2.ogg` and
+`audio/thunder_far_1/2.ogg` (mono, 13-23 s: thunder from a strike 1.6 km,
+4 km and an intracloud flash 9 km off) are PROCEDURAL PLACEHOLDERS made by
+`tools/lucid/night_city_thunder.py` (numpy, ffmpeg; Freesound was tried on
+2026-11-08 and answered 403 from the build environment), to be replaced by
+CC0 field recordings of thunder at those distances, each sound's licence
+checked on its own page. No third-party material is in them.

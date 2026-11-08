@@ -24,7 +24,8 @@ const SPLASH_R := 6.0
 ## Drops on the lens: its window (m2, a body camera's ~4 x 3 cm).
 const LENS_AREA := 0.0012
 
-## Rain rate (mm/h): moderate rain is 2.5-7.6 (AMS glossary), 6 here.
+## Rain rate (mm/h): moderate rain is 2.5-7.6 (AMS glossary), 6 here
+## between a storm's bursts of heavy rain (set_rate).
 var rate := 6.0
 var wind := Vector3(1.0, 0.0, 0.4)
 var material: ShaderMaterial
@@ -121,20 +122,34 @@ func setup(streaks: int, splashes: int, drips: int, lamp_drops: int, origin: Vec
 	# would otherwise be drawn over the drops in front of it.
 	material.render_priority = Material.RENDER_PRIORITY_MAX
 	material_override = material
-	var l := mp_lambda(rate)
-	var drawn := float(streaks) / (BOX.x * BOX.y * BOX.z)
-	_param("lambda", l)
-	_param("drops_per", density(rate) / drawn)
+	_rate_params()
 	_param("lamp_box", LAMP_BOX)
-	_param("lamp_per", density(rate) * LAMP_BOX.x * LAMP_BOX.y * LAMP_BOX.z * 4.0 / maxf(lamp_drops, 1.0))
-	# Splashes: drops of 1 mm and up, each drawn crown standing for this
-	# many (a crown lasts its 60 ms; one is drawn every 0.25-0.6 s).
-	_param("splash_k", impacts(rate) * PI * SPLASH_R * SPLASH_R / (splashes / 0.425) if splashes > 0 else 0.0)
 	_param("box", BOX)
 	_param("box_lift", BOX_LIFT)
 	_param("splash_r", SPLASH_R)
 	_param("wind", wind)
 	_param("origin", origin)
+
+
+## A new rain rate (mm/h) and wind (m/s), as a storm changes them: the
+## drawn drops stand for more or fewer real ones, their sizes and speeds
+## follow the rate.
+func set_rate(r: float, w: Vector3) -> void:
+	if absf(r - rate) > 0.05:
+		rate = r
+		_rate_params()
+	wind = w
+	_param("wind", wind)
+
+
+func _rate_params() -> void:
+	var drawn := float(_streaks) / (BOX.x * BOX.y * BOX.z)
+	_param("lambda", mp_lambda(rate))
+	_param("drops_per", density(rate) / drawn)
+	_param("lamp_per", density(rate) * LAMP_BOX.x * LAMP_BOX.y * LAMP_BOX.z * 4.0 / maxf(_lamp_drops, 1.0))
+	# Splashes: drops of 1 mm and up, each drawn crown standing for this
+	# many (a crown lasts its 60 ms; one is drawn every 0.25-0.6 s).
+	_param("splash_k", impacts(rate) * PI * SPLASH_R * SPLASH_R / (_splashes / 0.425) if _splashes > 0 else 0.0)
 
 
 func _param(key: String, val: Variant) -> void:

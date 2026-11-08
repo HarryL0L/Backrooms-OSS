@@ -360,6 +360,7 @@ meter) and in the shaders (`lucid_sky_nits`, from the globals
 | --- | --- | --- | --- | --- | --- | --- |
 | night | 0.040 cd/m2, 11000 K (16.1 mag/arcsec2, ~230 x the natural 174 ucd/m2) | 0.24 cd/m2, 4300 K, h0 = 0.22 rad | 0.18 lux horizontal, 0.14 vertical | moon 0.18 lux, 4100 K, 20 deg up at azimuth 255 | 30 % | 3.3e-4 /m (12 km) |
 | dusk (sun -5 deg) | 1.1 cd/m2, 15000 K | 3.0 cd/m2 + 5.0 glow in the west, 2600 K | 4.9 lux, 2.8 vertical | none | 20 % | 1.8e-4 /m |
+| overcast (the storm, the level's state) | 0.35 cd/m2, 3200 K (13.7 mag/arcsec2) | 0.26 cd/m2, 3000 K, h0 = 0.25 rad, + 0.12 toward the downtown | ~1.0 lux horizontal | none | 30 % | 3.9e-4 /m + the rain's |
 
 Megacity centres measure 15-17 mag/arcsec2 at the zenith (Falchi et al.
 2016); the horizon of a light dome is several times brighter and warmer
@@ -451,11 +452,14 @@ A tile stores its lamps once and its natural light per state; a blend
 factor (global `lucid_sky.x`) mixes two of them in the vertex shader and
 everything else follows it: the sky globals, the windows' lit share, the
 backdrop's far field, the haze, the probes, the meter. The lamp layer's
-level (`lucid_sky.z`) turns the street lamps off for a day state. Two
-states are baked now (night, dusk); a third (day: sun and clear sky)
-would be one more pair of arrays and one more `Lucid.STATES` entry. The
-level stays at night; `_test/levels/night_city_dusk.gd` (or
-the level script's static `force_blend = 1.0`) shows dusk.
+level (`lucid_sky.z`) turns the street lamps off for a day state. A tile
+holds two states; the bake takes any two of `Lucid.STATES`
+(`city_bake.tscn -- --states A,B`). The Blue Hour bakes overcast (its
+storm, see "The storm") and dusk; the clear moonlit night stays in
+`Lucid.STATES` (`--states night,dusk` with the level's `STATE_A` set to
+"night" brings it back). A third (day: sun and clear sky) would be one
+more pair of arrays. `_test/levels/night_city_dusk.gd` (or the level
+script's static `force_blend = 1.0`) shows dusk.
 
 ### City-scale light management
 
@@ -792,11 +796,12 @@ as you walk past a pair of heads, no glow pops on or off.
 
 ### Rain (`LucidRain`, `shaders/lucid_rain.gdshader`)
 
-It never stops raining in the Blue Hour, under a clear sky. Moderate rain,
-6 mm/h (the AMS glossary's moderate: 2.5-7.6 mm/h), from real drop
+It never stops raining in the Blue Hour. Moderate rain, 6 mm/h (the AMS
+glossary's moderate: 2.5-7.6 mm/h), and heavy rain in a storm's bursts
+(20-40 mm/h, `LucidRain.set_rate`, see "The storm"), from real drop
 statistics, drawn as what the physical camera records in its exposure
 time. Settings > Rain (`graphics/rain`, default on) turns it off; Potato
-and Low get a lighter version. The sky is untouched.
+and Low get a lighter version.
 
 **Drops.** Sizes follow Marshall & Palmer (1948):
 N(D) = 8000 exp(-lambda D) /m3/mm, lambda = 4.1 R^-0.21 = 2.81 /mm at
@@ -871,7 +876,12 @@ the integral of N(D) pi D^2 / 4, is 5.6e-4 /m. Half of it (its phase
 function, g ~0.8, sends about half as much sideways as the haze's g = 0.6)
 is added to the haze's scattering in the airglow round the heads
 (`lucid_rain.x`): the glow round each head about doubles, as it does in
-rain. The haze's extinction (the sky, the far city) is left as it is.
+rain. All of it is added to the air's extinction (`lucid_rain.w`, with the
+haze's, in `lucid_air_at`, the sky's cloud and the point lights): the
+forward diffraction peak stays in the beam, so the geometric cross-section
+is the extinction, and it grows as R^0.63 like the extinction measured in
+rain (~0.25 R^0.63 /km). With the overcast's haze, visibility is 4 km at
+6 mm/h and 2 km in a 35 mm/h burst.
 
 **The lens** (body cam on): drops arrive at the rate the visible drops
 sweep through a 12 cm2 window, 696 /m3 x the rain's speed toward the lens
@@ -899,6 +909,144 @@ lights; the fragment shader is a mix). Lavapipe, Realistic, body cam on:
 +1 draw call, +12.9k primitives, +9 % frame time (relative). The rings
 add a few ALU per wet pixel; the lens drops are a loop inside the body
 cam's existing pass.
+
+### The storm (`LucidStorm`, `scripts/render/lucid_storm.gd`)
+
+The Blue Hour's sky is a thunderstorm's overcast: a low deck lit from
+below by the city, rain in bursts, lightning far off with its thunder.
+Nothing is an effect laid over the picture: each part is a light source
+or a medium in real units, through the same camera (which overexposes a
+flash rather than adapting to it).
+
+**The overcast** (`Lucid.STATES.overcast`, baked). Clouds send a city's
+upward light back down. Kyba et al. (2011) measured overcast skies 10.1x
+brighter than clear ones inside Berlin (2.8x at 32 km out); Hong Kong's
+urban stations read 13.2 mag/arcsec2 under cloud, up to 3 mag brighter
+within one night as the cloud comes over (Pun & So 2012). Here: 0.35
+cd/m2 at the zenith (13.7 mag/arcsec2, 8.8x the clear night's 0.04),
+0.26 at the horizon (seen through kilometres of rain, a little darker),
+1.0 lux on open ground. The cloud reflects the lamps' own spectrum without
+the Rayleigh blue, so an overcast city sky is redder (Kyba et al. 2012,
+"Red is the new black"): 3200 K at the zenith, 3000 K at the horizon, and
+a glow of 0.12 cd/m2 toward the nearer downtown (1.5 km north-north-east,
+where the towers send more light up). No moon, no stars. The camera's
+white balance settles at ~4300 K under it instead of the clear night's
+3400-4400 K under a blue sky: the sky reads as a dull orange-brown murk,
+the rain-darkened streets keep the lamps' orange and white, nothing is
+blue but the lightning.
+
+**The deck** (`shaders/lucid_sky.gdshader`, global `lucid_cloud`). Its
+base is a plane 400 m up (storm bases are 300-1000 m, with scud under
+them). Where a view ray meets it, the sky model's luminance takes the
+deck's structure: four octaves of value noise (wavelengths 1.4 km to 80 m,
+two on Potato and Low), drifting at 9.6 m/s, each faded to its mean as it
+nears four pixel footprints; thicker lumps reflect more light down
+(+-40 %), the two downtowns light it more (+60 %), the river less (-35 %).
+All of it is seen through the haze and the rain (Koschmieder: the
+structure fades into the airlight toward the horizon, so only the sky
+overhead shows it clearly). The deck's mist hangs under it: an extinction
+of 0.03 /m inside the cloud (visibility 130 m), falling off as exp((y -
+400) / 80 m) below, patchy over ~600 m (a value noise of 0.3-1.7, drifting
+with the wind), integrated analytically along every view ray
+(`lucid_mist_tau`) with the cloud base's luminance as its airlight. Tower
+tops at 250-400 m fade into it, some showing through the gaps; their
+aircraft warning lights glow as halos: half of what the mist takes out of
+a light's beam is scattered within ~2 degrees (diffraction by ~10 um
+droplets), drawn as a gaussian of that width round the point sprite with
+the energy it carries (`lucid_points`, off on Potato and Low).
+
+**Lightning.** Flashes come as a Poisson process: one every ~75 s
+between bursts, every ~10 s at a burst's peak (4 s apart at least),
+5-14 km off between bursts and 1.8-7 km in them; one in four to ground
+(Boccippio et al. 2001). A flash to ground is 1-7 return strokes with
+geometric-mean gaps of 60 ms (Rakov & Uman 2003), each with a 30 % chance
+of 40-200 ms of continuing current; an intracloud flash is 6-14 weaker
+pulses over 0.3-0.8 s while its lit patch moves 2-6 km through the cloud.
+A first stroke's light is 8e7 lm s (median, log-normal sigma 0.6; Krider,
+Dawson & Uman 1968 measured ~1e6 J of optical energy per stroke, here
+~150 lm/W). It lands in the phone's 1/30 s sub-frame that caught it: the
+night mode's merge rejects the change, so the flash keeps its full
+brightness for that frame and the camera, metering one spot a frame and
+easing at 1.6 stops/s, has no time to adapt: the frame overexposes, the
+next is a little darker as the meter catches up.
+
+Half of the light leaves the cloud base, Lambertian, spread as
+exp(-(r / 1.2 km)^2) + 0.12 exp(-r / 4 km) (the cloud's thickness spreads
+it; 1.8 km for an intracloud flash): a median stroke's patch is 21-23
+cd/m2 at its centre, 60x the overcast.
+Its colour is the channel's N II and O I lines, blue-white (Orville
+1968): 8000 K. What it lights:
+
+- the sky (`lucid_lightning_sky`, part of `lucid_sky_now`): the patch seen
+  through the haze and rain, plus the air lit by it (half the flash's
+  E / pi, more toward it), so every sky reflection (wet ground, glass,
+  probes, drops) takes it; in the dome the lumps of the deck show dark
+  against the light inside;
+- the ground and the buildings (`lucid_lightning_light(n)`): the sky's
+  integral of that radiance for a surface facing away from the flash and
+  the extra toward it (done twice in GDScript when the patch moves, the
+  second time with the air the first one lit), times the sky visibility
+  on baked surfaces, as the sky on the backdrop's roofs and walls and half
+  of it on the far ground: a median stroke 1.8 km off gives 1.8 lux on
+  open ground facing away from it and 6.6 lux on a wall facing it, for one
+  frame (the overcast gives 1.0 lux), 2.2 km off 1.3 and 4.0 lux;
+- the air (`lucid_air_at`): its airlight brightens with the flash, so the
+  far city veils as the rain curtain lights up;
+- the meter (`LucidStorm.sky_nits`, `light`).
+
+Some flashes to ground 2 km off or more show their channel
+(`shaders/lucid_bolt.gdshader`): a midpoint-displaced polyline from the
+ground to 120 m into the base with two to four branches, camera-facing
+ribbons 1.5 pixels or the channel's glow wide carrying its light per metre
+(the flux over a 6 km channel, all round), lit only in the frames a stroke
+or its continuing current lands. Under a 400 m deck the channel 2-5 km
+off is a short jag under the scud: the haze, rain and mist take its core
+and scatter half of it forward into a glow ~3 degrees wide, so in the rain
+it is a glowing line whose top is lost in the cloud.
+
+**Thunder** arrives at 343 m/s from the channel's nearest point (the
+strike, or 2.5 km up for an intracloud flash; none beyond 16 km). The
+recordings are procedural placeholders (`tools/lucid/night_city_thunder.py`):
+a tortuous channel of 5 m segments, each an N-wave of a few ms radiated at
+right angles to the segment (Few 1969: the claps from the parts that face
+you, the rumble from the rest), arriving r / 343 s after the flash, 1/r as
+loud, its highs absorbed by the air (~5 dB/km at 1 kHz as f^1.3, ISO
+9613-1), with echoes off the towers and a 3 s tail. Three distance classes
+(1.6 km: a crack and claps rolling into the rumble; 4 km; 9 km: a low
+roll) at their true relative levels; the game adds -6 dB per doubling
+within a class.
+
+**Bursts.** Every 70-200 s the rain builds over 30-60 s to 20-40 mm/h,
+holds 50-150 s and falls off over 45-90 s (log-interpolated from 6 mm/h:
+the drops' sizes, speeds, density, splashes, lens drops and airglow all
+follow `LucidRain.set_rate`; the rings on the water run on a clock that
+goes as the impacts, `lucid_rain.z`); the wind gusts to 4-5 m/s (the drops
+slant 40-50 degrees), the rain's sound rises as its rate (+7.7 dB at
+35 mm/h), the wind's by up to 9 dB, and the lightning comes closer and
+more often.
+
+**Reduce flashing** (Settings, `gameplay/reduce_flashing`, default off):
+each flash's light is spread over a quarter second (a first-order
+low-pass: no flicker, a tenth of the peak) at half the strength, flashes
+come half as often and at least 20 s apart. Potato and Low: two octaves on
+the deck, no mist halos, coarser flash integrals, fewer bolt segments.
+
+**Cost** (lavapipe, 1280 x 720, Realistic, body cam on, mean frame time
+over 60 frames, the harness's nine standard Blue Hour views): 320 ms
+before, 305 ms after (run-to-run noise ~5-10 %: no measurable change);
+draw calls and primitives unchanged (25-29, 117k-166k), plus one draw
+call and 192 triangles while a bolt is lit. Per pixel: the mist's
+optical depth and airlight in every city shader (a few exp, a value
+noise where the mist is thick), four octaves of value noise on the sky
+(two on Potato and Low), a few ALU for a flash term (zero when there is
+none). On the CPU, a flash's light integral (2 x 2 x 98 samples, 2 x 2 x
+50 on Potato and Low) when its patch moves 150 m. Sounds +0.57 MB. The
+bake (overcast and dusk, 70.7k vertices, 64 rays): 160-176 s headless.
+
+**Fixes found on the way.** The sky dome (depth_draw_never: the
+transparent pass, sorted nearest) was drawn over every transparent thing
+behind it with the same priority: the far point lights against the sky
+(beacons on tower tops) were hidden. It now has `render_priority` -1.
 
 ### Stage 3 fixes
 
@@ -975,7 +1123,26 @@ cam's existing pass.
   `rain_cover[4]`, `rain_cover_top`, function `lucid_ripples(lp, footprint)`.
   `HUD.lens_rain` (drops a second on the body cam's lens),
   `HUD.lens_wipe`. `QA_RAIN=1` adds the rain shots (`r_*`) and makes the
-  film the rain film.
+  film the rain film. `LucidRain.set_rate(rate, wind)`; `lucid_rain.z`
+  the rings' clock, `.w` the rain's extinction.
+- Storm: `LucidStorm` (`scripts/render/lucid_storm.gd`): `setup(seed,
+  ground_y, low)`, `update(delta, cam)`, `flash(az, dist, cg, bolt, delay,
+  qa)`, `burst(ramp, hold, peak)`, `calm(secs)`, `sky_nits(dir, haze)`,
+  `light(n)`, `extinction()`, `clear()`; `rate`, `wind`, `intensity`,
+  `reduce`, `cover`, `drift`, `rings`; signal `thunder(dist, dir)`;
+  constants `CLOUD_BASE`, `CLOUD_SIGMA`, `MIST_H`, `Q_STROKE`, `FLASH_K`.
+  Globals `lucid_cloud` (x base, y cover, z in-cloud extinction, w mist
+  scale height), `lucid_lightning_p` (patch from the camera, radius),
+  `lucid_lightning_l` (patch radiance, glow reach), `lucid_lightning_e`
+  (E / pi away from it, extra toward it). `lucid_city.gdshaderinc`:
+  `lucid_mist_tau(a, b)`, `lucid_air_at(c, wpos, cam)` (replaces
+  `lucid_air_light` and `lucid_finish`), `lucid_lightning_sky(dir)`,
+  `lucid_lightning_light(n)`, `lucid_sky_steady(dir)`. `lucid_sky` uniforms
+  `downtown`, `river`, `drift`, `octaves`; `lucid_points` `halos`;
+  `shaders/lucid_bolt.gdshader`. `Lucid.STATES.overcast`, the states'
+  `cloud`. Settings `gameplay/reduce_flashing`. `QA_STORM=1`: the storm
+  shots (`st_*`, the storm calm unless a shot calls for it) and the storm
+  film; run with `--fixed-fps 30`. `level_shots`: a shot's `call`.
 
 ### Validation (stage 4)
 
@@ -1221,3 +1388,13 @@ under a 0.74 ceiling: 1 / (1 - ρ_floor ρ_ceiling) = 1.08. The total of
 16. Atlas, Srivastava & Sekhon (1973), Doppler radar characteristics of precipitation at vertical incidence (v = 9.65 - 10.3 exp(-0.6 D)): https://doi.org/10.1029/RG011i001p00001
 17. Garg & Nayar (2004), Detection and removal of rain from videos; (2007) Vision and rain (a drop's radiance, streak visibility vs exposure): https://www.cs.columbia.edu/CAVE/projects/rain_detection/
 18. AMS Glossary of Meteorology, "Rain" (light < 2.5, moderate 2.6-7.6, heavy > 7.6 mm/h): https://glossary.ametsoc.org/wiki/Rain
+19. Kyba, Ruhtz, Fischer & Hölker (2011), Cloud coverage acts as an amplifier for ecological light pollution in urban ecosystems, PLoS ONE 6(3): e17307 (overcast 10.1x clear in Berlin, 2.8x at 32 km): https://doi.org/10.1371/journal.pone.0017307
+20. Kyba, Ruhtz, Fischer & Hölker (2012), Red is the new black: how the colour of urban skyglow varies with cloud cover, MNRAS 425, 701-708: https://doi.org/10.1111/j.1365-2966.2012.21559.x
+21. Pun & So (2012), Night-sky brightness monitoring in Hong Kong (urban 13.2 mag/arcsec2 at worst, cloud effects up to 3 mag a night): https://arxiv.org/abs/1106.3842
+22. Jechow, Kolláth, Ribas et al. (2017), Imaging and mapping the impact of clouds on skyglow with all-sky photometry, Sci. Rep. 7, 6741: https://www.nature.com/articles/s41598-017-06998-z ; Jechow, Kyba & Hölker (2022), Mapping the brightness and color of urban to rural skyglow with all-sky photometry (Berlin, clear and overcast): https://arxiv.org/abs/2202.08258
+23. Krider, Dawson & Uman (1968), Peak power and energy dissipation in a single-stroke lightning flash, J. Geophys. Res. 73, 3335: https://doi.org/10.1029/JB073i010p03335
+24. Rakov & Uman (2003), Lightning: Physics and Effects (strokes per flash, interstroke intervals, continuing current), Cambridge University Press
+25. Boccippio, Cummins, Christian & Goodman (2001), Combined satellite- and surface-based estimation of the intracloud-cloud-to-ground lightning ratio over the continental United States, Mon. Wea. Rev. 129, 108: https://doi.org/10.1175/1520-0493(2001)129%3C0108:CSASBE%3E2.0.CO;2
+26. Orville (1968), A high-speed time-resolved spectroscopic study of the lightning return stroke, J. Atmos. Sci. 25, 827: https://doi.org/10.1175/1520-0469(1968)025%3C0827:AHSTRS%3E2.0.CO;2
+27. Few (1969), Power spectrum of thunder, J. Geophys. Res. 74, 6926: https://doi.org/10.1029/JC074i028p06926 ; ISO 9613-1 (atmospheric absorption of sound)
+28. WMO International Cloud Atlas, nimbostratus and pannus: https://cloudatlas.wmo.int/en/nimbostratus-ns.html

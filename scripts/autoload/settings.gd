@@ -83,6 +83,7 @@ func defaults() -> Dictionary:
 		"graphics/auto_quality": true,
 		"gameplay/entities": true,
 		"gameplay/jumpscares": true,
+		"gameplay/reduce_flashing": false,
 		"graphics/ps1": false,
 		"graphics/realistic": false,
 		"graphics/found_footage": 0,

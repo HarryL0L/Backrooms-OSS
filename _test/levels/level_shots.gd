@@ -19,7 +19,9 @@ extends Node
 # .. 5 Photoreal); --set key=value any setting (e.g. --set graphics/ps1=true);
 # --script res://... runs that script as level <id> (a variant being tried).
 # PERF=1 also prints the mean frame time over 60 frames per shot;
-# SHOTS=<comma list> takes only those shots.
+# SHOTS=<comma list> takes only those shots. A shot's optional "call"
+# (a Callable) runs as it is taken, before the wait (e.g. a lightning flash
+# timed to land as it is saved: run those with --fixed-fps 30).
 # Exits 1 on any script or shader error.
 
 class _Errors:
@@ -131,6 +133,8 @@ func _run() -> void:
 		p.snap_stance()
 		if s.has("flashlight"):
 			p.set_flashlight(bool(s.flashlight))
+		if s.has("call"):
+			(s.call as Callable).call()
 		await _wait(float(s.get("wait", 1.5)))
 		await RenderingServer.frame_post_draw
 		var path := "%s/%s.png" % [out, s.name]

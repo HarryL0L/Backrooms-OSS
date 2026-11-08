@@ -28,6 +28,14 @@ uniform float clock = 0.0;           // the level's signal clock (s), so near an
 // really carries (phone lenses scatter a few percent).
 const float GLARE = 0.03;
 const float THETA0 = 0.004;
+// In the cloud's mist (lucid_cloud) the droplets scatter a light's beam
+// mostly forward, within a few degrees (diffraction by ~10 um droplets,
+// lambda / D ~ 0.05 rad): HALO of what the mist takes out of the beam is
+// spread into a gaussian halo of HALO_THETA round it, the rest goes into
+// the mist's airlight. So a beacon in the scud is a soft red glow.
+const float HALO = 0.5;
+const float HALO_THETA = 0.03;
+uniform bool halos = true;
 
 varying float v_l;
 varying float v_rc;
@@ -35,6 +43,8 @@ varying float v_tail;
 varying float v_rt;
 varying vec3 v_col;
 varying float v_d;
+varying float v_halo;
+varying float v_hk;
 
 float signal_on(float kind, float s) {
 	if (kind < 1.5) {
@@ -74,13 +84,23 @@ void vertex() {
 		i *= lucid_sky.z;
 	}
 	float fade = INSTANCE_CUSTOM.w > 0.0 ? smoothstep(INSTANCE_CUSTOM.w, INSTANCE_CUSTOM.w * 1.6, d) : 1.0;
-	// Air between: Koschmieder's transmittance (no airlight on a sprite).
-	float tr = exp(-lucid_air.a * d);
+	// Air between: Koschmieder's transmittance (no airlight on a sprite):
+	// the haze, the rain, the cloud's mist.
+	float th = (lucid_air.a + lucid_rain.w) * d;
+	float tm = lucid_mist_tau(cam, c);
+	float tr = exp(-th - tm);
 	float e_cam = i * tr / max(d * d, 1.0);
 	float tail = GLARE * e_cam / (6.2831853 * THETA0 * THETA0) / LUCID_UNIT_NITS;
 	float r = rc;
 	if (tail * lucid_exposure.g > 0.03) {
 		r = max(rc, THETA0 * 14.0 * d);
+	}
+	// The mist's halo: peak E / (pi theta^2).
+	float halo = halos ? HALO * i * exp(-th) * (1.0 - exp(-tm)) / max(d * d, 1.0) / (3.14159 * HALO_THETA * HALO_THETA) / LUCID_UNIT_NITS : 0.0;
+	if (halo * lucid_exposure.g > 0.004) {
+		r = max(r, HALO_THETA * 2.5 * d);
+	} else {
+		halo = 0.0;
 	}
 	vec3 right = INV_VIEW_MATRIX[0].xyz;
 	vec3 up = INV_VIEW_MATRIX[1].xyz;
@@ -92,6 +112,8 @@ void vertex() {
 	v_rt = r / d / THETA0;
 	v_col = COLOR.rgb;
 	v_d = d;
+	v_halo = halo;
+	v_hk = r / (HALO_THETA * d);
 	UV = VERTEX.xy * 2.0;
 }
 
@@ -100,7 +122,8 @@ void fragment() {
 	float qc = q / v_rc;
 	float k = q * v_rt;
 	float h = 1.0 + k * k;
-	float l = v_l * exp(-4.0 * qc * qc) + v_tail / (h * sqrt(h)) * (1.0 - smoothstep(0.75, 1.0, q));
+	float hq = q * v_hk;
+	float l = v_l * exp(-4.0 * qc * qc) + (v_tail / (h * sqrt(h)) + v_halo * exp(-hq * hq)) * (1.0 - smoothstep(0.75, 1.0, q));
 	// Not in reflection probes: a point source is a single huge texel there,
 	// and the lamps' reflections are analytic (lucid_street).
 	ALBEDO = lucid_capturing(PROJECTION_MATRIX) > 0.5 ? vec3(0.0) : lucid_mesopic(v_col * l) * lucid_exposure.rgb;

@@ -154,6 +154,22 @@ lucid_rain={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 0)
 }
+lucid_cloud={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 1)
+}
+lucid_lightning_p={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 1)
+}
+lucid_lightning_l={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 1)
+}
+lucid_lightning_e={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
 flash_pos={
 "type": "vec3",
 "value": Vector3(0, 0, 0)

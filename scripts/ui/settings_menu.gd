@@ -205,6 +205,7 @@ func _build_graphics() -> void:
 	_toggle(p, "Head bob", "graphics/head_bob")
 	_toggle(p, "Entities (something in the walls, someone in the dark, the crawler, the tall one in the car park)", "gameplay/entities")
 	_toggle(p, "Jumpscares (a scream, a white flash, the screen shaking)", "gameplay/jumpscares")
+	_toggle(p, "Reduce flashing (lightning: softer, rarer, no flicker)", "gameplay/reduce_flashing")
 	_toggle(p, "Show FPS", "graphics/show_fps")
 	if Settings.is_ultra:
 		_toggle(p, "Screen-space reflections (Ultra)", "graphics/ssr")

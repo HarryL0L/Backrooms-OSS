@@ -25,7 +25,7 @@ the bake, instancing, the sky), the `shaders/lucid_*` shaders,
 `bake/probes.res`; rerun after any change to the plan: ~85 s headless),
 `tools/lucid/night_city_audio.py`, `_test/levels/night_city_dusk.gd` (the
 same level in its dusk state, for the harness). Lighting: docs/LUCID.md,
-stage 3. Rain: `scripts/render/lucid_rain.gd`, `shaders/lucid_rain.gdshader`,
+stage 3 (the baked states are now overcast and dusk). Rain: `scripts/render/lucid_rain.gd`, `shaders/lucid_rain.gdshader`,
 the rings in `shaders/lucid_street.gdshaderinc`, the lens drops in
 `shaders/eye_lens.gdshader` and `scripts/ui/hud.gd`,
 `tools/lucid/night_city_rain.py` (its placeholder sounds); docs/LUCID.md,
@@ -188,23 +188,23 @@ without it for the body cam (chest, 128 degree fisheye).
 
 ## Rain
 
-It never stops raining in the Blue Hour, yet the sky is clear blue: no
-clouds anywhere (docs/OPEN_WORLD.md). Settings > Rain turns it off
+It never stops raining in the Blue Hour, under a storm's overcast, harder
+in its bursts (see "Storm" below). Settings > Rain turns it off
 (`graphics/rain`, default on); Potato and Low draw a lighter rain (1500 +
 500 drops, 200 splashes, 96 drips instead of 4000 + 1600, 600, 240).
 
 | What | Real value | Source | Here |
 | --- | --- | --- | --- |
-| Rain rate | moderate 2.6-7.6 mm/h | AMS Glossary, "Rain" | 6 mm/h |
+| Rain rate | moderate 2.6-7.6 mm/h; heavy over 7.6 | AMS Glossary, "Rain" | 6 mm/h, 20-40 mm/h in a storm burst |
 | Drop sizes | N(D) = 8000 exp(-4.1 R^-0.21 D) /m3/mm | Marshall & Palmer 1948 | lambda 2.81 /mm: 696 drops of 0.5 mm and up per m3, mean 0.86 mm, drawn up to 4.5 mm |
 | Fall speed | 2.0 (0.5 mm), 4.0 (1), 6.5 (2), 8.0 (3), 9 (4.5 mm) m/s | Gunn & Kinzer 1949; fit v = 9.65 - 10.3 exp(-0.6 D), Atlas et al. 1973 | the fit, per drop |
-| Wind | light air to light breeze | | 1 m/s from the west-north-west (+-20 % per drop): ~15 degree slant |
+| Wind | light air to light breeze; gusts in a storm | | 1 m/s from the west-north-west (+-20 % per drop): ~15 degree slant; 4-5 m/s gusting in a burst |
 | Streak length | v x exposure time | Garg & Nayar 2007 | the night camera's 1/8 s (four merged 1/30 s frames): 0.25-1 m |
 | Streak opacity | D / (v t) of the exposure x D / pixel width | Garg & Nayar 2007 | D^2 / ((v t + w) w), w = drop or 2.5 px |
 | Drop brightness | what it scatters: I cos^m / d^2 x phase; plus its surround, inverted over ~165 degrees | Garg & Nayar 2004; Mie / geometric optics of water spheres | 8 nearest lights + 8 lit signals, phase 0.88 HG(0.85) + 0.12 HG(-0.3); surround: the probe light x 0.2, the sky looking up |
 | Impacts (1 mm and up) | 852 /m2/s at 6 mm/h | integral of N(D) v(D) | splashes (60 ms crowns) within 6 m; rings on the water |
 | Ripple rings | capillary waves 2-3 cm, ~0.2 m/s, gone in ~0.5 s | | 0.2 m cells (two layers) + 0.33 m cells, one ring a cycle each |
-| Scattering by the rain | 5.6e-4 /m (geometric cross-section) | integral of N(D) pi D^2 / 4 | half of it added to the haze's in the lamps' airglow |
+| Scattering by the rain | 5.6e-4 /m (geometric cross-section) at 6 mm/h, as R^0.63 | integral of N(D) pi D^2 / 4; measured extinction in rain ~0.25 R^0.63 /km | half of it added to the haze's in the lamps' airglow; all of it to the air's extinction (visibility 4 km at 6 mm/h with the haze, 2 km at 35) |
 | Drips | a pendant drop leaves an edge at ~4.5 mm | (capillary length of water, 2.7 mm) | grows 0.4 s, falls with drag to 9 m/s terminal, splashes |
 | Lens drops | 696 /m3 x speed toward the lens x a 12 cm2 window | | 0.8/s standing facing the wind, ~2/s walking into it, none under cover |
 
@@ -219,6 +219,27 @@ patter on the metal of the shelter roof and the stair's landings, drips
 under the shelter's edge and the stair (procedural placeholders, see
 LICENSE.md).
 
+## Storm
+
+The sky is a storm's overcast (docs/LUCID.md, "The storm";
+`scripts/render/lucid_storm.gd`, `shaders/lucid_sky.gdshader`,
+`shaders/lucid_bolt.gdshader`, `tools/lucid/night_city_thunder.py` for the
+placeholder thunder). Settings > Reduce flashing (`gameplay/reduce_flashing`,
+default off) spreads each flash over a quarter second, dims it and halves
+how often they come.
+
+| What | Real value | Source | Here |
+| --- | --- | --- | --- |
+| Cloud base | nimbostratus / storm bases 300-1000 m, scud (pannus) lower | WMO International Cloud Atlas | deck at 400 m; mist thickening as exp((y - 400) / 80 m) under it, patchy over ~600 m; 0.03 /m (visibility 130 m) in the cloud |
+| Overcast city sky | clouds amplify skyglow ~10x in a city (2.8x at 32 km); urban Hong Kong 13.2 mag/arcsec2 under cloud, up to 3 mag brighter within a night | Kyba et al. 2011; Pun & So 2012 | 0.35 cd/m2 zenith (13.7 mag/arcsec2, 8.8x the clear night's 0.04), horizon 0.26 |
+| Its colour | redder under cloud (the lamps' spectrum reflected, no Rayleigh blue) | Kyba et al. 2012 | 3200 K zenith, 3000 K horizon (white balance then ~4300 K: a dull orange-brown sky) |
+| Its distribution | flatter than a clear light dome | Jechow et al. 2017 | brighter over the two downtowns (+60 %), darker over the river (-35 %) |
+| Haze | humid air under a cloud deck | | 3.9e-4 /m (10 km) before the rain's extinction |
+| Flashes | IC : CG about 3 : 1; 1-7 return strokes ~60 ms apart (geometric mean), ~30 % with continuing current | Boccippio et al. 2001; Rakov & Uman 2003 | a Poisson process: one every ~75 s between bursts, every ~10 s at a burst's peak, 4 s apart at least; 5-14 km off between bursts, 1.8-7 km in them |
+| A stroke's light | optical energy ~1e6 J per stroke | Krider, Dawson & Uman 1968 | 8e7 lm s median (log-normal, sigma 0.6), in the camera's 1/30 s sub-frame; half leaves the cloud base over a 1.2 km patch and a 4 km glow: a median stroke's patch 23 cd/m2 |
+| Its colour | N II / O I / H lines and continuum, blue-white | Orville 1968 | 8000 K |
+| Thunder | 343 m/s; heard to ~15-20 km; N-waves from a tortuous channel; air absorption ~5 dB/km at 1 kHz | Few 1969; ISO 9613-1 | delayed by the nearest channel point; near (< 2.6 km: crack, claps, rumble), mid (< 6.5 km), far (rumble) placeholders, -6 dB per doubling |
+
 ## What happens
 
 - Signals cycle (60 s) at the crossing and at ~150 crossings down the
@@ -232,7 +253,10 @@ LICENSE.md).
 - The camera exposes and balances like a phone filming at night (see
   docs/LUCID.md, stage 3).
 - It rains (above), and the body cam's lens collects drops that run and
-  dry.
+  dry. Every few minutes a storm burst comes through: the rain thickens to
+  20-40 mm/h, the wind gusts, and lightning comes closer and more often,
+  lighting the low cloud from inside and the city with it; the thunder
+  follows, seconds later.
 
 ## Performance (Realistic preset, worst view of the harness)
 
@@ -253,10 +277,15 @@ time 349 -> 381 ms (+9 %, relative only; the ripples are a few ALU per wet
 pixel, the lens drops a loop inside the body cam's existing pass). Sounds
 +0.4 MB.
 
+Storm (same harness, nine views, mean of 60 frames): 320 -> 305 ms (within
+noise), draw calls and primitives unchanged, +1 call / 192 triangles while
+a bolt is lit; thunder +0.57 MB; the bake 160-176 s.
+
 ## Left to do
 
-- Real CC0 recordings for the city sounds and the rain (Freesound was
-  unreachable; the rain's are procedural placeholders).
+- Real CC0 recordings for the city sounds, the rain and the thunder
+  (Freesound was unreachable; the rain's and thunder's are procedural
+  placeholders).
 - Parked cars, trees, street furniture variety (manholes, drain inlets,
   bollards, benches); curb ramps at the crosswalks; interiors behind the
   shop windows (now a procedural glow).

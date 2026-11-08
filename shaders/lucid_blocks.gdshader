@@ -8,7 +8,8 @@
 // (half of it hidden by the neighbours), the street lamps' light washing
 // the lower floors (falling off with height above the 10 m lamp heads),
 // and the moon on the faces turned to it, more on the upper floors that
-// clear the street canyon. Windows as in lucid_windows.gdshaderinc.
+// clear the street canyon; a lightning flash like the sky. Windows as in
+// lucid_windows.gdshaderinc.
 shader_type spatial;
 render_mode unshaded, fog_disabled;
 #include "res://shaders/lucid_city.gdshaderinc"
@@ -53,14 +54,15 @@ void fragment() {
 	if (wn.y > 0.5) {
 		// A flat roof: dark membrane or gravel under the sky and the moon.
 		vec3 roof = vec3(0.13, 0.13, 0.135) * (0.7 + 0.6 * h1);
-		rad = roof * (e_sky_up + e_moon * max(moon_dir.y, 0.0));
+		rad = roof * (e_sky_up + e_moon * max(moon_dir.y, 0.0) + lucid_lightning_light(wn));
 	} else {
 		vec3 wall = kind > 0.5 && kind < 1.5 ? vec3(0.09, 0.1, 0.11) * (0.8 + 0.5 * h1)
 				: mix(vec3(0.42, 0.40, 0.36), vec3(0.30, 0.20, 0.14), step(0.55, h1)) * (0.7 + 0.5 * lucid_hash(vec2(seed, 7.7)));
 		vec3 street = mix(e_street_led, e_street_na, na);
 		float sv = exp(-max(v - 6.0, 0.0) / 9.0);
 		float clear = smoothstep(10.0, 60.0, v);
-		vec3 e = e_sky_side * (0.45 + 0.4 * clear) + street * sv + e_moon * max(dot(wn, moon_dir), 0.0) * (0.25 + 0.75 * clear);
+		vec3 e = (e_sky_side + lucid_lightning_light(wn)) * (0.45 + 0.4 * clear) + street * sv
+				+ e_moon * max(dot(wn, moon_dir), 0.0) * (0.25 + 0.75 * clear);
 		float u = abs(wn.x) > abs(wn.z) ? v_wpos.z * sign(wn.x) : -v_wpos.x * sign(wn.z);
 		vec3 r = reflect(vw, wn);
 		float fr = lucid_fresnel(0.08, dot(-vw, wn)) * 0.9;

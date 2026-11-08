@@ -83,7 +83,8 @@ vec3 drop_light(vec3 p, vec3 to_eye) {
 	// a wide cone (Garg & Nayar 2004): looking up, the sky; level, the lit
 	// street and walls as much as the sky; looking down, the street.
 	float up = clamp(0.3 - to_eye.y * 1.5, 0.0, 1.0);
-	vec3 l = mix(env, lucid_sky_now(-to_eye), up);
+	// (A lightning flash lights the surround too: surfaces of ~0.2.)
+	vec3 l = mix(env + lucid_lightning_e.rgb * 0.2, lucid_sky_now(-to_eye), up);
 	for (int i = 0; i < 8; i++) {
 		if (lamp_i[i].a < 0.0) {
 			continue;

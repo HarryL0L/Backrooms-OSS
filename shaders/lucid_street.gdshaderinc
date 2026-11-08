@@ -106,7 +106,8 @@ vec3 lucid_ripples(vec3 lp, float w) {
 	if (s <= 0.0) {
 		return vec3(0.0);
 	}
-	float t = TIME;
+	// (The rings' clock runs faster in heavier rain: more drops land.)
+	float t = lucid_rain.z > 0.0 ? lucid_rain.z : TIME;
 	vec2 g = vec2(0.0);
 	// 2.5 cm waves in 0.2 m cells: resolved while the pixel is under ~8 mm.
 	float fine = 1.0 - smoothstep(0.004, 0.009, w);

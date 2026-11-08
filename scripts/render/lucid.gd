@@ -480,8 +480,10 @@ const MOON_DISC_SR := 6.4e-5
 ## or sun as a directional light (lux on a surface facing it, Kelvin,
 ## altitude and azimuth in degrees: azimuth from north (-Z) through east
 ## (+X)), how many windows are lit, the street lamps' level and the haze
-## (extinction coefficient of the air, 1/m: 3.912 / visual range).
-## Sources and reasoning: docs/LUCID.md (stage 3).
+## (extinction coefficient of the air, 1/m: 3.912 / visual range), and
+## the cloud deck's cover (0 clear .. 1 overcast: drawn by lucid_sky, with
+## its mist round the tower tops, LucidStorm).
+## Sources and reasoning: docs/LUCID.md (stage 3, the storm).
 const STATES := {
 	# A clear night under a megacity's light dome, the moon up. The zenith
 	# at 16.1 mag/arcsec2 (0.04 cd/m2, ~230x natural, the class of the most
@@ -493,7 +495,24 @@ const STATES := {
 	# range 12 km.
 	"night": {"zenith": 0.04, "zenith_k": 11000.0, "horizon": 0.24, "horizon_k": 4300.0, "h0": 0.22,
 		"glow": 0.0, "glow_k": 3000.0, "glow_az": 270.0, "moon_lux": 0.18, "moon_k": 4100.0,
-		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.3, "lamps": 1.0, "haze": 3.3e-4, "stars": 1.0},
+		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.3, "lamps": 1.0, "haze": 3.3e-4, "stars": 1.0, "cloud": 0.0},
+	# A storm's overcast over the same city (the Blue Hour's state): a low
+	# deck (base 400 m, scud under it) lit from below by the city. Clouds
+	# send the city's upward light back down: Kyba et al. 2011 measured
+	# overcast skies 10.1x brighter than clear inside Berlin (2.8x at 32
+	# km); Hong Kong's urban stations reach 13.2 mag/arcsec2 under cloud,
+	# up to 3 mag brighter within a night (Pun & So 2012). Here 13.7
+	# mag/arcsec2 (0.35 cd/m2, 8.8x the clear night). The cloud reflects the
+	# lamps' own spectrum without the Rayleigh blue, so it is warm (Kyba et
+	# al. 2012, "Red is the new black"): 3200 K, a sodium and LED mix. The
+	# distribution is flatter than a clear light dome (Jechow et al. 2017):
+	# the horizon, seen through kilometres of rain, a little darker and
+	# warmer, brighter toward the nearer downtown's towers (the glow, 1.5 km
+	# north-north-east: more light sent up there). No moon, no stars. Visual range 10 km in the humid air before
+	# the rain's own extinction (LucidStorm). Windows as at night.
+	"overcast": {"zenith": 0.35, "zenith_k": 3200.0, "horizon": 0.26, "horizon_k": 3000.0, "h0": 0.25,
+		"glow": 0.12, "glow_k": 3000.0, "glow_az": 27.0, "moon_lux": 0.0, "moon_k": 4100.0,
+		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.3, "lamps": 1.0, "haze": 3.9e-4, "stars": 0.0, "cloud": 1.0},
 	# The blue hour: the sun 5 deg below the horizon in the west. Zenith
 	# about 1 cd/m2 and very blue (the ozone Chappuis band), the western
 	# horizon a few cd/m2 and orange; about 5 lux on the ground from the sky
@@ -501,7 +520,7 @@ const STATES := {
 	# fewer windows lit. No direct sun.
 	"dusk": {"zenith": 1.1, "zenith_k": 15000.0, "horizon": 3.0, "horizon_k": 7000.0, "h0": 0.35,
 		"glow": 5.0, "glow_k": 2600.0, "glow_az": 280.0, "moon_lux": 0.0, "moon_k": 4100.0,
-		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.2, "lamps": 1.0, "haze": 1.8e-4, "stars": 0.0},
+		"moon_alt": 20.0, "moon_az": 255.0, "windows": 0.2, "lamps": 1.0, "haze": 1.8e-4, "stars": 0.0, "cloud": 0.0},
 }
 
 
@@ -535,7 +554,7 @@ static func sky_nits(state: Dictionary, dir: Vector3) -> Color:
 ## The sky model's uniforms for a state: zenith, horizon and glow radiance
 ## (Color, luminance in cd/m2), the glow direction, h0, the moon.
 static func sky_uniforms(state: Dictionary) -> Dictionary:
-	var zk := kelvin_rgb(state.zenith_k, true)
+	var zk := kelvin_rgb(state.zenith_k, state.zenith_k >= 4000.0)
 	var hk := kelvin_rgb(state.horizon_k, state.horizon_k >= 4000.0)
 	var gk := kelvin_rgb(state.glow_k)
 	return {"zenith": zk * float(state.zenith), "horizon": hk * float(state.horizon),

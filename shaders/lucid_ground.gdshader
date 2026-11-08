@@ -63,7 +63,7 @@ void fragment() {
 	bool road = ax < 9.5 || az < 6.0;
 	bool side = ax < 15.0 || az < 10.0;
 	vec3 alb = road ? asphalt : (side ? walk : asphalt * 1.3);
-	e += e_sky_up * 0.5;
+	e += (e_sky_up + lucid_lightning_light(vec3(0.0, 1.0, 0.0))) * 0.5;
 	if (!road && side) {
 		e += e_spill;
 	}
