@@ -46,7 +46,7 @@ uniform bool lamp_refl = false;          // mirror the street heads and the sign
 uniform bool analytic_emitter = false;   // a lens whose reflections are analytic (dark in probes)
 uniform sampler2DArray probe_tex : hint_default_black, filter_linear_mipmap, repeat_disable;
 uniform int probe_n = 0;
-uniform vec4 probe_c[8];                 // probe centres, box corners (level space)
+uniform vec4 probe_c[8];                 // probe centres (w 1: a crossing, lucid_plus_dir), box corners (level space)
 uniform vec4 probe_lo[8];
 uniform vec4 probe_hi[8];                // (lo.w, hi.w: the selecting box's x extent)
 uniform vec4 probe_sel[8];               // the selecting box's z extent (x, y) and y extent (z, w)
@@ -54,18 +54,30 @@ uniform vec3 ground_origin = vec3(0.0);  // world position of the level's ground
 uniform bool baked = true;               // false: no vertex bake, lit by const_light (E / pi, engine units)
 uniform vec3 const_light = vec3(0.0);
 uniform bool road_paint = false;         // the street grid's road paint (lucid_road_paint)
+uniform bool untile = false;             // a floor: blend a turned copy of the texture so it does not repeat
 
 varying vec3 v_light;
 varying float v_sky;
 varying vec3 v_wpos;
 varying vec3 v_wn;
 varying float v_f0;
+varying float v_moon;
 
 float lvl(float idx) {
 	int i = int(idx * 255.0 + 0.5);
 	vec4 q = lamp_lvl[clamp(i >> 2, 0, 7)];
 	int k = i & 3;
 	return k == 0 ? q.x : (k == 1 ? q.y : (k == 2 ? q.z : q.w));
+}
+
+// Probe i read along r from lp: box-projected, or for a crossing onto
+// its two canyons (the selecting box's x and z extents).
+vec3 probe_dir(int i, vec3 lp, vec3 r) {
+	if (probe_c[i].w > 0.5) {
+		return lucid_plus_dir(lp, r, probe_c[i].xyz, probe_lo[i].xyz, probe_hi[i].xyz,
+				vec4(probe_lo[i].w, probe_hi[i].w, probe_sel[i].x, probe_sel[i].y));
+	}
+	return lucid_box_dir(lp, r, probe_c[i].xyz, probe_lo[i].xyz, probe_hi[i].xyz);
 }
 
 // What the environment sends along r from lp: the probe whose box holds
@@ -78,7 +90,7 @@ vec3 env_reflection(vec3 lp, vec3 r, float rough, float sky_vis) {
 		vec3 slo = vec3(probe_lo[i].w, probe_sel[i].z, probe_sel[i].x);
 		vec3 shi = vec3(probe_hi[i].w, probe_sel[i].w, probe_sel[i].y);
 		if (all(greaterThanEqual(lp, slo - 0.5)) && all(lessThanEqual(lp, shi + 0.5))) {
-			vec3 d = lucid_box_dir(lp, r, probe_c[i].xyz, probe_lo[i].xyz, probe_hi[i].xyz);
+			vec3 d = probe_dir(i, lp, r);
 			return textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(rough, 128.0)).rgb;
 		}
 	}
@@ -100,7 +112,7 @@ vec3 glass_reflection(vec3 lp, vec3 wn, vec3 vw, float sky_vis, float cap) {
 			vec3 slo = vec3(probe_lo[i].w, probe_sel[i].z, probe_sel[i].x);
 			vec3 shi = vec3(probe_hi[i].w, probe_sel[i].w, probe_sel[i].y);
 			if (all(greaterThanEqual(lp, slo - 0.5)) && all(lessThanEqual(lp, shi + 0.5))) {
-				vec3 d = lucid_box_dir(lp, r, probe_c[i].xyz, probe_lo[i].xyz, probe_hi[i].xyz);
+				vec3 d = probe_dir(i, lp, r);
 				vec3 c = textureLod(probe_tex, vec3(lucid_oct(normalize(d)), float(i)), lucid_probe_lod(0.08, 128.0)).rgb;
 				return c + lamp_reflections(lp, lucid_mirror(wn, vw, 0.05));
 			}
@@ -129,16 +141,28 @@ void fragment() {
 	vec3 lp = v_wpos - ground_origin;
 	vec2 pp = abs(wn.y) > 0.6 ? lp.xz : (abs(wn.x) > abs(wn.z) ? lp.zy : lp.xy);
 	vec2 uv = pp / uv_scale;
-	vec3 col = albedo * texture(albedo_tex, uv).rgb / max(tex_mean, vec3(0.001));
+	vec3 tex = texture(albedo_tex, uv).rgb;
+	if (untile) {
+		// A floor's texture repeats every uv_scale metres: blend in a copy
+		// turned 37 degrees, scaled and shifted, by smooth noise about a
+		// metre and a half across (a narrow blend, so the detail keeps its
+		// contrast), the two a little apart in tone (+-8 %), as slabs are.
+		vec3 t2 = texture(albedo_tex, mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8)) * uv * 0.83 + vec2(0.37, 0.71)).rgb;
+		float n = lucid_vnoise(pp * 0.65 + 3.1);
+		tex = mix(tex, t2, smoothstep(0.38, 0.62, n)) * (0.92 + 0.16 * n);
+	}
+	vec3 col = albedo * tex / max(tex_mean, vec3(0.001));
 	float rough = clamp(roughness * texture(rough_tex, uv).g / rough_tex_mean, 0.05, 1.0);
 	if (road_paint) {
 		float py;
-		float pw = lucid_road_paint(lp.xz, length(fwidth(lp.xz)), py);
+		float pw = lucid_road_paint(lp.xz, fwidth(lp.xz), py);
 		col = mix(mix(col, vec3(0.55, 0.54, 0.50), pw), vec3(0.50, 0.36, 0.07), py);
 		rough = mix(rough, 0.6, pw + py);
 	}
 	if (use_normal) {
-		vec3 nt = texture(normal_tex, uv).rgb * 2.0 - 1.0;
+		// (RG: imported as a normal map, RGTC / EAC: z rebuilt.)
+		vec3 nt = vec3(texture(normal_tex, uv).rg * 2.0 - 1.0, 0.0);
+		nt.z = sqrt(max(1.0 - dot(nt.xy, nt.xy), 0.0));
 		nt.xy *= normal_depth;
 		vec3 t = abs(wn.y) > 0.6 ? vec3(1.0, 0.0, 0.0) : (abs(wn.x) > abs(wn.z) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));
 		vec3 b = abs(wn.y) > 0.6 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
@@ -148,7 +172,7 @@ void fragment() {
 	// After rain (lucid_wet): darker, smoother, puddles in the low spots.
 	float fz = f0;
 	if (wet > 0.0 || puddles > 0.0) {
-		float film = puddles > 0.0 && wn.y > 0.6 ? puddle(lp.xz) : 0.0;
+		float film = puddles > 0.0 ? puddle(lp.xz, sqrt(abs(determinant(mat2(dFdx(lp.xz), dFdy(lp.xz)))))) * step(0.6, wn.y) : 0.0;
 		// Water evens out the texture's roughness variation.
 		rough = mix(rough, roughness, wet * 0.7);
 		lucid_wet(col, rough, fz, wet, film);
@@ -157,6 +181,13 @@ void fragment() {
 		nw = normalize(mix(nw, wn, max(film, wet * 0.5)));
 		NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
 	}
+	// Specular anti-aliasing (Kaplanyan 2016, like Godot's own): the normal's
+	// change across the pixel widens the lobe, so the texture's relief on
+	// wet asphalt does not sparkle in the lamps' and the probe's
+	// reflections. (Flat water keeps its mirror.)
+	vec3 dnx = dFdx(nw);
+	vec3 dny = dFdy(nw);
+	rough = sqrt(min(rough * rough + min(dot(dnx, dnx) + dot(dny, dny), 0.18), 1.0));
 	vec3 vw = normalize(CAMERA_POSITION_WORLD - v_wpos);
 	float e_spec = lucid_spec_albedo(dot(nw, vw), rough, fz);
 	float cap = lucid_capturing(PROJECTION_MATRIX);
@@ -189,14 +220,18 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	v_f0 = fz;
+	v_moon = 1.0 - cap;
 	EMISSION = lucid_finish_at(rad, v_wpos, CAMERA_POSITION_WORLD, cap);
 }
 
 void light() {
 	// The moon's specular (the diffuse is in the bake; the street heads'
-	// reflections are analytic, in fragment()).
+	// reflections are analytic, in fragment()). Not in a probe's capture:
+	// the wet ground's glint of the moon, 700 times the probe's mean, came
+	// back from the probes as a white smear on the wet road wherever a
+	// box-projected ray read toward it.
 	if (LIGHT_IS_DIRECTIONAL) {
 		// (LIGHT_COLOR is E / pi: Lucid.light_node_cam.)
-		SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * LUCID_PI * lucid_ggx(NORMAL, VIEW, LIGHT, ROUGHNESS, v_f0);
+		SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * LUCID_PI * lucid_ggx(NORMAL, VIEW, LIGHT, ROUGHNESS, v_f0) * v_moon;
 	}
 }

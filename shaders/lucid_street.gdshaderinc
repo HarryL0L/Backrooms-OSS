@@ -39,10 +39,20 @@ float lucid_vnoise(vec2 p) {
 }
 
 // Standing water (0..1) at p (level space, metres): depressions a few
-// metres across (value noise), and on a road the gutters along the curbs,
-// where the 2 % crossfall sends the water. `puddles` sets how much.
-float puddle(vec2 p) {
-	float low = lucid_vnoise(p * 0.3) * 0.6 + lucid_vnoise(p * 0.93 + 7.3) * 0.28 + lucid_vnoise(p * 3.7) * 0.12;
+// metres across (value noise, its octaves turned off the grid so no
+// square shapes show), and on a road the gutters along the curbs, where
+// the 2 % crossfall sends the water. `puddles` sets how much. w: the
+// pixel's footprint (metres, the square root of its area): an octave finer
+// than it fades to its mean; and the rim is as wide as the mask changes
+// across the pixel, so it does not stair-step or crawl far off and at
+// grazing views. (Uses derivatives: call it in uniform control flow.)
+float puddle(vec2 p, float w) {
+	vec3 f = vec3(0.3, 0.93, 3.7);
+	vec3 a = vec3(0.6, 0.28, 0.12) * (1.0 - smoothstep(0.25, 1.0, f * w));
+	vec2 p2 = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8)) * p;
+	vec2 p3 = mat2(vec2(0.28, -0.96), vec2(0.96, 0.28)) * p;
+	float low = (lucid_vnoise(p * f.x) - 0.5) * a.x + (lucid_vnoise(p2 * f.y + 7.3) - 0.5) * a.y
+			+ (lucid_vnoise(p3 * f.z) - 0.5) * a.z + 0.5;
 	if (gutters) {
 		float xa = abs(p.x - round(p.x / 110.0) * 110.0);
 		float zs = abs(p.y - round(p.y / 80.0) * 80.0);
@@ -56,7 +66,8 @@ float puddle(vec2 p) {
 		low += 0.3 * (1.0 - smoothstep(0.0, 1.0, g));
 	}
 	float t = 0.78 - 0.22 * puddles;
-	return smoothstep(t, t + 0.03, low);
+	float aa = min(fwidth(low), 0.1);
+	return smoothstep(t - aa, t + 0.03 + aa, low);
 }
 
 // The street heads and the lit signals mirrored at lp (level space): the

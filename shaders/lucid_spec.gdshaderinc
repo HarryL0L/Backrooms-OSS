@@ -174,6 +174,33 @@ vec3 lucid_box_dir(vec3 p, vec3 r, vec3 c, vec3 bmin, vec3 bmax) {
 	return p + r * t - c;
 }
 
+// The same for a crossing: the open space is the union of two street
+// canyons (the slabs slab.x < x < slab.y and slab.z < z < slab.w), capped
+// by the box (bmin, bmax). The ray leaves it where it has left both, i.e.
+// where it meets a corner block's wall, not a box 60 m off (which smeared
+// the corner shopfronts across the crossing's wet asphalt).
+vec3 lucid_plus_dir(vec3 p, vec3 r, vec3 c, vec3 bmin, vec3 bmax, vec4 slab) {
+	vec3 rr = vec3(abs(r.x) < 1e-5 ? 1e-5 : r.x, abs(r.y) < 1e-5 ? 1e-5 : r.y, abs(r.z) < 1e-5 ? 1e-5 : r.z);
+	vec3 tf = max((bmax - p) / rr, (bmin - p) / rr);
+	float tb = min(min(tf.x, tf.y), tf.z);
+	vec2 tx = (slab.xy - p.x) / rr.x;
+	vec2 tz = (slab.zw - p.z) / rr.z;
+	vec2 ix = vec2(min(tx.x, tx.y), max(tx.x, tx.y));   // in / out of each slab
+	vec2 iz = vec2(min(tz.x, tz.y), max(tz.x, tz.y));
+	// Starting in one slab: it leaves that one, unless it is then in the
+	// other, which it leaves later.
+	float ta = ix.y;
+	if (iz.x <= ta && iz.y > ta) {
+		ta = iz.y;
+	}
+	float tc = iz.y;
+	if (ix.x <= tc && ix.y > tc) {
+		tc = ix.y;
+	}
+	float t = p.x > slab.x && p.x < slab.y ? ta : tc;
+	return p + r * clamp(t, 0.0, max(tb, 0.0)) - c;
+}
+
 // The mip whose texel (an octahedral map `size` texels across: 3.5 / size
 // radians) matches the lobe's width; never sharper than mip 1 (a probe is
 // captured at 64 px a face and seen box-projected from elsewhere than its

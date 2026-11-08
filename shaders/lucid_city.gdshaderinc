@@ -163,19 +163,33 @@ float lucid_fresnel(float f0, float c) {
 // 80 m (+-6 m, +-10 m). Road paint (retro-reflective, aged): white lane
 // lines, stop lines and crosswalks at every corner, yellow centre lines.
 // Returns the white paint's coverage at p (metres, ground plane) and the
-// yellow's in `yellow`, anti-aliased by the footprint w (metres per pixel).
+// yellow's in `yellow`, box-filtered over the pixel's footprint w (metres
+// per pixel along x and z: fwidth(p)), so a line seen down the road stays
+// sharp across and its dashes do not crawl, and far off it fades to its
+// mean coverage instead of a bright band.
 float lucid_stripe(float x, float c, float half_w, float w) {
-	return clamp((half_w - abs(x - c)) / max(w, 1e-4) + 0.5, 0.0, 1.0);
+	float d = abs(x - c);
+	w = max(w, 1e-4);
+	return clamp((min(d + 0.5 * w, half_w) - max(d - 0.5 * w, -half_w)) / w, 0.0, 1.0);
+}
+
+// A pulse train (on where fract(x) < duty; x and the footprint w in
+// periods), box-filtered: the difference of its integral across w.
+float lucid_pulse(float x, float duty, float w) {
+	w = max(w, 1e-4);
+	float a = x - 0.5 * w;
+	float b = x + 0.5 * w;
+	float fa = floor(a) * duty + min(fract(a), duty);
+	float fb = floor(b) * duty + min(fract(b), duty);
+	return clamp((fb - fa) / w, 0.0, 1.0);
 }
 
 float lucid_zebra(float x, float w) {
-	// 0.6 m bars on 1.2 m centres.
-	float t = abs(fract(x / 1.2) - 0.5) * 2.0;
-	float aw = w * 1.7;
-	return smoothstep(0.5 + aw, 0.5 - aw, t) * (1.0 - smoothstep(0.3, 0.8, w)) + 0.5 * smoothstep(0.3, 0.8, w);
+	// 0.6 m bars on 1.2 m centres (centred on x = 0).
+	return lucid_pulse(x / 1.2 - 0.25, 0.5, w / 1.2);
 }
 
-float lucid_road_paint(vec2 p, float w, out float yellow) {
+float lucid_road_paint(vec2 p, vec2 w, out float yellow) {
 	float xa = p.x - round(p.x / 110.0) * 110.0;      // across the avenue
 	float zs = p.y - round(p.y / 80.0) * 80.0;        // across the street
 	float ax = abs(xa);
@@ -188,28 +202,28 @@ float lucid_road_paint(vec2 p, float w, out float yellow) {
 		// apart), the parking lane's 100 mm edge line, stop lines (0.4 m)
 		// 1.2 m short of the crosswalk across the lanes coming towards the
 		// crossing (traffic keeps right: the east half south of it).
-		float dash = step(fract(p.y / 12.0), 0.25);
-		paint = max(paint, lucid_stripe(ax, 3.5, 0.06, w) * dash);
-		yellow = lucid_stripe(ax, 0.1, 0.05, w);
-		paint = max(paint, lucid_stripe(ax, 7.0, 0.05, w));
-		paint = max(paint, lucid_stripe(az, 11.0, 0.2, w) * step(ax, 7.0) * step(0.0, xa * zs));
+		float dash = lucid_pulse(p.y / 12.0, 0.25, w.y / 12.0);
+		paint = max(paint, lucid_stripe(ax, 3.5, 0.06, w.x) * dash);
+		yellow = lucid_stripe(ax, 0.1, 0.05, w.x);
+		paint = max(paint, lucid_stripe(ax, 7.0, 0.05, w.x));
+		paint = max(paint, lucid_stripe(az, 11.0, 0.2, w.y) * step(ax, 7.0) * step(0.0, xa * zs));
 	}
 	if (az < 6.0 && ax > 15.0) {
 		// Street: a dashed yellow centre line, the parking lanes' edge
 		// lines, stop lines (the south half west of the crossing).
-		float dash = step(fract(p.x / 12.0), 0.25);
-		yellow = lucid_stripe(az, 0.0, 0.06, w) * dash;
-		paint = max(paint, lucid_stripe(az, 3.5, 0.05, w));
-		paint = max(paint, lucid_stripe(ax, 15.4, 0.2, w) * step(az, 3.5) * step(0.0, -xa * zs));
+		float dash = lucid_pulse(p.x / 12.0, 0.25, w.x / 12.0);
+		yellow = lucid_stripe(az, 0.0, 0.06, w.y) * dash;
+		paint = max(paint, lucid_stripe(az, 3.5, 0.05, w.y));
+		paint = max(paint, lucid_stripe(ax, 15.4, 0.2, w.x) * step(az, 3.5) * step(0.0, -xa * zs));
 	}
 	// Crosswalks (3 m, continental: 0.6 m bars on 1.2 m centres, along the
 	// traffic) from curb to curb, round the corners' 4.5 m radius.
 	float r = 4.5;
 	if (az > 6.6 && az < 9.6 && ax < 9.5 + r - sqrt(max(r * r - (az - 10.5) * (az - 10.5), 0.0)) - 0.3) {
-		paint = max(paint, lucid_zebra(xa, w));
+		paint = max(paint, lucid_zebra(xa, w.x));
 	}
 	if (ax > 10.6 && ax < 13.6 && az < 6.0 + r - sqrt(max(r * r - (ax - 14.0) * (ax - 14.0), 0.0)) - 0.3) {
-		paint = max(paint, lucid_zebra(zs, w));
+		paint = max(paint, lucid_zebra(zs, w.y));
 	}
 	paint = max(paint - yellow, 0.0);
 	return paint;

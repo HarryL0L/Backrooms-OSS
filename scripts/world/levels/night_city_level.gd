@@ -68,8 +68,12 @@ const PROBES := [[Vector3(48, 1.7, 28), Vector3(45, 0, 10), Vector3(51, 23, 46)]
 		[Vector3(40, 1.7, 0), Vector3(15, 0, -10), Vector3(400, 30, 10)],
 		[Vector3(-40, 1.7, 0), Vector3(-400, 0, -10), Vector3(-15, 30, 10)]]
 ## The box a probe projects onto, where it differs from the one that
-## selects it: the crossing is open four ways.
-const PROBE_PROJECT := {2: [Vector3(-60, 0, -60), Vector3(60, 30, 60)]}
+## selects it: the crossing is open four ways (its streets run on 400 m).
+const PROBE_PROJECT := {2: [Vector3(-400, 0, -400), Vector3(400, 30, 400)]}
+## Probes projected onto two crossing canyons (lucid_plus_dir: the
+## selecting box's x and z extents are the avenue's and the street's
+## building lines), so the corner blocks' walls are where they stand.
+const PROBE_PLUS := [2]
 var probe_bytes := 0
 var probe_ms := 0
 var _sig_key := ""
@@ -195,6 +199,7 @@ func _materials() -> void:
 		_sp(sm, "lens_led", _lens_led)
 		_sp(sm, "lens_na", _lens_na)
 		_sp(sm, "road_paint", d.get("paint", false))
+		_sp(sm, "untile", d.get("untile", false))
 		_sp(sm, "ground_origin", o)
 		_sp(sm, "baked", _baked)
 		_sp(sm, "const_light", Color(1, 1, 1) * Lucid.lux_to_engine(2.0))
@@ -831,7 +836,7 @@ func _capture_probes() -> void:
 		var pr: Array = PROBES[k]
 		var box: Array = PROBE_PROJECT.get(k, [pr[1], pr[2]])
 		# lo.w / hi.w and probe_sel: the selecting box (x; z, y).
-		pc.append(Vector4(pr[0].x, pr[0].y, pr[0].z, 0.0))
+		pc.append(Vector4(pr[0].x, pr[0].y, pr[0].z, 1.0 if k in PROBE_PLUS else 0.0))
 		lo.append(Vector4(box[0].x, box[0].y, box[0].z, pr[1].x))
 		hi.append(Vector4(box[1].x, box[1].y, box[1].z, pr[2].x))
 		sel_z.append(Vector4(pr[1].z, pr[2].z, pr[1].y, pr[2].y))
@@ -1094,7 +1099,31 @@ func shots() -> Array:
 		{"name": "qa_win_B", "transform": _view(Vector3(47.5, sy[2], 16.4), 270.0, 10.0), "wait": 3.0},
 		{"name": "qa_win_D1", "transform": _view(Vector3(20.0, 0.15, -8.5), 0.0, 25.0), "wait": 3.0},
 		{"name": "qa_backdrop", "transform": _view(Vector3(85.0, 0.15, 9.0), 270.0, 12.0), "wait": 3.0},
-	] + (_scale_shots() if _qa() else [])
+	] + (_scale_shots() if _qa() else []) + (_ground_shots() if OS.get_environment("QA_GROUND") == "1" else [])
+
+
+## Ground QA views (QA_GROUND=1): the asphalt, its paint and puddles, the
+## sidewalks and curbs, from standing, looking down and grazing, at the
+## crossing, in the alley, from the roof, and where the near street meets
+## the far ground.
+func _ground_shots() -> Array:
+	var roof: float = LAYOUT.A_ROOF
+	return [
+		{"name": "g_down", "transform": _view(Vector3(3.0, 0.0, -20.0), 180.0, -50.0), "wait": 3.0},
+		{"name": "g_graze_av", "transform": _view(Vector3(4.0, 0.0, -12.0), 0.0, -4.0), "wait": 3.0},
+		{"name": "g_graze_av_s", "transform": _view(Vector3(-3.0, 0.0, 14.0), 180.0, -6.0), "wait": 3.0},
+		{"name": "g_cross", "transform": _view(Vector3(7.0, 0.0, 8.0), 225.0, -14.0), "wait": 3.0},
+		{"name": "g_cross2", "transform": _view(Vector3(-6.0, 0.0, -4.0), 300.0, -10.0), "wait": 3.0},
+		{"name": "g_street_e", "transform": _view(Vector3(22.0, 0.0, -2.0), 270.0, -5.0), "wait": 3.0},
+		{"name": "g_walk", "transform": _view(Vector3(12.0, 0.15, 40.0), 0.0, -12.0), "wait": 3.0},
+		{"name": "g_curb", "transform": _view(Vector3(10.5, 0.15, -30.0), 180.0, -25.0), "wait": 3.0},
+		{"name": "g_alley", "transform": _view(Vector3(48.0, 0.15, 14.0), 180.0, -18.0), "wait": 3.0},
+		{"name": "g_roof", "transform": _view(Vector3(25.0, roof, 22.0), 300.0, -30.0), "wait": 3.0},
+		{"name": "g_roof_dn", "transform": _view(Vector3(20.0, roof, 10.8), 0.0, -55.0), "wait": 3.0},
+		{"name": "g_far_n", "transform": _view(Vector3(2.0, 0.0, -50.0), 0.0, -3.0), "wait": 3.0},
+		{"name": "g_far_w", "transform": _view(Vector3(-70.0, 0.0, 2.0), 90.0, -3.0), "wait": 3.0},
+		{"name": "g_plaza", "transform": _view(Vector3(-25.0, 0.15, -15.0), 230.0, -12.0), "wait": 3.0},
+	]
 
 
 ## Scale reference views (QA_FIGURES=1): each figure from a person's

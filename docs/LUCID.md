@@ -677,7 +677,10 @@ While a probe captures, the global `lucid_capture` is 1, and
 - the analytic emitters go dark (street heads' and signals' lenses, the
   mall's panels), and so do the point sprites;
 - the ground's own reflections are off (they would come back as glare
-  round the probe's horizon).
+  round the probe's horizon), the moon's specular too (`light()`: its
+  glint on the wet ground, 700 times a probe's mean, was read back by
+  box-projected rays that point below the probe's centre as a blurry
+  white smear on the wet road).
 
 So nothing is reflected twice. A floor reads the probe box-projected: its
 reflected ray is followed to the box (the street canyon between the
@@ -687,7 +690,12 @@ read toward that point from the probe's centre, never sharper than mip 1.
 - **Blue Hour**: seven probes, 1.7 m up (the roof 1.7 m over the roof):
   the alley, the roof, the crossing, the avenue north and south, the
   street east and west. Where a street runs on, its box ends 400 m away.
-  The crossing projects onto a 120 m box (it is open four ways). They show
+  The crossing is open four ways: it projects onto its two canyons
+  (`lucid_plus_dir`: the ray is followed until it has left both the
+  avenue's and the street's building lines, i.e. to the corner block it
+  meets; a single 120 m box put the corner shopfronts, seen from the
+  probe's centre, in the wrong place, a hard-edged white wedge on the wet
+  asphalt at the crosswalks). They show
   the lit windows, the shopfronts and the sky in the wet asphalt.
 - **Dead Mall**: one per kind of section (8), in section space, shared by
   the repeated sections.
@@ -709,7 +717,34 @@ A porous surface takes water in two steps (Lagarde 2013).
 A puddle is a flat water film (roughness 0.03, F0 0.02) over the darkened
 surface. Puddles sit in the low spots: value noise for depressions a few
 metres across, and on roads the gutters along the curbs, where the 2 %
-crossfall sends the water (`puddle`).
+crossfall sends the water (`puddle`). The noise's octaves are turned off
+the grid (no square shapes), an octave finer than the pixel's footprint
+fades to its mean, and the rim is as wide as the mask changes across the
+pixel, so a puddle's edge does not stair-step or crawl at grazing views.
+
+### Ground surfaces without glitches
+
+- **Specular anti-aliasing** (`lucid_surface`, Kaplanyan 2016, like
+  Godot's own shader): the final normal's change across the pixel is added
+  to roughness^2 (at most 0.18), so the asphalt's relief does not sparkle
+  in the lamps', signals' and shopfronts' reflections on the wet road.
+  Flat water keeps its mirror.
+- **Road paint** is box-filtered over the pixel's footprint along x and z
+  (`fwidth`, not its length): lines seen down the road stay sharp across,
+  the dashes and the zebra's bars are filtered pulse trains (they no longer
+  crawl), and far off a line fades to its mean coverage instead of a
+  bright half-covered band.
+- **Floors that do not repeat** (`untile`: the sidewalks, the plaza and
+  the roof, whose pale concrete showed its 1.2-1.6 m repeat; the wet
+  asphalt hides its own): a copy of the texture turned 37 degrees, scaled 0.83 and shifted
+  is blended in by smooth noise about 1.5 m across (a narrow blend, so the
+  detail keeps its contrast), the two layers +-8 % apart in tone. One more
+  texture read.
+- **Normal maps** are imported as normal maps (RGTC on desktop, EAC RG11 on
+  phones; z rebuilt in the shader): RGB block compression made 4x4 blocks
+  in the wet reflections. About 1.4 MB more video memory.
+- **The far ground**'s wear is smooth value noise (hashed 2 m squares
+  showed as a checkerboard on the far streets).
 
 The Blue Hour is after rain: the road soaked (puddles 0.5), the alley
 0.9, sidewalks and curbs damp (0.55: dark, matt), the plaza 0.6, the roof
@@ -766,27 +801,32 @@ and in the sky. Indoor dust is not modelled.
   - Mirror and emitters: `LucidMirror` / `lucid_mirror(n, v, rough)`,
     `lucid_emitter_cover(p, m, centre, a1, a2, half_sizes)`, `lucid_box`,
     `lucid_erf`.
-  - Probes: `lucid_oct`, `lucid_box_dir`, `lucid_probe_lod`.
+  - Probes: `lucid_oct`, `lucid_box_dir`, `lucid_plus_dir` (a crossing),
+    `lucid_probe_lod`.
   - Capture: `lucid_capture` (global), `lucid_capturing(PROJECTION_MATRIX)`.
 - `shaders/lucid_street.gdshaderinc`: uniforms `wet`, `puddles`, `gutters`,
   `lens_led`, `lens_na`, `fail_lamp`, `sig_pos/rad/dir[8]`; functions
-  `lucid_wet(col, rough, f0, moist, film)`, `puddle(p)`,
+  `lucid_wet(col, rough, f0, moist, film)`, `puddle(p, footprint)` (uses
+  derivatives: uniform control flow),
   `lamp_reflections(lp, m)`.
 - `lucid_city.gdshaderinc`: `lucid_airglow(wpos, cam)`,
   `lucid_finish_at(c, wpos, cam, cap)`; globals `lucid_glow0..3`,
   `lucid_glow_led`, `lucid_glow_na`.
 - `lucid_surface.gdshaderinc` uniforms: `f0` (replaces `specular`),
   `reflect_env`, `lamp_refl`, `analytic_emitter`, `probe_tex`
-  (sampler2DArray), `probe_n`, `probe_c/lo/hi/sel[8]`. `sky_gloss` is
+  (sampler2DArray), `probe_n`, `probe_c/lo/hi/sel[8]` (`probe_c.w` 1: a
+  crossing, `lucid_plus_dir`), `untile`. `sky_gloss` is
   gone (the sky's reflection is now the probe's or E_spec x sky x sky
   visibility).
 - `LucidProbe`: `SIZE`, `FACE`, `CLAMP`, `capture_environment(bg)`,
   `capture(host, origins, env, far, scale)` (await; two frames a probe),
   `octahedral(faces)`, `oct_dir(u, v)`, `array_texture(maps)`,
   `bytes(maps)`.
-- `NightCityLevel`: `PROBES`, `PROBE_PROJECT`, `probe_bytes`, `probe_ms`,
+- `NightCityLevel`: `PROBES`, `PROBE_PROJECT`, `PROBE_PLUS`, `probe_bytes`, `probe_ms`,
   `_capture_probes()`, `_lamps_spec()` (meter), `_sp()`; layout materials
-  take `f0`, `wet`, `puddles`, `gutters`, `lamps`.
+  take `f0`, `wet`, `puddles`, `gutters`, `lamps`, `untile`. `QA_GROUND=1`
+  adds the ground QA shots (`g_*`: standing, looking down, grazing, the
+  crossing, the alley, the roof, the far ground).
 - `MallLevel`: `REAL_SPEC`, `PROBE_Y`, `PROBE_BOX`, `probe_bytes`,
   `refl_bytes`; `mall.gdshader` uniforms `rough_real`, `f0`, `panel_rad`,
   `probe_tex`, `probe_c`, `probe_box_lo/hi`.
@@ -882,7 +922,7 @@ Regressions:
   not reflected (the point sprites are kept out of the probes).
 - Probes are captured once at 64 px a face, never read sharper than mip 1,
   and box-projected with one box. A puddle's mirror image of a facade is
-  soft; the crossing (open four ways) projects onto a larger box. The
+  soft; the crossing (open four ways) projects onto its two canyons. The
   capture costs two frames a probe at load and pipelines for the HDR
   target. The probes do not follow the lamp levels
   (a failing head's light in them stays).
