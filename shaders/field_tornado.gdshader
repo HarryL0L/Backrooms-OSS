@@ -74,7 +74,7 @@ void vertex() {
 	v_h = part == 1 ? debris_h : top_h;
 	vec3 dir = -to_cam;
 	float d = distance(a, cam);
-	v_air = field_air(cam, dir, d, 6);
+	v_air = field_air(cam, dir, d, 6, 0.5);
 	v_shade = field_shade_at(a.xz);
 	// What is behind it: the air beyond, lit by the sun where it reaches.
 	vec2 far = a.xz + normalize(dir.xz) * 9000.0;
@@ -94,25 +94,31 @@ void fragment() {
 	float n2 = texture(noise, vec2(s * 3.1 + 0.37, hy / 150.0 - spin * 0.03)).r;
 	float dens = 0.45 + 0.95 * n1 + 0.35 * (n2 - 0.5);
 	float edge = 1.0 + 0.2 * (n2 - 0.5) + 0.14 * (n1 - 0.5);
-	float body = 1.0 - smoothstep(edge - 0.22, edge, ax);
+	float body = 1.0 - smoothstep(edge - 0.45, edge, ax);
 	float tau = dens * chord * v_w * (part == 1 ? 0.016 : 0.022);
 	float alpha = (1.0 - exp(-tau)) * body;
 	vec3 l;
 	if (part == 0) {
 		// The condensation reaches down to cond (ragged), and merges into
 		// the wall cloud at its top.
-		alpha *= smoothstep(cond - 0.03, cond + 0.09, v_v + (n1 - 0.5) * 0.08);
-		alpha *= 1.0 - 0.3 * smoothstep(0.9, 1.0, v_v);
+		alpha *= smoothstep(cond - 0.06, cond + 0.12, v_v + (n1 - 0.5) * 0.1);
+		// Its top dissolves into the wall cloud's foot (the sky draws it):
+		// the condensation spreads and takes the wall cloud's shade.
+		float join = smoothstep(0.62, 0.92, v_v + (n1 - 0.5) * 0.1);
+		alpha *= 1.0 - join;
 		// Droplets lit by the storm's shade, darker in the dense middle; the
 		// bright air behind glows through the thin edges. Lower down it takes
 		// the dust's colour.
 		vec3 c = v_shade * (0.42 + 0.3 * n1) * (1.0 - 0.35 * chord) * mix(1.0, 0.6, smoothstep(0.7, 1.0, v_v));
 		c += v_back * 0.35 * (1.0 - chord) * exp(-tau * 0.5);
+		c = mix(c, v_shade * 0.2 * (0.8 + 0.4 * n1), join);
 		vec3 dust = vec3(0.82, 0.72, 0.6);
 		l = mix(c, c * dust, 1.0 - smoothstep(0.0, 0.3, v_v));
 	} else {
-		alpha *= (1.0 - smoothstep(0.45, 1.0, v_v + (n1 - 0.5) * 0.45)) * smoothstep(0.0, 0.06, v_v);
-		l = v_shade * vec3(0.7, 0.6, 0.48) * (0.55 + 0.5 * n1);
+		// The dust thins upward and outward into the haze; its foot is
+		// in the ground's own dust (no hard line where it meets it).
+		alpha *= (1.0 - smoothstep(0.3, 1.0, v_v + (n1 - 0.5) * 0.45)) * smoothstep(0.0, 0.12, v_v);
+		l = mix(v_shade * vec3(0.7, 0.6, 0.48) * (0.55 + 0.5 * n1), v_back, 0.25 * (1.0 - chord));
 	}
 	alpha *= presence;
 	ALBEDO = (l * v_air.a + v_air.rgb) * lucid_exposure.rgb;

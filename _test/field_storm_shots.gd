@@ -4,7 +4,7 @@ extends Node
 #   G=/tmp/claude-0/godot/Godot_v4.7-stable_linux.x86_64
 #   VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a $G --path . --rendering-method mobile \
 #       --rendering-driver vulkan --resolution 1280x720 res://_test/field_storm_shots.tscn -- [--preset N] \
-#       [--set key=value] [--tag name] [--film]
+#       [--set key=value] [--tag name] [--film | --clouds]
 #
 # Starts a new game (seed 1234), goes into the Field, and saves
 # user://field_storm/<tag>/<shot>.png, printing FPS, draw calls, primitives
@@ -12,7 +12,9 @@ extends Node
 # only those. --film plays a 45 s storm-chaser film instead (record it with
 # `--write-movie <path>.avi --fixed-fps 30` before the `--`): the tornado
 # rotating and drifting, gusts in the grass, a rain band arriving, a strike
-# with its thunder 5 s later. Exits 1 on any script or shader error.
+# with its thunder 5 s later. --clouds plays a 20 s pan along the storm's
+# clouds instead (record it the same way). Exits 1 on any script or shader
+# error.
 
 class _Errors:
 	extends Logger
@@ -38,6 +40,7 @@ var preset := -1
 var sets := {}
 var tag := "default"
 var film := false
+var clouds := false
 var out := ""
 var errors := _Errors.new()
 var _restore := {}
@@ -59,6 +62,8 @@ func _ready() -> void:
 		var a: String = args[i]
 		if a == "--film":
 			film = true
+		elif a == "--clouds":
+			clouds = true
 		elif a == "--preset" and i + 1 < args.size():
 			preset = int(args[i + 1])
 		elif a == "--tag" and i + 1 < args.size():
@@ -129,7 +134,9 @@ func _run() -> void:
 	var p: Player = game.player
 	p.controls_enabled = false
 	await _wait(3.0)
-	if film:
+	if clouds:
+		await _clouds_film()
+	elif film:
 		await _film()
 	else:
 		await _shots()
@@ -151,6 +158,17 @@ func _shots() -> void:
 		{"name": "supercell_up", "do": func() -> void:
 			var a := _aim_at(st.tornado_foot() + Vector3(600, 0, 0), 0.32)
 			game.player.teleport(game.player.global_position, a.x, a.y)},
+		{"name": "sun_gap", "do": func() -> void:
+			# Under the base's edge toward the sun behind the storm.
+			game.player.teleport(game.player.global_position, -deg_to_rad(312.0), 0.16)},
+		{"name": "curtain", "do": func() -> void:
+			# The core's rain curtain beside the tornado.
+			game.player.teleport(game.player.global_position, -deg_to_rad(8.0), 0.06)},
+		{"name": "wall_cloud", "after": func() -> void: game.player._apply_settings(), "do": func() -> void:
+			# The tornado and the wall cloud, zoomed (a 28 degree lens).
+			var a := _aim_at(st.tornado_foot() + Vector3(0, 650, 0), 0.0)
+			game.player.teleport(game.player.global_position, a.x, a.y)
+			game.player.camera.fov = 28.0},
 		{"name": "grass_close", "do": func() -> void:
 			var w := st.wind_here
 			game.player.teleport(game.player.global_position, atan2(w.x, w.z) + 0.6, -0.45)},
@@ -185,6 +203,8 @@ func _shots() -> void:
 		await RenderingServer.frame_post_draw
 		var path := "%s/%s.png" % [out, s.name]
 		get_viewport().get_texture().get_image().save_png(path)
+		if s.has("after"):
+			(s.after as Callable).call()
 		var tf: Vector3 = st.tornado_foot() - game.player.global_position
 		print("  tornado %.0f m off at azimuth %.0f, presence %.2f" % [Vector2(tf.x, tf.z).length(), rad_to_deg(atan2(tf.x, -tf.z)), st.presence])
 		print("shot %-13s fps %5.1f  draw calls %4d  primitives %8d  EV %.1f  wind %.1f m/s  rain %.1f mm/h  -> %s" % [s.name,
@@ -246,6 +266,34 @@ func _film() -> void:
 	Input.action_release("move_forward")
 	await _wait(7.0)
 	print("field_storm: film %.1f s wall" % ((Time.get_ticks_msec() - t0) / 1000.0))
+
+
+## 20 s, real time: standing in the grass, a slow pan along the storm from
+## the sun side (the flanking line, the base's rim against the bright gap)
+## across the base and the wall cloud turning over the tornado to the core's
+## rain curtain, the scud racing in under the base.
+func _clouds_film() -> void:
+	var st: FieldStorm = game.field.storm
+	var p: Player = game.player
+	st.band_phase = 40.0
+	st.tornado_age = FieldStorm.T_FORM + 40.0
+	st.lightning.calm(1e5)
+	_stand(Vector2(10.0, -20.0), 0.0, 0.0)
+	var a := _aim_at(st.tornado_foot() + Vector3(0, 450, 0), 0.0)
+	p.teleport(p.global_position, a.x + 0.75, 0.2)
+	_yaw_to = a.x + 0.75
+	_pitch_to = 0.2
+	_steer = true
+	_turn = 0.35
+	var t0 := Time.get_ticks_msec()
+	await _wait(2.0)
+	_yaw_to = a.x
+	_pitch_to = 0.1
+	await _wait(10.0)
+	_yaw_to = a.x - 0.5
+	_pitch_to = 0.12
+	await _wait(8.0)
+	print("field_storm: clouds film %.1f s wall" % ((Time.get_ticks_msec() - t0) / 1000.0))
 
 
 func _finish() -> void:

@@ -46,7 +46,7 @@ void vertex() {
 	vec3 cam = CAMERA_POSITION_WORLD;
 	vec3 dv = v_wpos - cam;
 	float d = length(dv);
-	v_air = field_air(cam, dv / max(d, 1e-3), d, air_steps);
+	v_air = field_air(cam, dv / max(d, 1e-3), d, air_steps, 0.5);
 	v_lit = d > 150.0 ? field_lit(v_wpos.xz, h) : 0.0;
 	v_gust = d < 250.0 ? field_wind_at(v_wpos.xz).z - 1.0 : 0.0;
 	POSITION = ps1_snap(PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0));

@@ -149,9 +149,9 @@ float field_anvil_cover(vec2 p) {
 	return field_disc(p, field_cloud_c.zw, field_cloud.w, 0.18);
 }
 
-// Sunlight reaching p at height y (0 .. 1): not behind the storm's tower,
-// nor under the base's or the anvil's shadow.
-float field_lit(vec2 p, float y) {
+// Sunlight reaching p at height y (0 .. 1) past the storm's tower; with
+// anvil, under the anvil too (not the base: the sky's cloud shades itself).
+float field_lit_sky(vec2 p, float y, bool anvil_too) {
 	vec3 s = field_sun.xyz;
 	float sl = max(length(s.xz), 1e-3);
 	vec2 sd = s.xz / sl;
@@ -167,9 +167,20 @@ float field_lit(vec2 p, float y) {
 					* (1.0 - smoothstep(FIELD_TOWER_TOP * 0.8, FIELD_TOWER_TOP, y + max(ti, 0.0) * tn));
 		}
 	}
-	float base = field_base_cover(p + sd * max(field_cloud.x - y, 0.0) / tn);
+	if (!anvil_too) {
+		return 1.0 - tower;
+	}
 	float anvil = field_anvil_cover(p + sd * max(field_cloud.y - y, 0.0) / tn);
-	return (1.0 - tower) * (1.0 - base) * (1.0 - anvil * 0.92);
+	return (1.0 - tower) * (1.0 - anvil * 0.92);
+}
+
+// Sunlight reaching p at height y (0 .. 1): not behind the storm's tower,
+// nor under the base's or the anvil's shadow.
+float field_lit(vec2 p, float y) {
+	vec3 s = field_sun.xyz;
+	float sl = max(length(s.xz), 1e-3);
+	float base = field_base_cover(p + s.xz / sl * max(field_cloud.x - y, 0.0) / (s.y / sl));
+	return field_lit_sky(p, y, true) * (1.0 - base);
 }
 
 // The air's own light at p in the shade: brighter where no base hangs
@@ -192,25 +203,36 @@ float field_phase(float c) {
 
 // The air between the eye and dist along dir (Koschmieder, by steps): the
 // haze and the rain's extinction, lit by the shade or the sun where it is.
-// rgb: the airlight, a: the transmittance.
-vec4 field_air(vec3 eye, vec3 dir, float dist, int steps) {
+// jitter (0 .. 1): where in each step it is sampled (0.5 the middle; the
+// sky dithers it per pixel so no step edges show). rgb: the airlight, a:
+// the transmittance.
+vec4 field_air(vec3 eye, vec3 dir, float dist, int steps, float jitter) {
 	float ph = field_phase(dot(dir, field_sun.xyz));
 	vec3 l = vec3(0.0);
 	float t = 1.0;
 	float prev = 0.0;
 	const float K = 3.0;
 	float ek = exp(K) - 1.0;
+	vec2 wd = field_wind.xy / max(length(field_wind.xy), 0.1);
+	// Step ends at dist (e^(K i / steps) - 1) / (e^K - 1), by products.
+	float er = exp(K / float(steps));
+	float ej = exp(K * jitter / float(steps));
+	float e0 = 1.0;
 	for (int i = 1; i <= steps; i++) {
-		float s = dist * (exp(K * float(i) / float(steps)) - 1.0) / ek;
-		float mid = 0.5 * (s + prev);
+		float s = dist * (e0 * er - 1.0) / ek;
+		float mid = dist * (e0 * ej - 1.0) / ek;
+		e0 *= er;
 		vec3 q = eye + dir * mid;
 		float y = q.y - FIELD_Y;
-		float rain = y < field_cloud.x ? field_rain_at(q.xz) : 0.0;
-		// Rain shafts: the rain's density varies across the view (streaks
-		// up and down the curtain) and along the ray.
-		float az = atan(dir.x, dir.z);
-		float streak = 0.65 * field_vnoise(vec2(az * 24.0, mid * 0.0003)) + 0.35 * field_vnoise(vec2(az * 90.0 + 3.0, mid * 0.0008));
-		float sr = field_rain_sigma(rain) * mix(1.0, 0.5 + streak, smoothstep(1500.0, 5000.0, mid));
+		// The rain hangs from the cloud: it thins into the base's soft
+		// bottom over its last few hundred metres instead of ending at a line.
+		float top = smoothstep(field_cloud.x + 150.0, field_cloud.x - 350.0, y);
+		float rain = top > 0.0 ? field_rain_at(q.xz) * top : 0.0;
+		// Rain shafts: soft streaks in the world (~600 m across, kilometres
+		// tall, leaning a little downwind), at low contrast; they average
+		// out along the ray, so the curtain stays a veil.
+		float shaft = field_vnoise(vec2(dot(q.xz, vec2(-wd.y, wd.x)) * 0.0016 + y * 0.0004, y * 0.0003 + 7.0));
+		float sr = field_rain_sigma(rain) * mix(1.0, 0.7 + 0.6 * shaft, smoothstep(1500.0, 5000.0, mid));
 		float sh = field_light.a * exp(-max(y, 0.0) / 2500.0);
 		float sig = sh + sr;
 		float tr = exp(-sig * (s - prev));

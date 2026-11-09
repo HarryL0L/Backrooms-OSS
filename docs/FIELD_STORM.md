@@ -8,9 +8,11 @@ gusts running through the grass, lightning and thunder. The exit door and its
 tree still stand out in the grass; the tornado never comes for you.
 
 Everything is in real units through the L.U.C.I.D. camera (docs/LUCID.md,
-stage 1), on every preset. Nothing is raymarched at run time: the sky is a
-few analytic surfaces met along the view ray plus a short integral of the
-air, the tornado is two strips of camera-facing quads. (The sunny Field's
+stage 1), on every preset. The sky is the storm's cloud mass met in a few
+horizontal slices (8 on High and up, 2 on Medium, 1 below; see "The clouds"),
+a few analytic surfaces met along the view ray (the anvil, the wall cloud,
+the flanking line, the scud) and a short integral of the air; the tornado is
+two strips of camera-facing quads. (The sunny Field's
 one-off cumulus bake, `cloud_bake.gdshader`, is gone, and so is the sun.)
 
 Files: `scripts/world/field_storm.gd` (`FieldStorm`: layout, wind and rain
@@ -54,6 +56,7 @@ turning round the mesocyclone.
 | Rain-free base | round both, 1.2 km up, its far edge ~9 km off behind the wall cloud | 5 km radius | LCL of tornadic storms ~0.5-1.5 km |
 | Anvil | overhead, spread east (downwind) | 24 km radius, 10 km up | summer tropopause 10-15 km |
 | Updraft tower | behind the mesocyclone | 5.2 km radius, 13 km tall | shades you from the sun behind the storm |
+| Flanking line | from the mesocyclone 1.5-17 km south-west | towers ~2.6 km apart, 2.5-7 km tall, stepping down outward | the rear flank's towering cumulus (Doswell & Burgess 1993) |
 | Sun | azimuth 318, 21 degrees up | 65 000 lux beam | late afternoon, hazy summer air |
 
 The layout is anchored to the player: walking toward the tornado never
@@ -92,6 +95,61 @@ with `Lucid.light_node_cam`. AgX grade (`EnvironmentFactory.lucid_grade`) on
 every preset. Sunlight reaches the ground (and the air) only where no
 tower, base or anvil is between it and the sun (`field_lit`): you stand in
 the storm's shadow, the far fields to the west and south lie in sun.
+
+## The clouds (`field_sky.gdshader`)
+
+What makes a storm cloud read as a volume of droplets and not a painted
+sheet: its edges thin out (cover ramps over ~1.5 km, frayed by the detail
+noise into wisps and holes, and the fringe's water evaporates in the drier
+air round it, so its extinction falls off as the square of its density);
+its rim is lit by the bright sky beyond it, which its thin droplets
+scatter forward, so the fringe takes the sky's light and dissolves into
+it; the sun behind the storm shines through only the thinnest fringes (the
+silver lining, a two-lobed Henyey-Greenstein phase, g 0.75 forward and
+-0.2 back); kilometres off, the haze (`field_air`) greys it into the sky.
+
+- The cloud mass: the rain-free base (flat-bottomed at 1.2 km where it is
+  deep, its rim lifting up to ~450 m and softening), the cloud over the
+  core (its bottom soft, hidden by the rain falling out of it), up to
+  2.6 km over the base, narrower above it (so from under it its rim is the
+  base's own). Met in horizontal slices crowded near the base (Beer-Lambert
+  over each slice's thickness along the ray, early exit once opaque): the
+  lowest slice is the flat base itself, so it stays sharp from below, and
+  each slice's cover is a smooth field, so nothing dithers or shimmers. An
+  extinction of 0.012 /m (in a cumulonimbus 0.05-0.2 /m; averaged with the
+  clear gaps between its lumps at a pixel's scale kilometres off).
+  Light: the storm's shade light, darkest on the deep underside, lumpy
+  (darker where the cloud over it is thicker, in broad swirls turning with
+  the mesocyclone), brighter up its flanks and in its rim; the sun's lobe
+  through the frayed rim where it gets past the tower and the anvil.
+- Noise: one 256 px simplex FBM map (five octaves), domain-warped for the
+  rim (lobes and bays, not a circle), shifted with height (so the 2D map
+  reads as 3D), mip-filtered by the pixel's footprint and faded to its mean
+  as its features near it (no aliasing; mip 1 up, since the map's finest
+  octave is a texel wide and magnified shows bilinear diamonds). Lumps
+  ~300 m and ~80 m, rim lobes ~1.5 km: a cumulonimbus's scales.
+- The wall cloud: the base lowered by 600 m round the mesocyclone, lowest
+  in its middle where the funnel comes out of it, turning; its optical depth
+  along the chord through it (dense in the middle, a soft ragged rim and
+  foot, scud hanging off it), its noise in arc length and height on its
+  face. The funnel's top dissolves into its foot (`field_tornado.gdshader`:
+  over its top 30 % it fades and takes the wall cloud's shade); the debris
+  cloud thins upward and outward into the haze.
+- The flanking line (High and up): a vertical sheet along it, met analytically, its
+  towers lumpy domes (hashed heights and widths), flat-bottomed; backlit,
+  grey-blue inside, its edges blazing with the sun's forward lobe. It
+  fills the sun side beyond the base's western rim, which was bare hazy
+  sky (the sky toward the sun under a hazy summer sky is ~5 000-9 000 cd/m2,
+  4 stops over the storm's exposure: it clips on any camera exposed for the
+  storm, as it does here where it shows, and on Medium and below, which
+  skip the line for its cost).
+- Rain shafts (`field_air`): the rain hangs from the cloud, thinning into
+  the base's soft bottom over its last few hundred metres; its shafts are
+  soft streaks in the world (~600 m across, kilometres tall, leaning
+  downwind) at +-30 %, which average out along the ray: a grey veil, not
+  stripes. The air's steps are dithered per pixel in the sky (interleaved
+  gradient noise, steady in time): no step edges, so Medium takes 8 of them
+  (High and up 9, Low and Potato 5).
 
 ## One wind field (`field_wind_at`)
 
@@ -216,11 +274,21 @@ On lavapipe High costs ~2.8x Medium because it transforms every blade on the
 CPU; on a mid-range phone GPU the blades are ~0.75 M vertices of ~150 ALU
 (the wind field and the height: ~110 M ALU a frame) and thin overdraw in the
 lower half of the view, an estimated +3-5 ms over Medium, which is why the
-blades are High and up only. Per pixel the sky does 9 air steps (4 in the
-radiance cubemap's pass, 5 on Potato and Low), each a rain and sunlight
-lookup (value noise, no textures but the one noise map for the cloud
-layers); the ground does its air per vertex (~14k vertices), the tornado per
-vertex too. CPU: FieldStorm ~0.1 ms a frame (the wind and rain fields where
+blades are High and up only. Per pixel the sky does 9 air steps (8 on
+Medium, 5 on Potato and Low, 4 in the radiance cubemap's pass), each a rain
+and sunlight lookup (value noise; one value-noise octave per step for the
+rain shafts, down from two and an atan); the ground does its air per vertex
+(~14k vertices), the tornado per vertex too. The cloud mass: on High and up
+up to 8 slices (+1 over the core) of 4 noise taps each, but the deep base
+stops after its first slice or two (opaque), so the full count runs only in
+the rim and the far edge, plus the flanking line (2 taps, a 3-tower loop)
+beyond the western rim, ~+7-10 % frame time on lavapipe at Realistic (an
+estimated +1-1.5 ms on a mid-range phone GPU at 1080p); on Medium 2 slices
+of 2 taps, no flanking line, and one air step fewer, which together with the
+cheaper rain shafts keeps it at the old cost (lavapipe, interleaved runs:
+161-175 ms before, 163-173 ms after, within its noise); Low 1 slice, no
+change (81-87 ms vs 84-88 ms). The draw calls are unchanged (the sky is one
+draw). CPU: FieldStorm ~0.1 ms a frame (the wind and rain fields where
 you stand, the meter, a few globals); the grass tiles move only when you
 cross a tile. Sounds +1.2 MB.
 
