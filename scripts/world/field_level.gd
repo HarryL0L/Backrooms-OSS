@@ -1,13 +1,14 @@
 class_name FieldLevel
 extends Node3D
-## The Meadow: an endless sunlit lawn under a deep blue sky with
-## towering cumulus clouds. Reached through a rare door in the Yellow Halls; the way
-## back is a lone door standing somewhere out in the grass.
+## The Meadow: an endless lawn on a summer afternoon under a tornadic
+## supercell (FieldStorm, docs/FIELD_STORM.md): a dark green-grey storm
+## light, the wall cloud and a tornado kilometres off, rain bands and gusts
+## sweeping the grass, lightning and thunder. Reached through a rare door in
+## the Yellow Halls; the way back is a lone door standing somewhere out in
+## the grass. On High and up the grass is real blades (FieldGrass).
 ##
 ## It lives far below the Backrooms (FIELD_Y) so both can exist in one scene
-## without touching. The ground mesh and its collision follow the player; the
-## clouds are raymarched once into a panorama on the GPU and then cost a single
-## texture lookup per pixel.
+## without touching. The ground mesh and its collision follow the player.
 
 signal exit_entered
 
@@ -19,7 +20,6 @@ const EXIT_MAX := 150.0
 const EXIT_SPREAD := 0.85        # radians either side of straight ahead
 const EYE := 1.6
 const COLL_N := 97               # collision heightmap size (1 m spacing)
-const MUSIC_PATH := "res://music/empty_hours.ogg"
 
 var player: Player
 var environment: Environment
@@ -29,15 +29,12 @@ var _ground: MeshInstance3D
 var _coll: CollisionShape3D
 var _coll_centre := Vector2(INF, INF)
 var _door: OddDoor
-var _music: AudioStreamPlayer
-var _wind: AudioStreamPlayer
-var _music_t := 6.0
 var _noise_fine: NoiseTexture2D
-var _bake_vp: SubViewport
-var _bake_rect: ColorRect
-var _bake_strip := 0
-const BAKE_STRIPS := 8
 var _noise_blot: NoiseTexture2D
+## The weather (the storm, its light and camera, the rain, the sound).
+var storm: FieldStorm
+## The realistic grass (High and up), else null.
+var grass: FieldGrass
 
 
 ## Same function as field_height() in field_common.gdshaderinc.
@@ -58,22 +55,28 @@ static func ground_at(x: float, z: float) -> Vector3:
 func build(seed_value: int, exit_override := Vector3.INF) -> void:
 	_noise_fine = _noise(256, 0.035, 5, 1)
 	_noise_blot = _noise(256, 0.012, 4, 2)
-	var sun_dir := Vector3(-0.42, 0.68, 0.6).normalized()
-	environment = _make_environment(_bake_clouds(sun_dir))
-	var sun := DirectionalLight3D.new()
-	sun.light_color = Color(1.0, 0.96, 0.9)
-	sun.light_energy = 1.6
-	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 40.0
-	add_child(sun)
-	sun.look_at_from_position(Vector3.ZERO, -sun_dir, Vector3.UP)
+	var preset := int(Settings.get_value("graphics/preset"))
+	var low := preset <= 1
+	environment = _make_environment(low)
+	storm = FieldStorm.new()
+	storm.name = "Storm"
+	add_child(storm)
+	storm.setup(seed_value, _noise_fine, low)
 	_ground = MeshInstance3D.new()
 	_ground.mesh = _make_ground_mesh()
 	var gm := ShaderMaterial.new()
 	gm.shader = load("res://shaders/field_ground.gdshader")
 	gm.set_shader_parameter("noise_fine", _noise_fine)
 	gm.set_shader_parameter("noise_blot", _noise_blot)
+	gm.set_shader_parameter("air_steps", 4 if low else 6)
+	# Real blades on High, Max and Realistic (not in the PS1 look).
+	if preset >= 3 and not bool(Settings.get_value("graphics/ps1")):
+		grass = FieldGrass.new()
+		grass.name = "Grass"
+		add_child(grass)
+		grass.setup(preset >= 4)
+		gm.set_shader_parameter("blades", 1.0)
+		gm.set_shader_parameter("blade_far", grass.reach())
 	_ground.material_override = gm
 	_ground.extra_cull_margin = 16.0
 	_ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -100,18 +103,7 @@ func build(seed_value: int, exit_override := Vector3.INF) -> void:
 	_door.look_at(Vector3(0.0, _door.global_position.y, 0.0), Vector3.UP, true)
 	_door.entered.connect(func() -> void: exit_entered.emit())
 	_make_tree(exit_pos)
-	# Sound: wind always, the music now and then.
-	_wind = AudioStreamPlayer.new()
-	_wind.stream = AudioSynth.cached("wind")
-	_wind.volume_db = -14.0
-	_wind.bus = "World"
-	add_child(_wind)
-	_wind.play()
-	_music = AudioStreamPlayer.new()
-	if ResourceLoader.exists(MUSIC_PATH):
-		_music.stream = load(MUSIC_PATH)
-	_music.volume_db = -7.0
-	add_child(_music)
+	# (No music: the storm's wind, rain and thunder are the Field's sound now.)
 
 
 ## Chooses the exit spot: a random candidate ahead of the arrival point whose
@@ -170,6 +162,7 @@ func _make_tree(door: Vector3) -> void:
 	var leaves := ShaderMaterial.new()
 	leaves.shader = load("res://shaders/field_tree.gdshader")
 	leaves.set_shader_parameter("noise_fine", _noise_fine)
+	leaves.set_shader_parameter("base_y", base.y - 0.3)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(door.x * 13.0) ^ int(door.z * 7.0)
 	var clumps := [Vector3(0, 7.2, 0), Vector3(-2.4, 6.4, 0.6), Vector3(2.3, 6.6, -0.3), Vector3(0.5, 6.9, 2.0),
@@ -225,20 +218,18 @@ func open_exit() -> void:
 
 
 func _process(delta: float) -> void:
-	_bake_next_strip()
 	if player == null:
 		return
 	var p := player.global_position
+	if player.camera != null:
+		storm.update(delta, player.camera, environment)
+		if grass != null:
+			grass.update(player.camera.global_position)
 	# Ground mesh follows in 4 m steps (its heights come from world position).
 	_ground.global_position = Vector3(snappedf(p.x, 4.0), FIELD_Y, snappedf(p.z, 4.0))
 	var c := Vector2(roundf(p.x), roundf(p.z))
 	if c.distance_to(_coll_centre) > 24.0:
 		_update_collision(c)
-	if _music.stream != null and not _music.playing:
-		_music_t -= delta
-		if _music_t <= 0.0:
-			_music.play()
-			_music_t = randf_range(90.0, 180.0)
 
 
 func _update_collision(c: Vector2) -> void:
@@ -289,71 +280,34 @@ func _make_ground_mesh() -> ArrayMesh:
 	return m
 
 
-func _bake_clouds(sun_dir: Vector3) -> Texture2D:
-	var vp := SubViewport.new()
-	# Smaller bake on the Potato preset (weak GPUs).
-	vp.size = Vector2i(1024, 256) if int(Settings.get_value("graphics/preset")) == 0 else Vector2i(2048, 512)
-	vp.use_hdr_2d = true
-	vp.transparent_bg = true
-	vp.disable_3d = true
-	vp.render_target_clear_mode = SubViewport.CLEAR_MODE_ONCE
-	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
-	var rect := ColorRect.new()
-	rect.size = Vector2(vp.size.x / BAKE_STRIPS, vp.size.y)
-	var m := ShaderMaterial.new()
-	m.shader = load("res://shaders/cloud_bake.gdshader")
-	m.set_shader_parameter("sun_dir", sun_dir)
-	m.set_shader_parameter("strip_du", 1.0 / BAKE_STRIPS)
-	rect.material = m
-	vp.add_child(rect)
-	add_child(vp)
-	_bake_vp = vp
-	_bake_rect = rect
-	_bake_next_strip()
-	return vp.get_texture()
-
-
-## Renders the next strip of the cloud panorama (one per frame).
-func _bake_next_strip() -> void:
-	if _bake_strip >= BAKE_STRIPS:
-		return
-	_bake_rect.position.x = _bake_rect.size.x * _bake_strip
-	(_bake_rect.material as ShaderMaterial).set_shader_parameter("strip_u0", float(_bake_strip) / BAKE_STRIPS)
-	_bake_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
-	_bake_strip += 1
-
-
-func _make_environment(clouds: Texture2D) -> Environment:
+func _make_environment(low: bool) -> Environment:
 	var e := Environment.new()
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/field_sky.gdshader")
-	sky_mat.set_shader_parameter("clouds", clouds)
+	sky_mat.set_shader_parameter("noise", _noise_fine)
+	sky_mat.set_shader_parameter("steps", 5 if low else 9)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_64
+	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	e.background_mode = Environment.BG_SKY
 	e.sky = sky
+	# Lit by the storm's sky itself (its shader carries the camera's
+	# exposure): the dark base overhead, the bright horizon under it.
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.75
+	e.ambient_light_energy = 1.0
+	e.ambient_light_sky_contribution = 1.0
 	e.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	e.tonemap_exposure = 1.0
-	e.tonemap_white = 6.0
+	# The near things' air (FieldStorm sets its density and colour); the
+	# ground, the sky and the tornado do their own.
 	e.fog_enabled = true
 	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	e.fog_light_color = Color(0.55, 0.68, 0.86)
-	e.fog_light_energy = 1.0
-	e.fog_density = 0.00045
-	e.fog_aerial_perspective = 0.7
 	e.fog_sky_affect = 0.0
-	e.glow_enabled = true
-	e.glow_intensity = 0.15
-	e.glow_bloom = 0.0
-	e.glow_hdr_threshold = 2.5
+	e.fog_aerial_perspective = 0.0
+	EnvironmentFactory.lucid_grade(e)
+	e.tonemap_exposure = float(Settings.get_value("graphics/brightness"))
 	e.adjustment_enabled = true
-	e.adjustment_contrast = 1.04
-	e.adjustment_saturation = 1.05
-	EnvironmentFactory.realistic_level(e, false)
+	e.glow_enabled = bool(Settings.get_value("graphics/bloom"))
 	return e
 
 

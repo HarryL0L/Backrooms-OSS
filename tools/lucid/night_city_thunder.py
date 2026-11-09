@@ -2,6 +2,9 @@
 # replaced by CC0 field recordings (Freesound was tried on 2026-11-08 and was
 # blocked from the build environment).
 #   python3 tools/lucid/night_city_thunder.py assets/levels/night_city/audio
+#   python3 tools/lucid/night_city_thunder.py assets/levels/field/audio --open
+#   (--open: open country, the Field: no towers to echo off, only the
+#   ground's reflection and the channel's own length rolling it out)
 # (needs numpy, ffmpeg). Mono Ogg Vorbis, starting at the first arrival:
 #   thunder_near_1/2.ogg  a strike 1.6 km off: a sharp crack, claps, the rumble
 #   thunder_mid_1/2.ogg   4 km: softer claps rolling into the rumble
@@ -25,6 +28,7 @@ import numpy as np, wave, subprocess, sys, os
 SR = 44100
 C = 343.0
 out = sys.argv[1]
+OPEN = '--open' in sys.argv
 
 
 def channel(rng, d, cg):
@@ -102,6 +106,22 @@ def echoes(rng, x):
     return y + wet / (np.max(np.abs(wet)) + 1e-9) * np.max(np.abs(x)) * 0.35
 
 
+def ground(rng, x):
+    # Open country: the ground's reflection (a few ms late, a little dull)
+    # and a short soft tail (the air's turbulence scattering it); the roll
+    # is the channel's own length.
+    y = x.copy()
+    dl = int(0.006 * SR)
+    y[dl:] += np.convolve(x, np.ones(5) / 5, 'same')[:len(y) - dl] * 0.6
+    L = int(1.2 * SR)
+    t = np.arange(L) / SR
+    tail = rng.standard_normal(L) * np.exp(-6.9 * t / 1.2)
+    tail = np.convolve(tail, np.ones(60) / 60, 'same')
+    tail[:int(0.08 * SR)] = 0
+    wet = np.fft.irfft(np.fft.rfft(x, len(x) + L) * np.fft.rfft(tail, len(x) + L), len(x) + L)[:len(x)]
+    return y + wet / (np.max(np.abs(wet)) + 1e-9) * np.max(np.abs(x)) * 0.12
+
+
 def thunder(seed, d, cg):
     rng = np.random.default_rng(seed)
     pts = channel(rng, d, cg)
@@ -125,7 +145,7 @@ def thunder(seed, d, cg):
         a = int((rm[k] / C - t0) * SR)
         x[a:a + len(w)] += w
     x = absorb(x, t0)
-    x = echoes(rng, x)
+    x = ground(rng, x) if OPEN else echoes(rng, x)
     fade = int(1.5 * SR)
     x[-fade:] *= np.linspace(1, 0, fade)
     return x

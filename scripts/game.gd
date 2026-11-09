@@ -1105,10 +1105,10 @@ func _on_odd_door(door: OddDoor) -> void:
 	_transition = true
 	player.controls_enabled = false
 	await door.open()
-	hud.set_fade_color(Color(1.0, 0.98, 0.94))
+	hud.set_fade_color(Color(0.6, 0.64, 0.62))
 	await hud.fade_to(1.0, 0.9)
 	_enter_field()
-	hud.show_level(FIELD_NAME, "Warm wind. Endless grass. The door is gone.")
+	hud.show_level(FIELD_NAME, "Green-grey sky. Wind in the grass. Something on the horizon.")
 	await hud.fade_to(0.0, 2.2)
 	hud.set_fade_color(Color.BLACK)
 	player.controls_enabled = true

@@ -158,6 +158,42 @@ lucid_cloud={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 1)
 }
+field_wind={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+field_band={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+field_core={
+"type": "vec4",
+"value": Vector4(0, 0, 1, 0)
+}
+field_meso={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+field_sun={
+"type": "vec4",
+"value": Vector4(0, 1, 0, 0)
+}
+field_light={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+field_sunair={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+field_cloud={
+"type": "vec4",
+"value": Vector4(1200, 10000, 1, 1)
+}
+field_cloud_c={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
 lucid_scud={
 "type": "vec4",
 "value": Vector4(0, 1, 1, 0)

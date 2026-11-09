@@ -93,6 +93,16 @@ var patch_nits := 0.0
 ## Tall towers' lightning rods (world), the level's: a bolt now and then
 ## strikes one 1.5-6 km off.
 var towers := PackedVector3Array()
+## Driven by its level (the Field's supercell, FieldStorm): no bursts of its
+## own; the level sets `rate`, `wind` and `intensity` before update().
+var driven := false
+## Where the flashes are (world xz) and how far round it (m): the storm's
+## core and its base, not all round the sky. INF: anywhere.
+var focus := Vector2.INF
+var focus_r := 0.0
+## Flashes a second between bursts (and the extra at a burst's peak).
+var lam_base := 1.0 / 75.0
+var lam_burst := 1.0 / 12.0
 
 var _t := 0.0
 var _dt := 0.0
@@ -146,6 +156,48 @@ func update(delta: float, cam: Vector3) -> void:
 	_t += delta
 	_cam = cam
 	drift += DRIFT * delta
+	if not driven:
+		_bursts()
+	rings += delta * LucidRain.impacts(rate) / LucidRain.impacts(6.0)
+	# Flashes: a Poisson process, more often in a burst.
+	var lam := lam_base + intensity * lam_burst
+	if reduce:
+		lam *= 0.5
+	if _t > _next_ok and _rng.randf() < lam * delta:
+		var lo := lerpf(5000.0, 1500.0, intensity)
+		var hi := lerpf(14000.0, 7000.0, intensity)
+		var cg := _rng.randf() < 0.25
+		var dist := exp(lerpf(log(lo), log(hi), _rng.randf()))
+		var az := _rng.randf() * TAU
+		if focus.is_finite():
+			# In the storm: round its core and under its base.
+			var f := focus + Vector2.from_angle(_rng.randf() * TAU) * focus_r * sqrt(_rng.randf())
+			dist = maxf(Vector2(f.x - cam.x, f.y - cam.z).length(), 600.0)
+			az = atan2(f.x - cam.x, -(f.y - cam.z))
+		# In a burst, now and then a strike ~1 km off.
+		if cg and intensity > 0.5 and _rng.randf() < 0.06:
+			dist = _rng.randf_range(800.0, 1300.0)
+		# A visible channel to ground within ~7 km (beyond, the haze takes
+		# it); one in six of those to a tall tower's rod 1.5-6 km off; an
+		# intracloud flash within 8 km now and then shows its spider
+		# channels along the base.
+		var bolt := (dist < 7000.0 and _rng.randf() < 0.85) if cg else (dist < 8000.0 and _rng.randf() < 0.3)
+		var rod := Vector3.INF
+		if cg and bolt and _rng.randf() < 0.17:
+			rod = _pick_tower(1500.0, 6000.0)
+		_spawn(az, dist, cg, bolt, 0.0, 0.0, rod)
+	_flash_now()
+	# Thunder due.
+	for i in range(_thunders.size() - 1, -1, -1):
+		var th: Array = _thunders[i]
+		if _t >= th[0]:
+			_thunders.remove_at(i)
+			thunder.emit(th[1], th[2])
+	_push()
+
+
+## The storm's own bursts of rain and gusts (the Blue Hour).
+func _bursts() -> void:
 	# Bursts: a ramp up, a hold, a fall, then a lull.
 	var x := _t - _b0
 	if x > _b_ramp + _b_hold + _b_fall:
@@ -168,37 +220,6 @@ func update(delta: float, cam: Vector3) -> void:
 	var g := 1.0 + 3.0 * intensity + intensity * (0.8 * sin(_t * 0.37) + 0.6 * sin(_t * 0.91 + 1.3) + 0.4 * sin(_t * 1.7 + 4.0))
 	var a := 0.38 + 0.25 * intensity * sin(_t * 0.13)
 	wind = Vector3(cos(a), 0.0, sin(a)) * maxf(g, 0.5)
-	rings += delta * LucidRain.impacts(rate) / LucidRain.impacts(6.0)
-	# Flashes: a Poisson process, more often in a burst.
-	var lam := 1.0 / 75.0 + intensity / 12.0
-	if reduce:
-		lam *= 0.5
-	if _t > _next_ok and _rng.randf() < lam * delta:
-		var lo := lerpf(5000.0, 1500.0, intensity)
-		var hi := lerpf(14000.0, 7000.0, intensity)
-		var cg := _rng.randf() < 0.25
-		var dist := exp(lerpf(log(lo), log(hi), _rng.randf()))
-		var az := _rng.randf() * TAU
-		# In a burst, now and then a strike ~1 km off.
-		if cg and intensity > 0.5 and _rng.randf() < 0.06:
-			dist = _rng.randf_range(800.0, 1300.0)
-		# A visible channel to ground within ~7 km (beyond, the haze takes
-		# it); one in six of those to a tall tower's rod 1.5-6 km off; an
-		# intracloud flash within 8 km now and then shows its spider
-		# channels along the base.
-		var bolt := (dist < 7000.0 and _rng.randf() < 0.85) if cg else (dist < 8000.0 and _rng.randf() < 0.3)
-		var rod := Vector3.INF
-		if cg and bolt and _rng.randf() < 0.17:
-			rod = _pick_tower(1500.0, 6000.0)
-		_spawn(az, dist, cg, bolt, 0.0, 0.0, rod)
-	_flash_now()
-	# Thunder due.
-	for i in range(_thunders.size() - 1, -1, -1):
-		var th: Array = _thunders[i]
-		if _t >= th[0]:
-			_thunders.remove_at(i)
-			thunder.emit(th[1], th[2])
-	_push()
 
 
 ## A flash `dist` m away (horizontally, its patch or strike) at azimuth
@@ -460,6 +481,26 @@ func sky_nits(dir: Vector3, haze: float) -> Color:
 ## E / pi (engine units) a flash gives an open surface facing n.
 func light(n: Vector3) -> Color:
 	return e_flash * (1.0 + e_toward * maxf(n.dot(flash_dir), 0.0))
+
+
+## The bolt's colours (linear RGB, any scale: normalised to luminance 1):
+## its channel and glare, and its glow far off through the air. By day
+## under a ~7000 K white balance a channel reads white with a violet edge,
+## not the night's pink.
+func set_bolt_colours(channel_rgb: Color, far_rgb: Color) -> void:
+	var c := channel_rgb / Lucid.lum(channel_rgb)
+	var fa := far_rgb / Lucid.lum(far_rgb)
+	_bolt_mat.set_shader_parameter("colour", Vector3(c.r, c.g, c.b))
+	_bolt_mat.set_shader_parameter("far", Vector3(fa.r, fa.g, fa.b))
+
+
+## The lit channel now: [its light per metre (cd/m, 0: none lit), its top,
+## its foot (from the camera)]. The Field adds the channel's own light on
+## the open ground (a near strike by day).
+func channel() -> Array:
+	if not _bolt.visible:
+		return [0.0, Vector3.ZERO, Vector3.ZERO]
+	return [_line_a.w * Lucid.UNIT_NITS, Vector3(_line_a.x, _line_a.y, _line_a.z), Vector3(_line_b.x, _line_b.y, _line_b.z)]
 
 
 func _push() -> void:

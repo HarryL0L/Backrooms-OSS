@@ -25,6 +25,7 @@
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, fog_disabled, shadows_disabled;
 #include "res://shaders/lucid_city.gdshaderinc"
+#include "res://shaders/field_common.gdshaderinc"
 
 uniform float lambda = 2.8;               // Marshall-Palmer slope (1/mm) at the rain rate
 uniform float drops_per = 270.0;          // real drops (0.5 mm and up) per drawn streak
@@ -53,6 +54,7 @@ uniform vec4 drip_a[12];                  // drip edges: from (world), w: how fa
 uniform vec4 drip_b[12];                  // to (world), w: > 0 a ring of this radius round drip_a
 uniform int drip_n = 0;
 uniform float amount = 1.0;               // 0 off .. 1
+uniform int ground_kind = 0;              // 0 the city's streets, 1 the Field's hills (origin: its datum)
 // Not from the physics, kept for tuning (1: as the physics gives).
 uniform float visibility = 1.0;
 
@@ -114,6 +116,9 @@ vec3 drop_light(vec3 p, vec3 to_eye) {
 }
 
 float ground_at(vec2 xz) {
+	if (ground_kind == 1) {
+		return origin.y + field_height(xz - origin.xz);
+	}
 	vec2 q = xz - origin.xz;
 	if (q.x > roof.x && q.x < roof.z && q.y > roof.y && q.y < roof.w) {
 		return origin.y + roof_y;

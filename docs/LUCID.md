@@ -1216,15 +1216,21 @@ behind it with the same priority: the far point lights against the sky
   `rain_cover[4]`, `rain_cover_top`, function `lucid_ripples(lp, footprint)`.
   `HUD.lens_rain` (drops a second on the body cam's lens),
   `HUD.lens_wipe`. `QA_RAIN=1` adds the rain shots (`r_*`) and makes the
-  film the rain film. `LucidRain.set_rate(rate, wind)`; `lucid_rain.z`
+  film the rain film. `LucidRain.set_rate(rate, wind)`; shader uniform
+  `ground_kind` (0 the city's streets, 1 the Field's hills, `origin` its
+  datum); `lucid_rain.z`
   the rings' clock, `.w` the rain's extinction.
 - Storm: `LucidStorm` (`scripts/render/lucid_storm.gd`): `setup(seed,
   ground_y, low)`, `update(delta, cam)`, `flash(az, dist, cg, bolt, delay,
   qa)`, `strike(at, delay, qa)` (a tower's rod), `burst(ramp, hold,
   peak)`, `calm(secs)`, `sky_nits(dir, haze)`, `light(n)`,
-  `extinction()`, `clear()`; `rate`, `wind`, `intensity`, `reduce`,
-  `cover`, `drift`, `rings`, `towers` (rods, world); signal `thunder(dist,
-  dir)`; constants `CLOUD_BASE`, `CLOUD_SIGMA`, `MIST_H`, `SCUD`,
+  `extinction()`, `clear()`, `set_bolt_colours(channel, far)`,
+  `channel()` (the lit channel's light per metre and ends); `rate`,
+  `wind`, `intensity`, `reduce`, `cover`, `drift`, `rings`, `towers`
+  (rods, world), `driven` (the level sets `rate`, `wind`, `intensity`: no
+  bursts of its own), `focus` / `focus_r` (where its flashes are),
+  `lam_base` / `lam_burst` (flash rates; the Field's supercell, see
+  docs/FIELD_STORM.md); signal `thunder(dist, dir)`; constants `CLOUD_BASE`, `CLOUD_SIGMA`, `MIST_H`, `SCUD`,
   `Q_STROKE`, `FLASH_RGB`, `BOLT_RGB`, `BOLT_FAR`, `LEAD_KINK`, `KINK`.
   Globals `lucid_cloud` (x base, y cover, z in-cloud extinction, w mist
   scale height), `lucid_scud` (x, y its bottom and top, z their ramp, w
