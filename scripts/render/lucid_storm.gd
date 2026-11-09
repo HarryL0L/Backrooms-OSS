@@ -24,21 +24,40 @@ signal thunder(dist: float, dir: Vector3)
 
 const BOLT_SHADER := preload("res://shaders/lucid_bolt.gdshader")
 const SOUND_SPEED := 343.0
-## The deck: its base (m over the street), the extinction inside it (1/m:
-## visibility ~130 m in stratus) and the scale height of the scud and wet
-## haze under it, thickening exponentially toward the base (m).
-const CLOUD_BASE := 400.0
+## The deck: a cumulonimbus base (m over the street; thunderstorm bases
+## are mostly 1-2 km up in humid mid-latitudes: WMO International Cloud
+## Atlas, Craven et al. 2002), the extinction inside it (1/m: visibility
+## ~130 m in cloud) and the scale height of the wet haze under it,
+## thickening exponentially toward the base (m).
+const CLOUD_BASE := 1200.0
 const CLOUD_SIGMA := 0.03
-const MIST_H := 80.0
-## How fast the deck drifts (m/s; the wind at 400 m in a storm).
+const MIST_H := 60.0
+## The scud (pannus) hanging under it: ragged wisps between SCUD.x and
+## SCUD.y m over the street (round the tower tops), soft over SCUD.z m at
+## the bottom and top, SCUD.w extinction inside one (1/m: visibility ~370
+## m) over about a third of the sky and a veil of a quarter of it between
+## (two octaves of value noise over ~700 m, lucid_mist_tau): the tower tops
+## fade into it, a far bolt dims behind a wisp.
+const SCUD := Vector4(200.0, 430.0, 70.0, 0.008)
+## How fast the deck and its scud drift (m/s; the wind under the base).
 const DRIFT := Vector2(9.0, 3.5)
 ## The camera's sub-frame (s): a stroke lands in one.
 const SUBFRAME := 1.0 / 30.0
 ## A first return stroke's luminous energy (lm s, median; log-normal).
 const Q_STROKE := 8.0e7
-## The flash's colour: the channel's N II / O I lines (Orville 1968),
-## blue-white through the cloud.
-const FLASH_K := 8000.0
+## The flash's colour (linear RGB, luminance 1 once normalised). The
+## channel's visible light is mostly lines: N II from the blue to the
+## green, Halpha (656 nm) in the red, O I and N I further out (Orville 1968,
+## Orville & Henderson 1984); a camera's red and blue channels both catch
+## strong lines: its core saturates to white, the glare round it
+## violet-pink (BOLT_RGB). The cloud it lights from inside and the air round it a
+## violet (FLASH_RGB); under the city's warm white balance (~4300 K) both
+## read as in night photographs of lightning. Far off through kilometres
+## of haze and rain its glow is a neutral grey (BOLT_FAR, blue-grey on the
+## screen).
+const FLASH_RGB := Color(1.15, 0.42, 0.85)
+const BOLT_RGB := Color(2.4, 0.55, 0.85)
+const BOLT_FAR := Color(0.75, 0.68, 0.68)
 ## A channel's whole length (m), in and under the cloud: the visible bolt
 ## carries its share of the light per metre.
 const CHANNEL := 6000.0
@@ -71,6 +90,9 @@ var flash_dir := Vector3.UP
 ## The lit patch's centre (world) and radiance (cd/m2).
 var patch := Vector3.ZERO
 var patch_nits := 0.0
+## Tall towers' lightning rods (world), the level's: a bolt now and then
+## strikes one 1.5-6 km off.
+var towers := PackedVector3Array()
 
 var _t := 0.0
 var _dt := 0.0
@@ -92,7 +114,10 @@ var _r := 1500.0
 var _rb := 4000.0
 var _bolt: MeshInstance3D
 var _bolt_mat: ShaderMaterial
-var _col := Lucid.kelvin_rgb(FLASH_K, true)
+var _col := FLASH_RGB / Lucid.lum(FLASH_RGB)
+var _segs := 0
+var _line_a := Vector4.ZERO
+var _line_b := Vector4.ZERO
 
 
 func setup(p_seed: int, p_ground_y: float, p_low: bool) -> void:
@@ -104,7 +129,10 @@ func setup(p_seed: int, p_ground_y: float, p_low: bool) -> void:
 	_b0 = _rng.randf_range(40.0, 120.0)
 	_bolt_mat = ShaderMaterial.new()
 	_bolt_mat.shader = BOLT_SHADER
-	_bolt_mat.set_shader_parameter("colour", Vector3(_col.r, _col.g, _col.b))
+	var c := BOLT_RGB / Lucid.lum(BOLT_RGB)
+	var fa := BOLT_FAR / Lucid.lum(BOLT_FAR)
+	_bolt_mat.set_shader_parameter("colour", Vector3(c.r, c.g, c.b))
+	_bolt_mat.set_shader_parameter("far", Vector3(fa.r, fa.g, fa.b))
 	_bolt = MeshInstance3D.new()
 	_bolt.material_override = _bolt_mat
 	_bolt.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -146,10 +174,23 @@ func update(delta: float, cam: Vector3) -> void:
 	if reduce:
 		lam *= 0.5
 	if _t > _next_ok and _rng.randf() < lam * delta:
-		var lo := lerpf(5000.0, 1800.0, intensity)
+		var lo := lerpf(5000.0, 1500.0, intensity)
 		var hi := lerpf(14000.0, 7000.0, intensity)
 		var cg := _rng.randf() < 0.25
-		_spawn(_rng.randf() * TAU, exp(lerpf(log(lo), log(hi), _rng.randf())), cg, cg and _rng.randf() < 0.6)
+		var dist := exp(lerpf(log(lo), log(hi), _rng.randf()))
+		var az := _rng.randf() * TAU
+		# In a burst, now and then a strike ~1 km off.
+		if cg and intensity > 0.5 and _rng.randf() < 0.06:
+			dist = _rng.randf_range(800.0, 1300.0)
+		# A visible channel to ground within ~7 km (beyond, the haze takes
+		# it); one in six of those to a tall tower's rod 1.5-6 km off; an
+		# intracloud flash within 8 km now and then shows its spider
+		# channels along the base.
+		var bolt := (dist < 7000.0 and _rng.randf() < 0.85) if cg else (dist < 8000.0 and _rng.randf() < 0.3)
+		var rod := Vector3.INF
+		if cg and bolt and _rng.randf() < 0.17:
+			rod = _pick_tower(1500.0, 6000.0)
+		_spawn(az, dist, cg, bolt, 0.0, 0.0, rod)
 	_flash_now()
 	# Thunder due.
 	for i in range(_thunders.size() - 1, -1, -1):
@@ -170,6 +211,23 @@ func flash(az: float, dist: float, cg: bool, bolt := false, delay := 0.0, qa := 
 	_spawn(az, dist, cg, bolt, delay, qa)
 
 
+## A flash to ground striking `at` (world: a tower's rod) with its bolt,
+## as flash() (QA, the film).
+func strike(at: Vector3, delay := 0.0, qa := 0.0) -> void:
+	if at != Vector3.INF:
+		_spawn(0.0, 0.0, true, true, delay, qa, at)
+
+
+## A tower's rod `lo`-`hi` m off (horizontally), or INF.
+func _pick_tower(lo: float, hi: float) -> Vector3:
+	var ok := []
+	for t in towers:
+		var d := Vector2(t.x - _cam.x, t.z - _cam.z).length()
+		if d > lo and d < hi:
+			ok.append(t)
+	return Vector3.INF if ok.is_empty() else ok[_rng.randi() % ok.size()]
+
+
 ## A burst starting now (QA, the film): `ramp` s up, `hold` s at `peak` mm/h.
 func burst(ramp: float, hold: float, peak: float) -> void:
 	_b0 = _t
@@ -184,11 +242,23 @@ func calm(secs: float) -> void:
 	_next_ok = _t + secs
 
 
-func _spawn(az: float, dist: float, cg: bool, bolt: bool, delay := 0.0, qa := 0.0) -> void:
+func _spawn(az: float, dist: float, cg: bool, bolt: bool, delay := 0.0, qa := 0.0, at := Vector3.INF) -> void:
 	var t0 := _t + delay
 	var dirh := Vector3(sin(az), 0.0, -cos(az))
 	var base := ground_y + CLOUD_BASE
-	var p0 := Vector3(_cam.x, base, _cam.z) + dirh * dist
+	var g := Vector3(_cam.x, ground_y, _cam.z) + dirh * dist
+	if at != Vector3.INF:
+		g = at
+		dirh = Vector3(at.x - _cam.x, 0.0, at.z - _cam.z)
+		dist = dirh.length()
+		dirh /= maxf(dist, 1.0)
+	# The channel leaves the base up to a third of its height to the side
+	# of the strike (a slanting bolt); the patch is lit round that point.
+	var top := g
+	if cg:
+		var m := _rng.randf() * TAU
+		top += Vector3(cos(m), 0.0, sin(m)) * _rng.randf_range(0.0, 0.35) * CLOUD_BASE
+	var p0 := Vector3(top.x, base, top.z)
 	var p1 := p0
 	var strokes := []
 	var cc := []
@@ -220,12 +290,21 @@ func _spawn(az: float, dist: float, cg: bool, bolt: bool, delay := 0.0, qa := 0.
 		var m := _rng.randf() * TAU
 		p1 = p0 + Vector3(cos(m), 0.0, sin(m)) * _rng.randf_range(2000.0, 6000.0)
 	var f := {"t0": t0, "t1": t0 + dur + 0.1, "p0": p0, "p1": p1, "strokes": strokes, "cc": cc,
-			"r": 1200.0 if cg else 1800.0, "rb": 4000.0, "bolt": bolt and dist > 2000.0}
-	_flashes.append(f)
-	_next_ok = t0 + (20.0 if reduce else 4.0)
+			"r": 1200.0 if cg else 1800.0, "rb": 4000.0, "bolt": bolt, "cg": cg}
 	# Thunder from the nearest point: the strike, or the channel in the
 	# cloud (2-3 km up) for an intracloud flash. Beyond ~16 km none is heard.
 	var near := dist if cg else sqrt(dist * dist + 2500.0 * 2500.0)
+	if bolt:
+		# The channel, built now (once): its nearest point gives the thunder.
+		var paths := _bolt_paths(p0 + Vector3(0.0, 250.0, 0.0), g, cg, _cam.distance_to(g))
+		f.mesh = _bolt_mesh(paths, g if cg else Vector3.INF)
+		var tr: PackedVector3Array = paths[0].p
+		f.line = [tr[0], tr[tr.size() - 1]]
+		if cg:
+			for q in tr:
+				near = minf(near, _cam.distance_to(q))
+	_flashes.append(f)
+	_next_ok = t0 + (20.0 if reduce else 4.0)
 	if near < 16000.0:
 		_thunders.append([t0 + near / SOUND_SPEED, near, dirh])
 
@@ -248,16 +327,20 @@ func _flash_now() -> void:
 	var phi := 0.0
 	var best := {}
 	var best_phi := 0.0
+	var best_first := 0.0
 	for i in range(_flashes.size() - 1, -1, -1):
 		var f: Dictionary = _flashes[i]
 		if _t > f.t1 + 0.5:
 			_flashes.remove_at(i)
 			continue
 		var p := 0.0
+		var first := 0.0
 		for s: Array in f.strokes:
 			var ov := minf(s[0] + SUBFRAME, _t) - maxf(s[0], t0)
 			if ov > 0.0:
 				p += s[1] * ov / (SUBFRAME * _dt)
+				if s == f.strokes[0]:
+					first = p
 		for c: Array in f.cc:
 			var ov := minf(c[1], _t) - maxf(c[0], t0)
 			if ov > 0.0:
@@ -266,6 +349,7 @@ func _flash_now() -> void:
 		if p > best_phi:
 			best_phi = p
 			best = f
+			best_first = first
 	# Reduce flashing: the same light spread over a quarter second (no
 	# flicker, a tenth of the peak), at half the strength.
 	if reduce:
@@ -279,7 +363,7 @@ func _flash_now() -> void:
 	if not best.is_empty():
 		var u := clampf((_t - best.t0) / maxf(best.t1 - best.t0, 1e-3), 0.0, 1.0)
 		patch = (best.p0 as Vector3).lerp(best.p1, u)
-		_bolt_update(best, best_phi)
+		_bolt_update(best, best_phi, best_first / best_phi if best.cg else 1.0)
 	elif not reduce or _smooth < 1.0:
 		_bolt.visible = false
 	if flux <= 0.0:
@@ -381,6 +465,11 @@ func light(n: Vector3) -> Color:
 func _push() -> void:
 	var rs := RenderingServer
 	rs.global_shader_parameter_set("lucid_cloud", Vector4(ground_y + CLOUD_BASE, cover, CLOUD_SIGMA, MIST_H))
+	rs.global_shader_parameter_set("lucid_scud", Vector4(ground_y + SCUD.x, ground_y + SCUD.y, SCUD.z, SCUD.w * cover))
+	# The air round a lit channel (lucid_bolt_sky): its ends from the
+	# camera and its light per metre.
+	rs.global_shader_parameter_set("lucid_bolt_a", _line_a if _bolt.visible else Vector4.ZERO)
+	rs.global_shader_parameter_set("lucid_bolt_b", _line_b)
 	if flux > 0.0:
 		var rel := patch - _cam
 		var l := _col * (patch_nits / Lucid.UNIT_NITS)
@@ -395,81 +484,243 @@ func _push() -> void:
 ## Puts the storm's globals back to "off".
 static func clear() -> void:
 	RenderingServer.global_shader_parameter_set("lucid_cloud", Vector4(0, 0, 0, 1))
+	RenderingServer.global_shader_parameter_set("lucid_scud", Vector4(0, 1, 1, 0))
+	RenderingServer.global_shader_parameter_set("lucid_bolt_a", Vector4.ZERO)
 	RenderingServer.global_shader_parameter_set("lucid_lightning_l", Vector4(0, 0, 0, 1))
 	RenderingServer.global_shader_parameter_set("lucid_lightning_e", Vector4.ZERO)
 
 
 # ---------------------------------------------------------------- the bolt ---
 
-## The visible channel under the cloud of a flash to ground far off: built
-## when its first stroke lands, lit by the strokes as they land (a few
-## frames), dark between them.
-func _bolt_update(f: Dictionary, phi: float) -> void:
+## Tortuosity: at every scale (the leader's 40-110 m steps, then halved
+## down to ~1.3 pixels) a segment turns off its parent's chord by an angle
+## drawn from an exponential (mostly a little, now and then a sharp kink;
+## at most 50 degrees), so the path is self-similar: its segments deviate
+## from the mean path by ~16 degrees on average whatever their length, as
+## Hill (1968) measured on photographs over 5-70 m segments. LEAD_KINK the
+## leader's steps (rad, mean), KINK each halving.
+const LEAD_KINK := 0.2
+const KINK := 0.1
+const KINK_MAX := 0.87
+## No more branches once a bolt has this many segments (a third on Potato
+## and Low).
+const SEG_BUDGET := 2400
+
+
+## The visible channels of a flash with a bolt: built when it fires, lit
+## by its strokes as they land (a few frames), dark between them; the
+## branches only in the first stroke (the stepped leader's channels, lit
+## once), the trunk by every stroke and its continuing current.
+func _bolt_update(f: Dictionary, phi: float, share: float) -> void:
 	if not f.bolt:
 		_bolt.visible = false
 		return
-	if not f.has("mesh"):
-		f.mesh = _bolt_mesh(f.p0)
 	_bolt.mesh = f.mesh
 	# Its light per metre (cd/m): the flux over the whole channel, all round.
-	var ip := (phi * (0.5 if reduce else 1.0)) / (4.0 * PI * CHANNEL)
+	var ip := phi / (4.0 * PI * CHANNEL)
 	if reduce:
 		ip = _smooth * 0.5 / (4.0 * PI * CHANNEL)
+		share = 0.5
 	_bolt_mat.set_shader_parameter("intensity", ip / Lucid.UNIT_NITS)
+	_bolt_mat.set_shader_parameter("branches", share)
+	_bolt_mat.set_shader_parameter("soft", 0.7 if reduce else 0.0)
 	_bolt.visible = ip > 0.0
+	var a: Vector3 = f.line[0] - _cam
+	var b: Vector3 = f.line[1] - _cam
+	_line_a = Vector4(a.x, a.y, a.z, ip / Lucid.UNIT_NITS)
+	_line_b = Vector4(b.x, b.y, b.z, 0.0)
 
 
-## A tortuous channel from the ground at the strike to the cloud base and
-## a little into it (midpoint displacement), with a few branches.
-func _bolt_mesh(top: Vector3) -> ArrayMesh:
-	var g := Vector3(top.x + _rng.randf_range(-200.0, 200.0), ground_y, top.z + _rng.randf_range(-200.0, 200.0))
-	var trunk := _channel(g, top + Vector3(0, 120.0, 0), 4 if low else 6, 0.2)
-	var lines := [[trunk, 1.0]]
-	for k in _rng.randi_range(2, 4):
-		var i := _rng.randi_range(trunk.size() / 3, trunk.size() - 2)
-		var a: Vector3 = trunk[i]
-		var h := (a.y - ground_y) * _rng.randf_range(0.25, 0.55)
-		var m := _rng.randf() * TAU
-		var b := a + Vector3(cos(m) * h * 0.8, -h, sin(m) * h * 0.8)
-		lines.append([_channel(a, b, 3 if low else 4, 0.25), 0.3])
+## A flash's channels as polylines [{p: its points (world), b: the
+## brightness at each (1 the trunk at the ground), br: 1 a branch, lit by
+## the first stroke only}]. To ground (cg): the trunk from `top` (in the
+## cloud) down to `g`, a stepped leader's walk; branches off its upper two
+## thirds spreading sideways and down, sub-branches off them, each fainter,
+## most ending in mid-air; in one flash in three spider channels running
+## along the base. In the cloud: only the spiders. `dist` (m) sets the
+## finest segment (~1.3 pixels at 70 degrees over 720 px).
+func _bolt_paths(top: Vector3, g: Vector3, cg: bool, dist: float) -> Array:
+	var fine := clampf(dist * 0.0025, 6.0, 16.0) * (2.0 if low else 1.0)
+	var base := ground_y + CLOUD_BASE
+	var paths := []
+	_segs = 0
+	if cg:
+		var h := top.y - g.y
+		var trunk := _refine(_leader(top, Vector3.DOWN, h * 2.0, clampf(h / 14.0, 40.0, 110.0), g, 0.0), fine)
+		var b := PackedFloat32Array()
+		for q in trunk:
+			# Brightest low down, where the return stroke's current is
+			# highest, fading up the channel.
+			b.append(lerpf(1.0, 0.55, clampf((q.y - g.y) / h, 0.0, 1.0)))
+		paths.append({"p": trunk, "b": b, "br": 0.0})
+		_segs += trunk.size()
+		var n1 := _rng.randi_range(3, 6) if low else _rng.randi_range(7, 12)
+		for k in n1:
+			# More near the top (the leader branched as it came down).
+			var i := int(pow(_rng.randf(), 1.5) * 0.65 * (trunk.size() - 1))
+			_branch(paths, trunk, i, b[i] * _rng.randf_range(0.12, 0.35), h * _rng.randf_range(0.2, 0.7), 1, fine, 1.0)
+	if not cg or _rng.randf() < 0.33:
+		var start := Vector3(top.x, base - 200.0, top.z)
+		var bs := 0.6 if not cg else 0.3
+		for k in (1 if low else _rng.randi_range(1, 3)):
+			if k > 0 and _segs > SEG_BUDGET:
+				break
+			var m := _rng.randf() * TAU
+			var len := _rng.randf_range(1500.0, 4500.0)
+			var pts := _refine(_leader(start, Vector3(cos(m), 0.0, sin(m)), len, clampf(len / 14.0, 60.0, 200.0), Vector3.INF, 0.0, base - 210.0),
+					fine * 1.5)
+			var b := PackedFloat32Array()
+			for j in pts.size():
+				b.append(bs * lerpf(1.0, 0.25, float(j) / pts.size()))
+			paths.append({"p": pts, "b": b, "br": 1.0 if cg else 0.0})
+			_segs += pts.size()
+			for s in (1 if low else _rng.randi_range(2, 5)):
+				var j := int(_rng.randf_range(0.1, 0.8) * (pts.size() - 1))
+				_branch(paths, pts, j, b[j] * 0.5, len * _rng.randf_range(0.15, 0.35), 2, fine * 1.5, 1.0 if cg else 0.0, base - 210.0)
+	return paths
+
+
+## A branch off `parent` at its point i: `len` m, starting `b0` bright and
+## fading to a sixth at its tip (in mid-air, or at the ground), turned
+## 35-75 degrees off the parent and drooping (or held near the height
+## `hold`: a spider's), with sub-branches of its own (generation `gen`);
+## `br` 1 if lit by the first stroke only.
+func _branch(paths: Array, parent: PackedVector3Array, i: int, b0: float, len: float, gen: int, fine: float, br: float, hold := INF) -> void:
+	if _segs > SEG_BUDGET / (3 if low else 1):
+		return
+	var a: Vector3 = parent[i]
+	var d := _turn((parent[mini(i + 1, parent.size() - 1)] - parent[maxi(i - 1, 0)]).normalized(), _rng.randf_range(0.6, 1.3))
+	if hold == INF:
+		d.y = minf(d.y, -0.05)
+	d = d.normalized()
+	var pts := _refine(_leader(a, d, len, clampf(len / 8.0, 10.0, 90.0), Vector3.INF, 0.035 if hold == INF else 0.0, hold), fine)
+	for j in pts.size():
+		if pts[j].y < ground_y + 2.0:
+			pts.resize(maxi(j, 2))
+			break
+	var b := PackedFloat32Array()
+	for j in pts.size():
+		b.append(b0 * lerpf(1.0, 0.16, float(j) / pts.size()))
+	paths.append({"p": pts, "b": b, "br": br})
+	_segs += pts.size()
+	if gen < (2 if low else 3):
+		for k in _rng.randi_range(0, 2 if gen == 1 else 1):
+			var j := int(_rng.randf_range(0.1, 0.7) * (pts.size() - 1))
+			_branch(paths, pts, j, b[j] * _rng.randf_range(0.35, 0.5), len * _rng.randf_range(0.2, 0.5), gen + 1, fine, br, hold)
+
+
+## The leader's coarse walk from a: steps of ~`step` m, each turned off the
+## mean path by an exponential angle of mean LEAD_KINK; the mean path
+## heads for `target` (re-aimed every step; the walk ends on it), or else
+## starts along `dir` and bends slowly, sinking by `sink` a step (a branch)
+## or held near the height `hold` (a spider), for `len` m.
+func _leader(a: Vector3, dir: Vector3, len: float, step: float, target: Vector3, sink: float, hold := INF) -> PackedVector3Array:
+	var pts := PackedVector3Array([a])
+	var p := a
+	var mean := dir
+	var run := 0.0
+	while run < len:
+		if target != Vector3.INF:
+			var to := target - p
+			if to.length() < step * 1.3:
+				break
+			mean = to.normalized()
+		else:
+			mean = _turn(mean, absf(_rng.randfn(0.0, 0.12)))
+			mean.y -= sink
+			if hold != INF:
+				mean.y = clampf((hold - p.y) / 300.0, -0.25, 0.25)
+			mean = mean.normalized()
+		var s := step * _rng.randf_range(0.5, 1.5)
+		p += _turn(mean, _kink(LEAD_KINK)) * s
+		pts.append(p)
+		run += s
+	if target != Vector3.INF:
+		pts.append(target)
+	return pts
+
+
+## Each segment halved until under 2 x `fine` m, its midpoint pushed aside
+## so both halves turn off the chord by an exponential angle of mean KINK.
+func _refine(pts: PackedVector3Array, fine: float) -> PackedVector3Array:
+	var out := pts
+	var longest := INF
+	while longest > fine * 2.0:
+		longest = 0.0
+		var nx := PackedVector3Array()
+		for i in out.size() - 1:
+			var p: Vector3 = out[i]
+			var q: Vector3 = out[i + 1]
+			var l := p.distance_to(q)
+			nx.append(p)
+			if l > fine * 1.5:
+				var m := (p + q) * 0.5 + _perp((q - p) / l) * (0.5 * l * tan(_kink(KINK)))
+				nx.append(m)
+				longest = maxf(longest, maxf(p.distance_to(m), m.distance_to(q)))
+		nx.append(out[out.size() - 1])
+		out = nx
+	return out
+
+
+func _kink(mean: float) -> float:
+	return minf(-log(1.0 - _rng.randf() * 0.9999) * mean, KINK_MAX)
+
+
+## A random unit vector at right angles to v.
+func _perp(v: Vector3) -> Vector3:
+	return v.cross(Vector3.UP if absf(v.y) < 0.9 else Vector3.RIGHT).normalized().rotated(v, _rng.randf() * TAU)
+
+
+## v turned by `ang` (rad) about a random axis at right angles to it.
+func _turn(v: Vector3, ang: float) -> Vector3:
+	return v.rotated(_perp(v), ang)
+
+
+## The channels as camera-facing ribbons, two vertices a point, joined at
+## the kinks (NORMAL: the channel's mean direction there; UV: the side and the
+## brightness; UV2.x: 1 a branch), and a glow at the strike `g` (UV2.y 1,
+## UV its corner): one surface, one draw call.
+func _bolt_mesh(paths: Array, g: Vector3) -> ArrayMesh:
 	var v := PackedVector3Array()
 	var nrm := PackedVector3Array()
 	var uv := PackedVector2Array()
+	var uv2 := PackedVector2Array()
 	var idx := PackedInt32Array()
-	for ln in lines:
-		var pts: PackedVector3Array = ln[0]
-		for i in pts.size() - 1:
-			var a: Vector3 = pts[i]
-			var b: Vector3 = pts[i + 1]
-			var o := v.size()
-			for c in 4:
-				var at := a if c < 2 else b
-				v.append(at)
-				nrm.append((b - a).normalized())
-				uv.append(Vector2(-1.0 if c % 2 == 0 else 1.0, ln[1]))
-			idx.append_array([o, o + 1, o + 2, o + 2, o + 1, o + 3])
+	for ph: Dictionary in paths:
+		var pts: PackedVector3Array = ph.p
+		var b: PackedFloat32Array = ph.b
+		var n := pts.size()
+		for i in n:
+			# The ribbon's sides follow the channel's direction over a few
+			# segments: a ribbon many times wider than a segment would fan
+			# out at every kink if it turned with each one.
+			var t := (pts[mini(i + 4, n - 1)] - pts[maxi(i - 4, 0)]).normalized()
+			for side in [-1.0, 1.0]:
+				v.append(pts[i])
+				nrm.append(t)
+				uv.append(Vector2(side, b[i]))
+				uv2.append(Vector2(ph.br, 0.0))
+			if i > 0:
+				var o := v.size() - 4
+				idx.append_array([o, o + 1, o + 2, o + 2, o + 1, o + 3])
+	if g != Vector3.INF:
+		var o := v.size()
+		for c in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+			v.append(g + Vector3(0.0, 10.0, 0.0))
+			nrm.append(Vector3.UP)
+			uv.append(c)
+			uv2.append(Vector2(0.0, 1.0))
+		idx.append_array([o, o + 1, o + 2, o + 2, o + 1, o + 3])
+	if OS.get_environment("LUCID_DEBUG") != "":
+		print("storm: bolt %d channels, %d segments" % [paths.size(), idx.size() / 6])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = v
 	arr[Mesh.ARRAY_NORMAL] = nrm
 	arr[Mesh.ARRAY_TEX_UV] = uv
+	arr[Mesh.ARRAY_TEX_UV2] = uv2
 	arr[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	mesh.custom_aabb = AABB(Vector3(-1e5, -1e5, -1e5), Vector3(2e5, 2e5, 2e5))
 	return mesh
-
-
-func _channel(a: Vector3, b: Vector3, levels: int, rough: float) -> PackedVector3Array:
-	var pts := PackedVector3Array([a, b])
-	for l in levels:
-		var out := PackedVector3Array()
-		for i in pts.size() - 1:
-			var p: Vector3 = pts[i]
-			var q: Vector3 = pts[i + 1]
-			var len := p.distance_to(q)
-			out.append(p)
-			out.append((p + q) * 0.5 + Vector3(_rng.randfn(0.0, 1.0), _rng.randfn(0.0, 0.3), _rng.randfn(0.0, 1.0)) * len * rough)
-		out.append(pts[pts.size() - 1])
-		pts = out
-	return pts

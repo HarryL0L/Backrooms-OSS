@@ -58,6 +58,9 @@ global uniform vec4 lucid_rain;
 // extinction in the cloud (1/m), w the scale height (m) of its mist under
 // the base (the scud and wet haze the tower tops vanish into).
 global uniform vec4 lucid_cloud;
+// The scud (pannus) under it: between x and y (world y), soft over z (m)
+// at both, w the extinction inside a fragment (1/m, times the cover).
+global uniform vec4 lucid_scud;
 // Lightning: the patch of cloud base a flash lights from inside. xyz its
 // centre from the camera (m), w its radius (m).
 global uniform vec4 lucid_lightning_p;
@@ -67,6 +70,10 @@ global uniform vec4 lucid_lightning_l;
 // rgb E / pi the flash gives a surface open to the whole sky, facing away
 // from it (engine units); w the extra toward it, x max(n . d, 0).
 global uniform vec4 lucid_lightning_e;
+// A lit channel (LucidStorm's bolt): its ends from the camera (xyz), a.w
+// its light per metre (engine units: cd/m / 153.6), 0 when none.
+global uniform vec4 lucid_bolt_a;
+global uniform vec4 lucid_bolt_b;
 
 // The mist's optical depth under the base up to height y (integral of
 // sigma_c exp((y - base) / H), sigma_c inside the cloud).
@@ -75,13 +82,53 @@ float lucid_mist_f(float y) {
 	return lucid_cloud.z * (lucid_cloud.w * exp((min(y, yb) - yb) / lucid_cloud.w) + max(y - yb, 0.0));
 }
 
-// Optical depth of the cloud's mist between a and b (world). The scud is
-// patchy: thicker and thinner by half a kilometre or so round the far end,
-// drifting with the wind, so some tower tops show through and others are
-// gone.
+// The scud's profile integrated up to y: 0 under its bottom, ramping up
+// over z, 1 through the middle, ramping down to 0 at its top.
+float lucid_scud_f(float y) {
+	float r = lucid_scud.z;
+	float u = clamp(y - lucid_scud.x, 0.0, r);
+	float v = clamp(y - lucid_scud.y + r, 0.0, r);
+	return (u * u - v * v) / (2.0 * r) + max(y - lucid_scud.x - r, 0.0) - max(y - lucid_scud.y, 0.0);
+}
+
+float lucid_value_noise(vec2 q) {
+	vec2 i = floor(q);
+	vec2 f = fract(q);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(lucid_hash(i), lucid_hash(i + vec2(1.0, 0.0)), f.x),
+			mix(lucid_hash(i + vec2(0.0, 1.0)), lucid_hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+// Optical depth of the cloud's mist between a and b (world): the deck's
+// wet haze thickening toward its base, patchy (thicker and thinner by half
+// a kilometre or so round the far end, drifting with the wind), and the
+// scud (a thin veil, and fragments four times as thick over about a third
+// of the sky: two octaves of value noise over ~700 m where the ray crosses
+// the scud's middle height), so some tower tops show through and others
+// fade, and a far bolt dims behind a fragment.
 float lucid_mist_tau(vec3 a, vec3 b) {
 	if (lucid_cloud.y <= 0.0) {
 		return 0.0;
+	}
+	float scud = 0.0;
+	if (lucid_scud.w > 0.0 && max(a.y, b.y) > lucid_scud.x) {
+		float dys = b.y - a.y;
+		float ls;
+		vec2 at;
+		if (abs(dys) < 0.5) {
+			float ym = 0.5 * (a.y + b.y);
+			ls = clamp(min(ym - lucid_scud.x, lucid_scud.y - ym) / lucid_scud.z, 0.0, 1.0) * distance(a, b);
+			at = b.xz;
+		} else {
+			ls = abs(lucid_scud_f(b.y) - lucid_scud_f(a.y)) * distance(a, b) / abs(dys);
+			float k = clamp((0.5 * (lucid_scud.x + lucid_scud.y) - a.y) / dys, 0.0, 1.0);
+			at = mix(a.xz, b.xz, k);
+		}
+		if (ls > 0.0) {
+			vec2 q = (at - vec2(9.0, 3.5) * TIME) / 700.0;
+			float n = 0.65 * lucid_value_noise(q) + 0.35 * lucid_value_noise(q * 2.7 + vec2(5.2, 1.3));
+			scud = lucid_scud.w * ls * (0.25 + 0.75 * smoothstep(0.5, 0.78, n));
+		}
 	}
 	float d = distance(a, b);
 	float dy = b.y - a.y;
@@ -94,15 +141,9 @@ float lucid_mist_tau(vec3 a, vec3 b) {
 	}
 	float tau = lucid_cloud.y * s * d;
 	if (tau > 0.02) {
-		vec2 q = (b.xz - vec2(9.0, 3.5) * TIME) / 600.0;
-		vec2 i = floor(q);
-		vec2 f = fract(q);
-		f = f * f * (3.0 - 2.0 * f);
-		float n = mix(mix(lucid_hash(i), lucid_hash(i + vec2(1.0, 0.0)), f.x),
-				mix(lucid_hash(i + vec2(0.0, 1.0)), lucid_hash(i + vec2(1.0, 1.0)), f.x), f.y);
-		tau *= 0.3 + 1.4 * n;
+		tau *= 0.3 + 1.4 * lucid_value_noise((b.xz - vec2(9.0, 3.5) * TIME) / 600.0);
 	}
-	return tau;
+	return tau + scud;
 }
 
 // E / pi a flash gives a surface facing n, open to the whole sky
@@ -210,7 +251,7 @@ vec3 lucid_finish_at(vec3 c, vec3 wpos, vec3 cam, float cap) {
 // cloud base (a gaussian of its radius and a long glow through the deck),
 // seen through the air (haze and rain), plus that air lit by it (half the
 // flash's E / pi, brighter toward it: forward scattering).
-vec3 lucid_lightning_sky(vec3 dir) {
+vec3 lucid_lightning_patch(vec3 dir) {
 	if (lucid_lightning_l.r + lucid_lightning_l.g + lucid_lightning_l.b <= 0.0) {
 		return vec3(0.0);
 	}
@@ -223,6 +264,37 @@ vec3 lucid_lightning_sky(vec3 dir) {
 	vec3 patch = lucid_lightning_l.rgb * (exp(-rr * rr) + 0.12 * exp(-r / lucid_lightning_l.w));
 	vec3 air = lucid_lightning_e.rgb * (0.5 + 0.5 * lucid_lightning_e.w * max(dot(dir, normalize(f)), 0.0));
 	return patch * tr + air * (1.0 - tr);
+}
+
+// The rain and haze round a lit channel (lucid_bolt_*), as it lights them:
+// a line source of I' cd/m gives a fluence of pi I' / rho at rho from it;
+// scattered toward the eye (s the air's scattering coefficient, at about
+// right angles half as much as isotropically) along a ray passing b from
+// it, that is (s I' / 4) ln(1 + D / b) (D: as far as its light carries,
+// the extinction length or half the channel), dimmed by the air on the
+// way from the channel (b) and to the eye (t). The flash's colour.
+vec3 lucid_bolt_sky(vec3 dir) {
+	if (lucid_bolt_a.w <= 0.0) {
+		return vec3(0.0);
+	}
+	vec3 a = lucid_bolt_a.xyz;
+	vec3 ab = lucid_bolt_b.xyz - a;
+	float l2 = dot(ab, ab);
+	float dab = dot(dir, ab);
+	float den = l2 - dab * dab;
+	float u = den > 1e-3 ? clamp((dot(a, dir) * dab - dot(a, ab)) / den, 0.0, 1.0) : 0.0;
+	vec3 p = a + ab * u;
+	float t = max(dot(p, dir), 0.0);
+	float b = length(p - dir * t);
+	float sig = lucid_air.a + lucid_rain.w;
+	float s = 0.9 * lucid_air.a + lucid_rain.x;
+	float dm = min(1.0 / max(sig, 1e-5), 0.5 * sqrt(l2));
+	vec3 c = lucid_lightning_l.rgb / max(dot(lucid_lightning_l.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+	return c * (0.25 * s * lucid_bolt_a.w * log(1.0 + dm / max(b, 2.0))) * exp(-min(sig * (t + b), 60.0));
+}
+
+vec3 lucid_lightning_sky(vec3 dir) {
+	return lucid_lightning_patch(dir) + lucid_bolt_sky(dir);
 }
 
 // The sky now along dir (engine units), with a flash.

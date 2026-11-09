@@ -14,7 +14,7 @@ extends SideLevel
 ## visibility, relightable slots), the backdrop is instanced boxes with
 ## procedural windows, analytic lamp pools in the ground and thousands of
 ## point-source lamps, all in real units under a phone camera filming at
-## night (Lucid.night_camera). A thunderstorm (LucidStorm): a low overcast
+## night (Lucid.night_camera). A thunderstorm (LucidStorm): an overcast
 ## lit orange-grey from below by the city, the tower tops lost in its
 ## scud, rain that comes in heavy bursts, lightning far off with its
 ## thunder. Plan: night_city_layout.gd; sizes and sources:
@@ -1288,7 +1288,14 @@ func _build_storm() -> void:
 	add_child(_storm)
 	_storm.setup(seed_value, LEVEL_Y, low)
 	_storm.thunder.connect(_thunder)
-	if OS.get_environment("QA_STORM") == "1":
+	# The towers over 150 m: a bolt now and then strikes one's rod (a few
+	# metres over its top).
+	var rods := PackedVector3Array()
+	for b: Dictionary in lay.blocks:
+		if b.pos.y + b.size.y > 150.0:
+			rods.append(b.pos + Vector3(0.0, b.size.y + LEVEL_Y + 6.0, 0.0))
+	_storm.towers = rods
+	if OS.get_environment("QA_STORM") == "1" or OS.get_environment("QA_BOLTS") == "1":
 		_storm.calm(1e5)
 
 
@@ -1455,6 +1462,8 @@ func shots() -> Array:
 	var sy: Array = LAYOUT.STAIR_Y
 	if OS.get_environment("QA_STORM") == "1":
 		return _storm_shots()
+	if OS.get_environment("QA_BOLTS") == "1":
+		return _bolt_shots()
 	return [
 		{"name": "arrival", "transform": arrival(), "wait": 3.0},
 		{"name": "roof_edge", "transform": _view(Vector3(15.9, roof, 10.9), 45.0, -22.0), "wait": 4.0},
@@ -1526,6 +1535,57 @@ func _storm_shots() -> Array:
 	]
 
 
+## Bolt QA views (QA_BOLTS=1, --fixed-fps 30): flashes to ground forced
+## to land their first stroke as the frame is saved, from the roof (the
+## north-north-east downtown), the avenue (north, south) and the street
+## (west), 1-6 km off,
+## one onto a tower's rod, one ~1 km off, an intracloud flash's spiders;
+## the last three a later stroke of the same flash (the trunk alone).
+func _bolt_shots() -> Array:
+	var roof: float = LAYOUT.A_ROOF
+	var bolt := func(az: float, dist: float, lead := 0.0) -> Callable:
+		return func() -> void:
+			_storm.calm(1e5)
+			_storm.flash(deg_to_rad(az), dist, true, true, 2.0 - 0.03 + lead, 1.0)
+	var rod := func() -> void:
+		_storm.calm(1e5)
+		_storm.strike(_rod_toward(25.0), 1.97, 1.0)
+	var spider := func() -> void:
+		_storm.calm(1e5)
+		_storm.flash(deg_to_rad(350.0), 4000.0, false, true, 1.97, 1.0)
+	var n := Vector3(28.0, roof, 14.0)
+	var av := Vector3(2.0, 0.0, -24.0)
+	var st := Vector3(30.0, 0.15, 8.0)
+	return [
+		{"name": "b_roof_n3", "transform": _view(n, 350.0, 12.0), "wait": 2.0, "call": bolt.call(15.0, 3000.0)},
+		{"name": "b_roof_n5", "transform": _view(n, 350.0, 12.0), "wait": 2.0, "call": bolt.call(355.0, 5000.0)},
+		{"name": "b_roof_n2", "transform": _view(n, 350.0, 14.0), "wait": 2.0, "call": bolt.call(30.0, 2000.0)},
+		{"name": "b_roof_nw4", "transform": _view(n, 20.0, 12.0), "wait": 2.0, "call": bolt.call(335.0, 4000.0)},
+		{"name": "b_roof_ne6", "transform": _view(n, 330.0, 10.0), "wait": 2.0, "call": bolt.call(40.0, 6000.0)},
+		{"name": "b_roof_rod", "transform": _view(n, 335.0, 12.0), "wait": 2.0, "call": rod},
+		{"name": "b_roof_near", "transform": _view(n, 350.0, 22.0), "wait": 2.0, "call": bolt.call(0.0, 1000.0)},
+		{"name": "b_spider", "transform": _view(n, 350.0, 20.0), "wait": 2.0, "call": spider},
+		{"name": "b_av_3", "transform": _view(av, 345.0, 20.0), "wait": 2.0, "call": bolt.call(12.0, 3000.0)},
+		{"name": "b_av_15", "transform": _view(av, 345.0, 16.0), "wait": 2.0, "call": bolt.call(5.0, 1500.0)},
+		{"name": "b_av_s", "transform": _view(av, 180.0, 12.0), "wait": 2.0, "call": bolt.call(175.0, 3500.0)},
+		{"name": "b_st_w", "transform": _view(st, 90.0, 12.0), "wait": 2.0, "call": bolt.call(272.0, 2500.0)},
+		{"name": "b_stroke2", "transform": _view(n, 350.0, 12.0), "wait": 2.0, "call": bolt.call(15.0, 3000.0, -0.045)},
+		{"name": "b_stroke4", "transform": _view(n, 350.0, 12.0), "wait": 2.0, "call": bolt.call(15.0, 3000.0, -0.32)},
+		{"name": "b_after", "transform": _view(n, 350.0, 12.0), "wait": 2.0, "call": bolt.call(15.0, 3000.0, -0.52)},
+	]
+
+
+## The tallest tower's rod over 1.2 km off within 15 degrees of azimuth
+## `az` (degrees from north through east) seen from the roof.
+func _rod_toward(az: float) -> Vector3:
+	var best := Vector3.INF
+	for t in _storm.towers:
+		var d := Vector2(t.x - 28.0, t.z - 14.0)
+		if d.length() > 1200.0 and absf(wrapf(rad_to_deg(atan2(d.x, -d.y)) - az, -180.0, 180.0)) < 15.0 and (best == Vector3.INF or t.y > best.y):
+			best = t
+	return best
+
+
 ## Rain QA views (QA_RAIN=1): the crossing, the avenue grazing, under an
 ## avenue head looking up into its cone, the alley, the roof, under the bus
 ## shelter, on the fire stair.
@@ -1592,6 +1652,9 @@ func film() -> void:
 	if OS.get_environment("QA_STORM") == "1":
 		await _film_storm()
 		return
+	if OS.get_environment("QA_BOLTS") == "1":
+		await _film_bolts()
+		return
 	if OS.get_environment("QA_RAIN") == "1":
 		await _film_rain()
 		return
@@ -1635,7 +1698,7 @@ func _film_rain() -> void:
 ## The storm film (QA_STORM=1, ~45 s, record with --fixed-fps 30): on the
 ## roof in moderate rain looking north-north-east at the downtown's towers
 ## in the scud as a burst starts and the rain thickens; a flash to ground
-## 2.4 km off in the north, its bolt under the deck, its thunder 7 s later;
+## 2.4 km off in the north, its bolt under the base, its thunder 7 s later;
 ## to the parapet over the crossing; a strong flash (three times the
 ## median) 1.8 km off in the north-west lights the city, its thunder 5 s
 ## after; then up at the deck as it rolls.
@@ -1654,6 +1717,28 @@ func _film_storm() -> void:
 	await _ride([o + Vector3(17.3, e, 11.4)], deg_to_rad(50.0), 7.0, -0.12)
 	await _ride([o + Vector3(17.6, e, 12.0)], deg_to_rad(20.0), 7.0, 0.6)
 	await _ride([o + Vector3(18.0, e, 12.5)], deg_to_rad(340.0), 5.0, 0.1)
+
+
+## The bolt film (QA_BOLTS=1, ~22 s, --fixed-fps 30): on the roof in a
+## burst's rain looking north at the downtown's towers: a flash to ground
+## 3 km off behind them (five strokes), one 5 km off to the north-west,
+## one onto a tower's rod, a turn to the west downtown for one 2 km off,
+## then one ~1 km off with its crack 3 s later.
+func _film_bolts() -> void:
+	var o := Vector3(0.0, LEVEL_Y, 0.0)
+	var e: float = LAYOUT.A_ROOF + (1.38 if Player.human_eye() else 1.62)
+	_storm.calm(1e5)
+	_storm.burst(0.5, 1000.0, 25.0)
+	player.teleport(o + Vector3(28.0, LAYOUT.A_ROOF, 14.0), deg_to_rad(350.0))
+	await _ride([o + Vector3(28.0, e, 14.0)], deg_to_rad(350.0), 1.0, 0.2)
+	_storm.flash(deg_to_rad(15.0), 3000.0, true, true, 1.0)
+	_storm.flash(deg_to_rad(330.0), 5000.0, true, true, 4.5)
+	_storm.strike(_rod_toward(25.0), 8.0)
+	await _ride([o + Vector3(27.8, e, 14.1)], deg_to_rad(345.0), 10.0, 0.2)
+	await _ride([o + Vector3(24.0, e, 18.0)], deg_to_rad(75.0), 3.0, 0.15)
+	_storm.flash(deg_to_rad(290.0), 2000.0, true, true, 0.8)
+	_storm.flash(deg_to_rad(300.0), 1000.0, true, true, 4.5)
+	await _ride([o + Vector3(23.8, e, 18.2)], deg_to_rad(70.0), 9.0, 0.3)
 
 
 func _ride(eyes: Array, yaw: float, time: float, pitch: float) -> void:

@@ -42,7 +42,7 @@ float cloud_fbm(vec2 p, float foot) {
 	float a = 0.5;
 	float s = 0.0;
 	float n = 0.0;
-	float f = 1.0 / 1400.0;
+	float f = 1.0 / 3000.0;
 	mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
 	for (int i = 0; i < 5; i++) {
 		if (i >= octaves) {
@@ -66,7 +66,7 @@ void vertex() {
 void fragment() {
 	vec3 dir = normalize(v_dir);
 	vec3 rad = lucid_sky_steady(dir);
-	vec3 flash = lucid_lightning_sky(dir);
+	vec3 flash = lucid_lightning_patch(dir);
 	float pix = max(length(fwidth(dir)), 1e-5);
 	float cover = lucid_cloud.y;
 	if (cover > 0.0 && dir.y > 0.0) {
@@ -87,7 +87,7 @@ void fragment() {
 		rad *= mix(1.0, max(1.0 + 1.3 * n, 0.3) * under, tr * cover);
 		flash *= mix(1.0, max(1.0 - 0.9 * n, 0.2), tr * cover);
 	}
-	rad += flash;
+	rad += flash + lucid_bolt_sky(dir);
 	// The moon: 0.26 deg radius, a little limb darkening and dark maria.
 	float cm = dot(dir, normalize(moon_dir));
 	float th = acos(clamp(cm, -1.0, 1.0));

@@ -158,6 +158,18 @@ lucid_cloud={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 1)
 }
+lucid_scud={
+"type": "vec4",
+"value": Vector4(0, 1, 1, 0)
+}
+lucid_bolt_a={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+lucid_bolt_b={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
 lucid_lightning_p={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 1)

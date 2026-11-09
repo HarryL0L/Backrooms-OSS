@@ -230,14 +230,16 @@ how often they come.
 
 | What | Real value | Source | Here |
 | --- | --- | --- | --- |
-| Cloud base | nimbostratus / storm bases 300-1000 m, scud (pannus) lower | WMO International Cloud Atlas | deck at 400 m; mist thickening as exp((y - 400) / 80 m) under it, patchy over ~600 m; 0.03 /m (visibility 130 m) in the cloud |
+| Cloud base | thunderstorm (cumulonimbus) bases near the mean-layer LCL, typically 1-2 km in humid mid-latitude summers; scud (pannus) lower | WMO International Cloud Atlas (cumulonimbus, pannus); Craven, Jewell & Brooks 2002 | deck at 1200 m; mist thickening as exp((y - 1200) / 60 m) under it, patchy over ~600 m; 0.03 /m (visibility 130 m) in the cloud; scud at 200-430 m round the tower tops, wisps of 0.008 /m over ~a third of the sky, a veil of a quarter of that between |
 | Overcast city sky | clouds amplify skyglow ~10x in a city (2.8x at 32 km); urban Hong Kong 13.2 mag/arcsec2 under cloud, up to 3 mag brighter within a night | Kyba et al. 2011; Pun & So 2012 | 0.35 cd/m2 zenith (13.7 mag/arcsec2, 8.8x the clear night's 0.04), horizon 0.26 |
 | Its colour | redder under cloud (the lamps' spectrum reflected, no Rayleigh blue) | Kyba et al. 2012 | 3200 K zenith, 3000 K horizon (white balance then ~4300 K: a dull orange-brown sky) |
 | Its distribution | flatter than a clear light dome | Jechow et al. 2017 | brighter over the two downtowns (+60 %), darker over the river (-35 %) |
 | Haze | humid air under a cloud deck | | 3.9e-4 /m (10 km) before the rain's extinction |
-| Flashes | IC : CG about 3 : 1; 1-7 return strokes ~60 ms apart (geometric mean), ~30 % with continuing current | Boccippio et al. 2001; Rakov & Uman 2003 | a Poisson process: one every ~75 s between bursts, every ~10 s at a burst's peak, 4 s apart at least; 5-14 km off between bursts, 1.8-7 km in them |
+| Flashes | IC : CG about 3 : 1; 1-7 return strokes ~60 ms apart (geometric mean), ~30 % with continuing current | Boccippio et al. 2001; Rakov & Uman 2003 | a Poisson process: one every ~75 s between bursts, every ~10 s at a burst's peak, 4 s apart at least; 5-14 km off between bursts, 1.5-7 km in them (one strike in 16 at 0.8-1.3 km) |
 | A stroke's light | optical energy ~1e6 J per stroke | Krider, Dawson & Uman 1968 | 8e7 lm s median (log-normal, sigma 0.6), in the camera's 1/30 s sub-frame; half leaves the cloud base over a 1.2 km patch and a 4 km glow: a median stroke's patch 23 cd/m2 |
-| Its colour | N II / O I / H lines and continuum, blue-white | Orville 1968 | 8000 K |
+| Its colour | lines: N II (blue, blue-green), Halpha (red), O I / N I (near IR); violet in night photographs, the saturated channel white with a violet-pink fringe | Orville 1968; Orville & Henderson 1984 | light (1.15, 0.42, 0.85), channel (2.4, 0.55, 0.85) linear RGB, far glow neutral grey (blue-grey under the ~4300 K white balance) |
+| A bolt's path | tortuous at every scale: ~16 degrees between adjacent segments over 5-70 m; many branches from the upper channel, most ending in mid-air; branches lit by the first stroke, the trunk by every stroke | Hill 1968; Idone & Orville 1988; Rakov & Uman 2003 | stepped-leader walk (40-110 m steps) refined by midpoint displacement to ~2.6 px: 15-18 degrees between segments at 8-130 m, length/chord 1.09; 7-12 branches (3-6 Potato/Low) with sub-branches, 1-3 spider channels along the base in a third of the flashes; 200-2700 segments, one draw call |
+| Its look | channel a few cm across, ~3e4 cd/m in a 1/30 s frame: saturates | Krider et al. 1968 | core 1.2 px with its light, lens glare 6 % (1 / (1 + (x / 1.5 px)^2)), haze forward lobe 0.4 % within 0.01 rad, the air round it lit as (s I' / 4) ln(1 + D / b); bolts 1-7 km off, one in six onto a tower's rod |
 | Thunder | 343 m/s; heard to ~15-20 km; N-waves from a tortuous channel; air absorption ~5 dB/km at 1 kHz | Few 1969; ISO 9613-1 | delayed by the nearest channel point; near (< 2.6 km: crack, claps, rumble), mid (< 6.5 km), far (rumble) placeholders, -6 dB per doubling |
 
 ## What happens
@@ -255,7 +257,7 @@ how often they come.
 - It rains (above), and the body cam's lens collects drops that run and
   dry. Every few minutes a storm burst comes through: the rain thickens to
   20-40 mm/h, the wind gusts, and lightning comes closer and more often,
-  lighting the low cloud from inside and the city with it; the thunder
+  lighting the cloud from inside and the city with it; the thunder
   follows, seconds later.
 
 ## Performance (Realistic preset, worst view of the harness)
@@ -278,8 +280,9 @@ pixel, the lens drops a loop inside the body cam's existing pass). Sounds
 +0.4 MB.
 
 Storm (same harness, nine views, mean of 60 frames): 320 -> 305 ms (within
-noise), draw calls and primitives unchanged, +1 call / 192 triangles while
-a bolt is lit; thunder +0.57 MB; the bake 160-176 s.
+noise), draw calls and primitives unchanged, +1 call / ~4k triangles while
+a bolt is lit (200-2700 segments, built once per flash in a few ms);
+thunder +0.57 MB; the bake 160-176 s.
 
 ## Left to do
 

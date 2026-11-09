@@ -946,9 +946,14 @@ the rain-darkened streets keep the lamps' orange and white, nothing is
 blue but the lightning.
 
 **The deck** (`shaders/lucid_sky.gdshader`, global `lucid_cloud`). Its
-base is a plane 400 m up (storm bases are 300-1000 m, with scud under
-them). Where a view ray meets it, the sky model's luminance takes the
-deck's structure: four octaves of value noise (wavelengths 1.4 km to 80 m,
+base is a plane 1200 m up: a thunderstorm's (cumulonimbus) base sits near
+the mean-layer lifting condensation level, typically 1-2 km over the
+ground in humid mid-latitude summers (WMO International Cloud Atlas,
+"Cumulonimbus"; Craven, Jewell & Brooks 2002 compared ~400 observed
+convective bases with it); the 400 m it had was a low stratus deck, under
+which a bolt was a short jag. Where a view ray meets it, the sky model's
+luminance takes the deck's structure: four octaves of value noise
+(wavelengths 3 km to 170 m,
 two on Potato and Low), drifting at 9.6 m/s, each faded to its mean as it
 nears four pixel footprints; thicker lumps reflect more light down
 (+-40 %), the two downtowns light it more (+60 %), the river less (-35 %).
@@ -956,12 +961,18 @@ All of it is seen through the haze and the rain (Koschmieder: the
 structure fades into the airlight toward the horizon, so only the sky
 overhead shows it clearly). The deck's mist hangs under it: an extinction
 of 0.03 /m inside the cloud (visibility 130 m), falling off as exp((y -
-400) / 80 m) below, patchy over ~600 m (a value noise of 0.3-1.7, drifting
-with the wind), integrated analytically along every view ray
-(`lucid_mist_tau`) with the sky's luminance along the view as its
-airlight (the cloud base's zenith luminance made the scud 15-35 % brighter
-than the sky round the tower tops). Tower
-tops at 250-400 m fade into it, some showing through the gaps; their
+1200) / 60 m) below (a channel fades into the base over its last ~100 m),
+patchy over ~600 m (a value noise of 0.3-1.7, drifting with the wind).
+Under it hangs scud (pannus, global `lucid_scud`): wisps between 200 and
+430 m (soft over 70 m at both ends), 0.008 /m inside one (visibility
+~370 m) over about a third of the sky, a veil of a quarter of that
+between (two octaves of value noise over ~700 m, looked up where the ray
+crosses the scud's middle height).
+Both are integrated analytically along every view ray (`lucid_mist_tau`)
+with the sky's luminance along the view as their airlight (the cloud
+base's zenith luminance makes the scud brighter than the sky round the
+tower tops). Tower tops at 250-400 m fade into it, some showing through
+the gaps; a far bolt shows through them too; their
 aircraft warning lights glow as halos: half of what the mist takes out of
 a light's beam is scattered within ~2 degrees (diffraction by ~10 um
 droplets), drawn as a gaussian of that width round the point sprite with
@@ -969,7 +980,8 @@ the energy it carries (`lucid_points`, off on Potato and Low).
 
 **Lightning.** Flashes come as a Poisson process: one every ~75 s
 between bursts, every ~10 s at a burst's peak (4 s apart at least),
-5-14 km off between bursts and 1.8-7 km in them; one in four to ground
+5-14 km off between bursts and 1.5-7 km in them (in a burst one flash to
+ground in 16 strikes 0.8-1.3 km off); one in four to ground
 (Boccippio et al. 2001). A flash to ground is 1-7 return strokes with
 geometric-mean gaps of 60 ms (Rakov & Uman 2003), each with a 30 % chance
 of 40-200 ms of continuing current; an intracloud flash is 6-14 weaker
@@ -986,8 +998,16 @@ Half of the light leaves the cloud base, Lambertian, spread as
 exp(-(r / 1.2 km)^2) + 0.12 exp(-r / 4 km) (the cloud's thickness spreads
 it; 1.8 km for an intracloud flash): a median stroke's patch is 21-23
 cd/m2 at its centre, 60x the overcast.
-Its colour is the channel's N II and O I lines, blue-white (Orville
-1968): 8000 K. What it lights:
+Its colour: the channel's visible light is mostly lines, N II from the
+blue to the green, Halpha (656 nm) in the red, O I and N I further out
+(Orville 1968; Orville & Henderson 1984); a camera's red and blue
+channels both catch strong lines, and night photographs show the cloud
+and the air it lights violet, the saturated channel white with a
+violet-pink fringe. Here (linear RGB,
+normalised to luminance 1, under the overcast's ~4300 K white balance)
+the light (1.15, 0.42, 0.85), the channel (2.4, 0.55, 0.85), its glow
+far off through the haze a neutral (0.75, 0.68, 0.68) that reads
+blue-grey. What it lights:
 
 - the sky (`lucid_lightning_sky`, part of `lucid_sky_now`): the patch seen
   through the haze and rain, plus the air lit by it (half the flash's
@@ -1006,15 +1026,71 @@ Its colour is the channel's N II and O I lines, blue-white (Orville
   far city veils as the rain curtain lights up;
 - the meter (`LucidStorm.sky_nits`, `light`).
 
-Some flashes to ground 2 km off or more show their channel
-(`shaders/lucid_bolt.gdshader`): a midpoint-displaced polyline from the
-ground to 120 m into the base with two to four branches, camera-facing
-ribbons 1.5 pixels or the channel's glow wide carrying its light per metre
-(the flux over a 6 km channel, all round), lit only in the frames a stroke
-or its continuing current lands. Under a 400 m deck the channel 2-5 km
-off is a short jag under the scud: the haze, rain and mist take its core
-and scatter half of it forward into a glow ~3 degrees wide, so in the rain
-it is a glowing line whose top is lost in the cloud.
+With the base at 1.2 km a median stroke 3 km off lights its patch to 21
+cd/m2 at the centre, open ground facing away 0.33 lux and a wall facing it
+1.5 lux; 1 km off 1.1 and 4.9 lux.
+
+**The bolt** (`LucidStorm._bolt_paths`, `shaders/lucid_bolt.gdshader`).
+Flashes to ground within 7 km show their channel (85 % of them), one in
+six of those onto the rod of a tower over 150 m 1.5-6 km off, and an
+intracloud flash within 8 km now and then (30 %) its spider channels.
+The geometry is built once, when the flash is scheduled (its nearest point
+gives the thunder's delay):
+
+- the trunk, from 250 m inside the base to the strike (or the rod), its
+  top up to a third of the base's height to the side (a slanting bolt): a
+  stepped leader's walk of 40-110 m steps re-aimed at the strike each
+  step, each turned off that line by an exponential angle (mean 0.2 rad),
+  then every segment halved until it is under ~2.6 pixels (6-16 m by
+  distance, twice that on Potato and Low) with its midpoint pushed aside
+  so both halves turn off the chord by an exponential angle (mean 0.1 rad,
+  at most 50 degrees). The path is self-similar: measured over 40 bolts
+  (resampled every 1, 4 and 16 points), its segments turn from one to the
+  next by 15.6 degrees at ~8 m, 15.5 at ~32 m and 15.0 at ~130 m, and
+  deviate 16 degrees from the mean path over +-100 m; Hill (1968) measured ~16 degrees between adjacent segments over
+  5-70 m, independent of their length. Length / chord 1.09. Brightest at
+  the ground (the return stroke's current), 55 % at the base;
+- 7-12 branches (3-6 on Potato and Low) off its upper two thirds, more
+  near the top, turned 35-75 degrees off it, drooping, 20-70 % of its
+  height long, each 12-35 % as bright as the trunk where it leaves and
+  fading to a sixth at its tip, in mid-air (or clipped at the ground);
+  0-2 sub-branches off each (0-1 off those, a third generation on
+  Realistic and up), each 35-50 % as bright where it leaves;
+- in one flash to ground in three, and in an intracloud flash shown, 1-3
+  spider channels (one on Potato and Low) running 1.5-4.5 km along the
+  base ~200 m under it, with 2-5 branches of their own.
+
+A bolt is 200-2700 segments (no more branches past 2400, 800 on Potato
+and Low; ~2200 typical at 1 km, ~1700 at 3 km, ~900 at 6 km, a third of
+that on Potato and Low), built in 3-6 ms on a desktop core (1-2 ms on
+Potato and Low), as camera-facing ribbons joined at the kinks, plus a quad for the strike's
+glow: one mesh, one draw call, drawn only in the frames a stroke or its
+continuing current lands. The branches are the stepped leader's channels,
+lit by the first stroke only (`branches`: the first stroke's share of the
+frame's light); later strokes and continuing current light the trunk
+alone. Each ribbon carries the channel's real light per metre (the flux
+over a 6 km channel, all round: ~3e4 cd/m for a median first stroke in its
+1/30 s frame) in three profiles across it: the core (a few centimetres
+across, drawn 1.2 pixels wide with that integral: thousands of cd/m2 at
+3 km, so it saturates), the lens's glare (6 % of it in a line spread 1 /
+(1 + (x / 1.5 px)^2): the saturated core shows 5-10 pixels wide, its
+fringe in the channel's violet-pink), and the haze's forward lobe (0.4 %
+of what the air and the mist take, within 0.01 rad; the rest goes into
+the glow round it). All of it through the haze, the rain and the mist
+(Koschmieder: a 5 km bolt in moderate rain keeps ~1 % of its core, grey
+and soft; behind a scud wisp the core dims). The strike's glow: the
+channel's foot lighting the wet ground round it, 2 cd per cd/m of the
+channel over 30 m.
+
+The air round a lit channel glows (`lucid_bolt_sky`, in
+`lucid_lightning_sky` and so in the sky and every reflection of it): a
+line source of I' cd/m gives a fluence of pi I' / rho; scattered at about
+right angles (half as much as isotropically) toward the eye along a ray
+passing b from the channel that is (s I' / 4) ln(1 + D / b) (s the air's
+scattering coefficient, D the extinction length or half the channel),
+dimmed by the air between the channel and the lit air (b) and between
+that and the eye: the violet column round the bolt that the
+towers stand against, the sky washed lavender by a strike 1 km off.
 
 **Thunder** arrives at 343 m/s from the channel's nearest point (the
 strike, or 2.5 km up for an intracloud flash; none beyond 16 km). The
@@ -1040,18 +1116,23 @@ more often.
 **Reduce flashing** (Settings, `gameplay/reduce_flashing`, default off):
 each flash's light is spread over a quarter second (a first-order
 low-pass: no flicker, a tenth of the peak) at half the strength, flashes
-come half as often and at least 20 s apart. Potato and Low: two octaves on
-the deck, no mist halos, coarser flash integrals, fewer bolt segments.
+come half as often and at least 20 s apart; a bolt is dimmer and softer
+(70 % of its core's light moved into its glow, its branches at half).
+Potato and Low: two octaves on the deck, no mist halos, coarser flash
+integrals, bolts with half the segments and fewer branches.
 
 **Cost** (lavapipe, 1280 x 720, Realistic, body cam on, mean frame time
 over 60 frames, the harness's nine standard Blue Hour views): 320 ms
 before, 305 ms after (run-to-run noise ~5-10 %: no measurable change);
 draw calls and primitives unchanged (25-29, 117k-166k), plus one draw
-call and 192 triangles while a bolt is lit. Per pixel: the mist's
-optical depth and airlight in every city shader (a few exp, a value
-noise where the mist is thick), four octaves of value noise on the sky
-(two on Potato and Low), a few ALU for a flash term (zero when there is
-none). On the CPU, a flash's light integral (2 x 2 x 98 samples, 2 x 2 x
+call and ~1.7k-5.4k triangles while a bolt is lit (it was 192). Per
+pixel: the mist's optical depth and airlight in every city shader (a few
+exp, a value noise where the mist is thick, two more where a ray crosses
+the scud), four octaves of value noise on the sky (two on Potato and
+Low), a few ALU for a flash term and ~25 for the air round a lit channel
+(zero when there is none); a bolt's ribbons are ~14 pixels wide (its
+glare's tail), a few hundred thousand pixels of additive fill for the 1-3
+frames a stroke lights it. On the CPU, a flash's light integral (2 x 2 x 98 samples, 2 x 2 x
 50 on Potato and Low) when its patch moves 150 m. Sounds +0.57 MB. The
 bake (overcast and dusk, 70.7k vertices, 64 rays): 160-176 s headless.
 
@@ -1139,22 +1220,31 @@ behind it with the same priority: the far point lights against the sky
   the rings' clock, `.w` the rain's extinction.
 - Storm: `LucidStorm` (`scripts/render/lucid_storm.gd`): `setup(seed,
   ground_y, low)`, `update(delta, cam)`, `flash(az, dist, cg, bolt, delay,
-  qa)`, `burst(ramp, hold, peak)`, `calm(secs)`, `sky_nits(dir, haze)`,
-  `light(n)`, `extinction()`, `clear()`; `rate`, `wind`, `intensity`,
-  `reduce`, `cover`, `drift`, `rings`; signal `thunder(dist, dir)`;
-  constants `CLOUD_BASE`, `CLOUD_SIGMA`, `MIST_H`, `Q_STROKE`, `FLASH_K`.
+  qa)`, `strike(at, delay, qa)` (a tower's rod), `burst(ramp, hold,
+  peak)`, `calm(secs)`, `sky_nits(dir, haze)`, `light(n)`,
+  `extinction()`, `clear()`; `rate`, `wind`, `intensity`, `reduce`,
+  `cover`, `drift`, `rings`, `towers` (rods, world); signal `thunder(dist,
+  dir)`; constants `CLOUD_BASE`, `CLOUD_SIGMA`, `MIST_H`, `SCUD`,
+  `Q_STROKE`, `FLASH_RGB`, `BOLT_RGB`, `BOLT_FAR`, `LEAD_KINK`, `KINK`.
   Globals `lucid_cloud` (x base, y cover, z in-cloud extinction, w mist
-  scale height), `lucid_lightning_p` (patch from the camera, radius),
-  `lucid_lightning_l` (patch radiance, glow reach), `lucid_lightning_e`
-  (E / pi away from it, extra toward it). `lucid_city.gdshaderinc`:
-  `lucid_mist_tau(a, b)`, `lucid_air_at(c, wpos, cam)` (replaces
-  `lucid_air_light` and `lucid_finish`), `lucid_lightning_sky(dir)`,
+  scale height), `lucid_scud` (x, y its bottom and top, z their ramp, w
+  extinction x cover), `lucid_lightning_p` (patch from the camera,
+  radius), `lucid_lightning_l` (patch radiance, glow reach),
+  `lucid_lightning_e` (E / pi away from it, extra toward it),
+  `lucid_bolt_a` / `lucid_bolt_b` (a lit channel's ends from the camera,
+  a.w its light per metre). `lucid_city.gdshaderinc`:
+  `lucid_mist_tau(a, b)`, `lucid_value_noise(q)`, `lucid_air_at(c, wpos,
+  cam)` (replaces `lucid_air_light` and `lucid_finish`),
+  `lucid_lightning_sky(dir)` (= `lucid_lightning_patch` +
+  `lucid_bolt_sky`),
   `lucid_lightning_light(n)`, `lucid_sky_steady(dir)`. `lucid_sky` uniforms
   `downtown`, `river`, `drift`, `octaves`; `lucid_points` `halos`;
   `shaders/lucid_bolt.gdshader`. `Lucid.STATES.overcast`, the states'
   `cloud`. Settings `gameplay/reduce_flashing`. `QA_STORM=1`: the storm
   shots (`st_*`, the storm calm unless a shot calls for it) and the storm
-  film; run with `--fixed-fps 30`. `level_shots`: a shot's `call`.
+  film; `QA_BOLTS=1`: the bolt shots (`b_*`, forced flashes to ground
+  landing as the frame is saved) and the bolt film (~22 s); run both with
+  `--fixed-fps 30`. `level_shots`: a shot's `call`.
 
 ### Validation (stage 4)
 
@@ -1410,3 +1500,8 @@ under a 0.74 ceiling: 1 / (1 - ρ_floor ρ_ceiling) = 1.08. The total of
 26. Orville (1968), A high-speed time-resolved spectroscopic study of the lightning return stroke, J. Atmos. Sci. 25, 827: https://doi.org/10.1175/1520-0469(1968)025%3C0827:AHSTRS%3E2.0.CO;2
 27. Few (1969), Power spectrum of thunder, J. Geophys. Res. 74, 6926: https://doi.org/10.1029/JC074i028p06926 ; ISO 9613-1 (atmospheric absorption of sound)
 28. WMO International Cloud Atlas, nimbostratus and pannus: https://cloudatlas.wmo.int/en/nimbostratus-ns.html
+29. WMO International Cloud Atlas, cumulonimbus (base in the low étage): https://cloudatlas.wmo.int/en/cumulonimbus-cb.html
+30. Craven, Jewell & Brooks (2002), Comparison between observed convective cloud-base heights and lifting condensation level for two different lifted parcels, Wea. Forecasting 17, 885-890: https://doi.org/10.1175/1520-0434(2002)017%3C0885:CBOCCB%3E2.0.CO;2 (NOAA copy: https://www.spc.noaa.gov/publications/craven/lcl.pdf)
+31. Hill (1968), Analysis of irregular paths of lightning channels, J. Geophys. Res. 73, 1897-1906 (mean absolute angle between adjacent segments ~16 degrees over 5-70 m): https://doi.org/10.1029/JB073i006p01897 ; Idone & Orville (1988), Channel tortuosity variation in Florida triggered lightning, Geophys. Res. Lett. 15, 645: https://doi.org/10.1029/GL015i007p00645
+32. Orville & Henderson (1984), Absolute spectral irradiance measurements of lightning from 375 to 880 nm, J. Atmos. Sci. 41, 3180-3187: https://doi.org/10.1175/1520-0469(1984)041%3C3180:ASIMOL%3E2.0.CO;2
+33. Niemeyer, Pietronero & Wiesmann (1984), Fractal dimension of dielectric breakdown, Phys. Rev. Lett. 52, 1033 (branched discharges as self-similar random growth): https://doi.org/10.1103/PhysRevLett.52.1033
