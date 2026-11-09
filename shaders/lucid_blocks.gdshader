@@ -6,7 +6,8 @@
 // Not baked: lit analytically by the state's far field (set by the level
 // from Lucid.STATES, engine units E / pi): the sky on roofs and on walls
 // (half of it hidden by the neighbours), the street lamps' light washing
-// the lower floors (falling off with height above the 10 m lamp heads),
+// the lower floors (the heads look down: it falls to a tenth between 5
+// and 10 m, then the road's bounce, as the bake finds on the kit's walls),
 // and the moon on the faces turned to it, more on the upper floors that
 // clear the street canyon; a lightning flash like the sky. Windows as in
 // lucid_windows.gdshaderinc.
@@ -59,7 +60,7 @@ void fragment() {
 		vec3 wall = kind > 0.5 && kind < 1.5 ? vec3(0.09, 0.1, 0.11) * (0.8 + 0.5 * h1)
 				: mix(vec3(0.42, 0.40, 0.36), vec3(0.30, 0.20, 0.14), step(0.55, h1)) * (0.7 + 0.5 * lucid_hash(vec2(seed, 7.7)));
 		vec3 street = mix(e_street_led, e_street_na, na);
-		float sv = exp(-max(v - 6.0, 0.0) / 9.0);
+		float sv = exp(-max(v - 5.0, 0.0) / 1.8) + 0.08 * exp(-max(v - 9.0, 0.0) / 18.0);
 		float clear = smoothstep(10.0, 60.0, v);
 		vec3 e = (e_sky_side + lucid_lightning_light(wn)) * (0.45 + 0.4 * clear) + street * sv
 				+ e_moon * max(dot(wn, moon_dir), 0.0) * (0.25 + 0.75 * clear);

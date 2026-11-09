@@ -484,7 +484,10 @@ script's static `force_blend = 1.0`) shows dusk.
   MultiMeshes (8 directions x near / far, so most are culled), lit by the
   state's far field: sky on roofs and walls, the lamp rows' vertical
   illuminance on the lower floors (worked out from the real lamp rows:
-  `_facade_light`), the moon on the faces turned to it.
+  `_facade_light`; falling to a tenth between 5 and 10 m, then the road's
+  bounce, as the bake finds on the kit's walls. Its emission angle was
+  taken upside down, so until the storm's fixes it was always 0), the moon
+  on the faces turned to it.
 - Windows (`lucid_windows.gdshaderinc`): a grid of storeys and bays (the
   openings sized in metres: homes 1.2 x 1.5 m on 0.9 m sills, masonry 1.1
   m wide up to 2.0 m tall, curtain wall vision glass from the floor to a
@@ -501,13 +504,20 @@ script's static `force_blend = 1.0`) shows dusk.
   edges in the camera's output (compressed, weighted, expanded), so a
   window fifty times brighter than its wall keeps no stair-stepped edge.
   When a window falls under about a pixel the facade switches to cells of
-  2, 4, 8 windows lit with the same probability: the same mean, the speckle
-  of a photo, no shimmer; where it does so only one way (a facade edge on,
-  or seen straight up) the windows blend to their mean along it, as whole
-  long cells lit or not would draw stripes.
-- Air: Koschmieder (transmittance exp(-sigma d), the rest the horizon's
-  luminance as airlight) in every city shader (`lucid_finish`); no halo
-  quads.
+  2, 4, 8 windows (each way on its own), each lit or dark as its first
+  window is: the windows' lit share, so the same mean, the speckle of a
+  photo, no shimmer, and whole lit office floors stay lit rows. Never the
+  mean itself: a far facade at its mean (a few cd/m2 for an office tower
+  with a fifth of its windows lit) is several times brighter than the
+  overcast behind it and read as a pale grey sheet over the towers; as
+  speckle its wall stays dark (~0.06 cd/m2) between the lit windows. Each
+  level fades into the next over its octave of distance and the cells nest
+  (a cell takes after its first sub-cell), so the pattern does not pop as
+  you walk (it was re-rolled at every level).
+- Air: Koschmieder (transmittance exp(-sigma d), the rest the sky's own
+  luminance along the view as airlight: the sky is the same air seen to
+  its end, so far things fade into the sky behind them and never past it)
+  in every city shader (`lucid_finish`); no halo quads.
 
 ### Validation (stage 3)
 
@@ -948,7 +958,9 @@ overhead shows it clearly). The deck's mist hangs under it: an extinction
 of 0.03 /m inside the cloud (visibility 130 m), falling off as exp((y -
 400) / 80 m) below, patchy over ~600 m (a value noise of 0.3-1.7, drifting
 with the wind), integrated analytically along every view ray
-(`lucid_mist_tau`) with the cloud base's luminance as its airlight. Tower
+(`lucid_mist_tau`) with the sky's luminance along the view as its
+airlight (the cloud base's zenith luminance made the scud 15-35 % brighter
+than the sky round the tower tops). Tower
 tops at 250-400 m fade into it, some showing through the gaps; their
 aircraft warning lights glow as halos: half of what the mist takes out of
 a light's beam is scattered within ~2 degrees (diffraction by ~10 um

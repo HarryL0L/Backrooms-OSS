@@ -458,7 +458,10 @@ func _facade_light(avenue: bool) -> Color:
 			var d := lp - p
 			var r2 := d.length_squared()
 			var dn := d / sqrt(r2)
-			var ce := maxf(-dn.y, 0.0)
+			# (The head looks down: its emission angle is that of the ray
+			# from it down to the wall, -dn. Taken as dn this was always 0
+			# and no street light reached the backdrop.)
+			var ce := maxf(dn.y, 0.0)
 			e += pow(ce, m) * maxf(nn.dot(dn), 0.0) / r2
 	return c * e
 

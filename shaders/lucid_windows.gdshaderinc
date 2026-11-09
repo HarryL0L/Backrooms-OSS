@@ -181,80 +181,102 @@ Facade lucid_facade(float u, float v, float kind, float seed, float storey, floa
 	vec4 r = kind < 0.5 ? vec4(0.5 - 0.6 / bay, 0.5 + 0.6 / bay, 0.9 / storey, min(2.4, storey - 0.5) / storey)
 			: (kind < 1.5 ? vec4(0.032 / bay, 1.0 - 0.032 / bay, 0.1 / storey, min(2.9, storey - 1.0) / storey)
 			: vec4(0.5 - 0.55 / bay, 0.5 + 0.55 / bay, 0.85 / storey, (0.85 + clamp(storey - 1.55, 1.5, 2.0)) / storey));
-	float m = aa_box(fu, r.x, r.y, wu) * aa_box(fv, r.z, r.w, wv);
 	bool office = kind > 0.5 && kind < 1.5;
-	// A 70 mm frame round it and a 120 mm sill under it (not on curtain
-	// walls); sash bars: a double-hung window's meeting rail, a home's
-	// casement pair's mullion.
-	float fu_w = 0.07 / bay;
-	float fv_w = 0.07 / storey;
-	float fr = office ? 0.0
-			: max(aa_box(fu, r.x - fu_w, r.y + fu_w, wu) * aa_box(fv, r.z - fv_w * 1.7, r.w + fv_w, wv) - m, 0.0);
-	float in_v = (fv - r.z) / (r.w - r.z);
-	float in_u = (fu - r.x) / (r.y - r.x);
-	if (!office) {
-		float wiu = wu / (r.y - r.x);
-		float wiv = wv / (r.w - r.z);
-		float rail = 0.045 / (storey * (r.w - r.z));
-		float bars = aa_box(in_v, 0.55 - rail, 0.55 + rail, wiv);
-		if (kind < 0.5) {
-			float mull = 0.03 / (bay * (r.y - r.x));
-			bars = max(bars, aa_box(in_u, 0.5 - mull, 0.5 + mull, wiu));
-		}
-		bars *= 1.0 - smoothstep(0.15, 0.4, w);
-		fr += m * bars;
-		m *= 1.0 - bars;
-	}
 	float h = lucid_hash(vec2(bi * 1.37 + seed * 91.7, fl * 7.13 + seed * 13.1));
-	float hf = lucid_hash(vec2(fl * 3.1 + seed * 57.3, seed * 2.7 + 3.0));
-	float floor_on = office ? step(hf, lit_frac * 0.6) : 0.0;
-	float p_lit = office ? mix(lit_frac * 0.2, 0.85, floor_on) : lit_frac;
-	float lit = step(h, p_lit);
 	vec3 base = office ? win_office_rad : win_home_rad;
 	// A home's lamps are warmer or cooler, some windows show a TV's blue.
 	float hv = lucid_hash(vec2(h * 13.7, fl + bi * 0.37));
 	vec3 tint = office ? vec3(1.0) : mix(vec3(1.08, 0.97, 0.82), vec3(0.9, 1.0, 1.15), step(0.8, hv));
-	float var = (0.45 + 1.2 * hv) * (office ? 1.0 : (hv > 0.93 ? 0.25 : 1.0));
-	vec3 room = base * tint * var * (0.65 + 0.7 * in_v) * lit;
-	vec3 e;
-	if (office) {
-		// Open plan: the ceiling's rows of troffers, desks and partitions
-		// darker below; unlit, the dark floor plate by the city's light.
-		float trof = step(0.5, fract(in_u * 1.0 + 0.25)) * smoothstep(0.86, 0.88, in_v) * smoothstep(0.95, 0.93, in_v);
-		float desk = smoothstep(0.27, 0.23, in_v) * (0.5 + 0.5 * step(0.5, fract(in_u * 2.0 + hv)));
-		e = refl * fres_w + (room * (1.0 - 0.45 * desk) * 0.92 + base * lit * trof * 2.5 + amb * 0.02 * 0.8) * (1.0 - fres_w);
-	} else {
-		float hb = lucid_hash(vec2(bi * 4.1 + seed, fl * 1.7));
-		float h2 = lucid_hash(vec2(bi * 2.3 + seed * 1.3, fl * 5.9 + 1.0));
-		e = refl * fres_w + lucid_behind(hb, h2, in_u, in_v, amb, room, w) * (1.0 - fres_w);
-	}
 	// Windows too small to resolve: cells of 2, 4, 8... bays (and floors),
-	// so a far facade still sparkles like a photo of one instead of going
-	// flat, and never shimmers. Where only one way is too small (a facade
-	// seen edge on, or straight up), the windows along it blend to their
-	// mean instead: whole cells lit or not would draw stripes (and so do
-	// cells much longer one way than the other).
-	float gu = exp2(max(ceil(log2(wu * 1.2)), 0.0));
-	float gv = exp2(max(ceil(log2(wv * 1.2)), 0.0));
+	// each cell lit or dark as its first window is (that window's own
+	// hash and its floor's: the windows' lit share, so the same mean, and
+	// whole lit floors of offices stay lit rows), so a far facade keeps a
+	// photo's speckle of lit windows on a dark wall instead of going to its
+	// mean, which is brighter than the overcast sky behind it, a pale grey
+	// sheet. Each level fades into the next over its octave of distance
+	// (the windows into the 2-cells first), and the cells nest (a cell
+	// takes after its first sub-cell), so nothing pops as you walk.
+	vec2 ll = max(log2(vec2(wu, wv) * 1.2), 0.0);
+	vec2 lc = ceil(ll);
+	vec2 gh = exp2(lc);
+	vec2 gl = exp2(max(lc - 1.0, 0.0));
+	vec2 tf = mix(vec2(1.0), ll - lc + 1.0, step(0.5, lc));
 	vec3 dark = refl * fres_w + amb * 0.05 * (1.0 - fres_w);
-	if (gu > 1.5 || gv > 1.5) {
-		float cu = floor(u / (bay * gu));
-		float cv = floor(vv / (storey * gv));
-		float hc = lucid_hash(vec2(cu * 1.37 + seed * 91.7 + gu * 0.31, cv * 7.13 + seed * 13.1 + gv * 0.17));
-		float pa = office ? (lit_frac * 0.6 * 0.85 + (1.0 - lit_frac * 0.6) * lit_frac * 0.2) : lit_frac;
-		float p = gv > 1.5 ? pa : p_lit;
-		// Each cell lit or not with the windows' probability: the same
-		// mean, and the speckle a camera sees in a far lit facade.
-		float frac = gu > 1.5 && gv > 1.5 && max(gu, gv) <= 2.0 * min(gu, gv) ? step(hc, p) : p;
-		float au = gu > 1.5 ? (r.y - r.x) : aa_box(fu, r.x, r.y, wu);
-		float av = gv > 1.5 ? (r.w - r.z) : aa_box(fv, r.z, r.w, wv);
-		m = au * av;
-		e = mix(dark, base * tint * 0.95, frac);
-		fr = 0.0;
+	float res_w = 0.0;
+	float glass = 0.0;
+	vec3 emit = vec3(0.0);
+	for (int i = 0; i < 4; i++) {
+		vec2 sel = vec2(float(i & 1), float(i >> 1));
+		vec2 ws = mix(vec2(1.0) - tf, tf, sel);
+		float wt = ws.x * ws.y;
+		vec2 g = mix(gl, gh, sel);
+		if (wt <= 0.0) {
+			continue;
+		}
+		if (g.x < 1.5 && g.y < 1.5) {
+			res_w += wt;
+			continue;
+		}
+		float cb = floor(bi / g.x) * g.x;
+		float cf = floor(fl / g.y) * g.y;
+		float hc = lucid_hash(vec2(cb * 1.37 + seed * 91.7, cf * 7.13 + seed * 13.1));
+		float hfc = lucid_hash(vec2(cf * 3.1 + seed * 57.3, seed * 2.7 + 3.0));
+		float pc = office ? mix(lit_frac * 0.2, 0.85, step(hfc, lit_frac * 0.6)) : lit_frac;
+		float au = g.x > 1.5 ? (r.y - r.x) : aa_box(fu, r.x, r.y, wu);
+		float av = g.y > 1.5 ? (r.w - r.z) : aa_box(fv, r.z, r.w, wv);
+		glass += wt * au * av;
+		emit += wt * au * av * mix(dark, base * tint * 0.95, step(hc, pc));
 	}
-	f.frame = fr;
-	f.glass = m;
-	f.emit = e * m;
+	float frame = 0.0;
+	if (res_w > 0.0) {
+		float m = aa_box(fu, r.x, r.y, wu) * aa_box(fv, r.z, r.w, wv);
+		// A 70 mm frame round it and a 120 mm sill under it (not on curtain
+		// walls); sash bars: a double-hung window's meeting rail, a home's
+		// casement pair's mullion.
+		float fu_w = 0.07 / bay;
+		float fv_w = 0.07 / storey;
+		float fr = office ? 0.0
+				: max(aa_box(fu, r.x - fu_w, r.y + fu_w, wu) * aa_box(fv, r.z - fv_w * 1.7, r.w + fv_w, wv) - m, 0.0);
+		float in_v = (fv - r.z) / (r.w - r.z);
+		float in_u = (fu - r.x) / (r.y - r.x);
+		if (!office) {
+			float wiu = wu / (r.y - r.x);
+			float wiv = wv / (r.w - r.z);
+			float rail = 0.045 / (storey * (r.w - r.z));
+			float bars = aa_box(in_v, 0.55 - rail, 0.55 + rail, wiv);
+			if (kind < 0.5) {
+				float mull = 0.03 / (bay * (r.y - r.x));
+				bars = max(bars, aa_box(in_u, 0.5 - mull, 0.5 + mull, wiu));
+			}
+			bars *= 1.0 - smoothstep(0.15, 0.4, w);
+			fr += m * bars;
+			m *= 1.0 - bars;
+		}
+		float hf = lucid_hash(vec2(fl * 3.1 + seed * 57.3, seed * 2.7 + 3.0));
+		float floor_on = office ? step(hf, lit_frac * 0.6) : 0.0;
+		float p_lit = office ? mix(lit_frac * 0.2, 0.85, floor_on) : lit_frac;
+		float lit = step(h, p_lit);
+		float var = (0.45 + 1.2 * hv) * (office ? 1.0 : (hv > 0.93 ? 0.25 : 1.0));
+		vec3 room = base * tint * var * (0.65 + 0.7 * in_v) * lit;
+		vec3 e;
+		if (office) {
+			// Open plan: the ceiling's rows of troffers, desks and partitions
+			// darker below; unlit, the dark floor plate by the city's light.
+			float trof = step(0.5, fract(in_u * 1.0 + 0.25)) * smoothstep(0.86, 0.88, in_v) * smoothstep(0.95, 0.93, in_v);
+			float desk = smoothstep(0.27, 0.23, in_v) * (0.5 + 0.5 * step(0.5, fract(in_u * 2.0 + hv)));
+			e = refl * fres_w + (room * (1.0 - 0.45 * desk) * 0.92 + base * lit * trof * 2.5 + amb * 0.02 * 0.8) * (1.0 - fres_w);
+		} else {
+			float hb = lucid_hash(vec2(bi * 4.1 + seed, fl * 1.7));
+			float h2 = lucid_hash(vec2(bi * 2.3 + seed * 1.3, fl * 5.9 + 1.0));
+			e = refl * fres_w + lucid_behind(hb, h2, in_u, in_v, amb, room, w) * (1.0 - fres_w);
+		}
+		glass += res_w * m;
+		frame = res_w * fr;
+		emit += res_w * e * m;
+	}
+	f.frame = frame;
+	f.glass = glass;
+	f.emit = emit;
 	f.sharp = 1.0 - smoothstep(0.15, 0.5, w);
 	return f;
 }
