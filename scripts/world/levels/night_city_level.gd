@@ -1367,7 +1367,7 @@ func _build_audio() -> void:
 		for at in [Vector3(-12.6, 2.6, -35.0), Vector3(46.2, 4.6, 13.0), Vector3(46.2, 11.2, 15.0), Vector3(46.2, 17.8, 13.0)]:
 			_rain_nodes.append(add_loop(_sounds.rain_metal, city.to_global(at), -12.0, {"unit_size": 2.0, "max_distance": 25.0}))
 	for at in [Vector3(-11.4, 0.3, -35.0), Vector3(46.3, 0.3, 13.0)]:
-		_rain_nodes.append(add_loop("drip", city.to_global(at), -16.0, {"unit_size": 1.5, "max_distance": 15.0}))
+		_rain_nodes.append(add_loop("drips", city.to_global(at), -20.0, {"unit_size": 1.5, "max_distance": 15.0}))
 	for n in _rain_nodes:
 		if n is AudioStreamPlayer3D:
 			(n as AudioStreamPlayer3D).playing = false

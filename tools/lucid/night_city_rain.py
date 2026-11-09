@@ -6,7 +6,7 @@
 #                   hiss of far drops, a dense patter of near ones, now and then a
 #                   bigger splash, the low wash of the whole city)
 #   rain_metal.ogg  mono, 10 s loop: drops on sheet metal (a roof, a grating), each
-#                   ringing a few of its modes
+#                   a tick, a short rattle of band noise and a dull knock
 import numpy as np, wave, subprocess, sys, os
 SR = 44100
 out = sys.argv[1]
@@ -47,11 +47,17 @@ def splash():
     return (rng.standard_normal(L) * np.exp(-tt / 0.004) + plip)
 
 def ping():
-    # A drop on sheet metal: a click and a few of the sheet's modes ringing.
-    L = int(SR * 0.12); tt = np.arange(L) / SR
+    # A drop on sheet metal: a sharp tick, a short bright rattle of wide noise
+    # bands and a dull knock of the sheet. Noise, not sine modes: ringing
+    # modes read as a synth "tink tink" in the game.
+    L = int(SR * 0.06); tt = np.arange(L) / SR
     y = rng.standard_normal(L) * np.exp(-tt / 0.0008) * 0.5
-    for _ in range(4):
-        y += np.sin(2 * np.pi * rng.uniform(900, 5200) * tt + rng.uniform(0, 6.3)) * np.exp(-tt / rng.uniform(0.008, 0.05)) * rng.uniform(0.2, 0.6)
+    for _ in range(2):
+        f0 = rng.uniform(1500, 6000)
+        r = band(rng.standard_normal(L), f0 * 0.6, f0 * 1.5)
+        y += r / np.std(r) * np.exp(-tt / rng.uniform(0.003, 0.012)) * rng.uniform(0.2, 0.45)
+    k = band(rng.standard_normal(L), 150, 700)
+    y += k / np.std(k) * np.exp(-tt / rng.uniform(0.006, 0.015)) * 0.3
     return y
 
 def save(name, x, peak):

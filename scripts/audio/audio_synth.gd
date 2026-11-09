@@ -35,6 +35,8 @@ static func _make(fn: String) -> AudioStreamWAV:
 			return wind()
 		"drip":
 			return drip()
+		"drips":
+			return drips()
 		"paper":
 			return paper()
 		"exhale":
@@ -184,20 +186,53 @@ static func water_loop() -> AudioStreamWAV:
 	return to_wav(_normalize(_make_loop(s, length), 0.5), true)
 
 
-## A single drop falling into water: a short "plip" whose pitch rises, as a
-## real drop's air bubble resonance does.
+## A single drop falling into water: a soft tap and a short, low "plip"
+## whose pitch rises, as a real drop's air bubble resonance does. Kept dull
+## and brief: a long bright sine sweep read as a synth "twink".
 static func drip() -> AudioStreamWAV:
-	var n := int(RATE * 0.16)
 	var s := PackedFloat32Array()
-	s.resize(n)
-	var ph := 0.0
-	for i in n:
-		var t := float(i) / RATE
-		var f := 900.0 + 2400.0 * minf(t / 0.035, 1.0)
-		ph += TAU * f / RATE
-		var env := minf(t / 0.002, 1.0) * exp(-t * 38.0)
-		s[i] = sin(ph) * env
+	s.resize(int(RATE * 0.12))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 29
+	_drop(s, 0, rng, 1.0, 1.0)
 	return to_wav(_normalize(s, 0.5), false)
+
+
+## Drops falling off an edge (a shelter roof, a stair) into a puddle, as a
+## loop: irregular intervals, now and then two close together, each drop a
+## little different in pitch, level and how much it plips.
+static func drips() -> AudioStreamWAV:
+	var length := RATE * 9
+	var s := PackedFloat32Array()
+	s.resize(length)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31
+	var at := rng.randf_range(0.0, 0.3)
+	while at < 8.8:
+		_drop(s, int(at * RATE), rng, rng.randf_range(0.25, 1.0), rng.randf())
+		at += rng.randf_range(0.08, 0.2) if rng.randf() < 0.2 else rng.randf_range(0.35, 1.4)
+	return to_wav(_normalize(s, 0.5), true)
+
+
+## Adds one drop at sample i0: a tap of soft band noise and, by `bubble`
+## (0-1), the bubble's brief rising plip, at a random pitch.
+static func _drop(s: PackedFloat32Array, i0: int, rng: RandomNumberGenerator, gain: float, bubble: float) -> void:
+	var n := mini(int(RATE * 0.1), s.size() - i0)
+	var f0 := rng.randf_range(480.0, 850.0)
+	var rise := rng.randf_range(1.5, 2.3)
+	var decay := rng.randf_range(55.0, 90.0)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	for k in n:
+		var t := float(k) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += 0.35 * (x - lp)
+		lp2 += 0.08 * (lp - lp2)
+		var tap := (lp - lp2) * exp(-t * 220.0) * 1.5
+		ph += TAU * f0 * (1.0 + (rise - 1.0) * minf(t / 0.02, 1.0)) / RATE
+		var bub := sin(ph) * minf(t / 0.003, 1.0) * exp(-t * decay) * bubble * 0.5
+		s[i0 + k] += (tap + bub) * gain
 
 
 ## Electrical buzz of a failing tube.
@@ -300,23 +335,31 @@ static func _metal_step(rng: RandomNumberGenerator) -> AudioStreamWAV:
 
 
 ## Step on short grass: a soft, damped thump and a crisp rustle of blades.
+## The rustle is plain high-passed noise with a zero at Nyquist: a resonant
+## band-pass up there (4 kHz at 22 kHz) went unstable and rang as a pure
+## 11 kHz "tink" on every step.
 static func _grass_step(rng: RandomNumberGenerator) -> AudioStreamWAV:
 	var n := int(RATE * 0.32)
 	var s := PackedFloat32Array()
 	s.resize(n)
 	var th := _Svf.new(220.0 * rng.randf_range(0.85, 1.15), 1.0)
-	var ru := _Svf.new(4200.0 * rng.randf_range(0.8, 1.2), 1.6)
+	var ru_k := 0.5 * rng.randf_range(0.8, 1.2)   # one-pole corner, ~2.4 kHz
+	var ru_lp := 0.0
+	var ru_prev := 0.0
 	var toe := rng.randf_range(0.06, 0.09)
 	for i in n:
 		var t := float(i) / RATE
 		var x := rng.randf_range(-1.0, 1.0)
 		th.step(x)
-		ru.step(x)
+		ru_lp += ru_k * (x - ru_lp)
+		var hp := x - ru_lp
+		var ru := (hp + ru_prev) * 0.5
+		ru_prev = hp
 		var tt := t - toe
 		var impact := exp(-t * 45.0) * minf(t * RATE / 40.0, 1.0) + (0.0 if tt < 0.0 else exp(-tt * 55.0) * 0.5)
 		# Rustle: many tiny blade contacts, swelling and dying over the roll.
 		var rustle := exp(-pow((t - 0.07) / 0.06, 2.0)) * (0.6 + 0.4 * rng.randf())
-		s[i] = th.low * impact * 2.5 + ru.band * rustle * 0.5
+		s[i] = th.low * impact * 2.5 + ru * rustle * 0.3
 	for i in 200:
 		s[n - 1 - i] *= float(i) / 200.0
 	return to_wav(_normalize(s, 0.7))
@@ -446,6 +489,10 @@ class _Svf:
 	func _init(fc: float, damping: float) -> void:
 		f = 2.0 * sin(PI * minf(fc, RATE * 0.16) / RATE)
 		q = damping
+		# High cutoff with heavy damping puts a pole near z = -1: the filter
+		# rings (or blows up) at Nyquist, a pure ~11 kHz tone. Keep
+		# f^2 + 2fq <= 3, which bounds the gain there.
+		f = minf(f, sqrt(q * q + 3.0) - q)
 
 	func step(x: float) -> void:
 		low += f * band

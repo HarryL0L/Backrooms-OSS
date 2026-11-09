@@ -351,7 +351,7 @@ func add_exit(xf: Transform3D, look := "door", to := "", opts := {}) -> LevelEnt
 
 
 ## A looping sound: a path (an .ogg / .wav / .mp3 in your assets), an
-## AudioStream, or the name of an AudioSynth sound ("hum", "wind", "drip",
+## AudioStream, or the name of an AudioSynth sound ("hum", "wind", "drips",
 ## "draught"). Everywhere at once, or in 3D at `at`. opts: "unit_size",
 ## "max_distance", "pitch", "bus" ("World"), "filter" (low-pass Hz, 3D).
 func add_loop(sound: Variant, at := Vector3.INF, volume_db := -12.0, opts := {}) -> Node:
