@@ -269,7 +269,7 @@ func _film() -> void:
 
 
 ## 20 s, real time: standing in the grass, a slow pan along the storm from
-## the sun side (the flanking line, the base's rim against the bright gap)
+## the sun side (the base's soft rim against the bright gap)
 ## across the base and the wall cloud turning over the tornado to the core's
 ## rain curtain, the scud racing in under the base.
 func _clouds_film() -> void:

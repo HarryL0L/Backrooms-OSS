@@ -11,7 +11,7 @@ Everything is in real units through the L.U.C.I.D. camera (docs/LUCID.md,
 stage 1), on every preset. The sky is the storm's cloud mass met in a few
 horizontal slices (8 on High and up, 2 on Medium, 1 below; see "The clouds"),
 a few analytic surfaces met along the view ray (the anvil, the wall cloud,
-the flanking line, the scud) and a short integral of the air; the tornado is
+the scud) and a short integral of the air; the tornado is
 two strips of camera-facing quads. (The sunny Field's
 one-off cumulus bake, `cloud_bake.gdshader`, is gone, and so is the sun.)
 
@@ -56,7 +56,6 @@ turning round the mesocyclone.
 | Rain-free base | round both, 1.2 km up, its far edge ~9 km off behind the wall cloud | 5 km radius | LCL of tornadic storms ~0.5-1.5 km |
 | Anvil | overhead, spread east (downwind) | 24 km radius, 10 km up | summer tropopause 10-15 km |
 | Updraft tower | behind the mesocyclone | 5.2 km radius, 13 km tall | shades you from the sun behind the storm |
-| Flanking line | from the mesocyclone 1.5-17 km south-west | towers ~2.6 km apart, 2.5-7 km tall, stepping down outward | the rear flank's towering cumulus (Doswell & Burgess 1993) |
 | Sun | azimuth 318, 21 degrees up | 65 000 lux beam | late afternoon, hazy summer air |
 
 The layout is anchored to the player: walking toward the tornado never
@@ -94,7 +93,10 @@ under it) comes out exposed too; the flash is a directional light converted
 with `Lucid.light_node_cam`. AgX grade (`EnvironmentFactory.lucid_grade`) on
 every preset. Sunlight reaches the ground (and the air) only where no
 tower, base or anvil is between it and the sun (`field_lit`): you stand in
-the storm's shadow, the far fields to the west and south lie in sun.
+the storm's shadow, the far fields to the west and south lie in sun. (Along
+the air's steps, kilometres long far off, those shadows' edges are averaged
+over each step, and the rain's extinction fades in from ~0.05 mm/h instead
+of starting at it: cut, either stepped the glow under the base in bands.)
 
 ## The clouds (`field_sky.gdshader`)
 
@@ -102,27 +104,36 @@ What makes a storm cloud read as a volume of droplets and not a painted
 sheet: its edges taper. Its cover ramps over ~2.3 km, frayed by the detail
 noise into wisps and holes; its density tapers with it over a wide band
 (never a threshold), and its extinction follows that density (Beer-Lambert),
-so its opacity climbs smoothly. That matters most against the bright gap:
-4 stops over the cloud, the sky behind a fringe only darkens as its optical
+so its opacity climbs smoothly. That matters most against the bright gap: 4
+stops over the cloud, the sky behind a fringe only darkens as its optical
 depth climbs from ~1 to ~4, so the taper has to spread that climb over a
-wide band, or the fringe reads as a cut-out. The slices agree with each
-other (the detail barely shifts with height, the bottom lifts and thins
-toward the rim over a band that widens with it), so they fill each other
-in instead of stacking outlines; and the noise is blurred by the pixel's
-footprint on the slice (stretched by 1 / sin(elevation)), so far and
-grazing rims melt. The fringe, taken whole along the ray (4 a (1 - a) of
-its total opacity a, so no slice's edge shows), scatters the bright sky
-beyond it forward and takes its light; toward the sun its forward lobe (a
-two-lobed Henyey-Greenstein phase, g 0.75 forward and -0.2 back) is the
-silver lining. Kilometres off, the haze (`field_air`) greys it into the sky.
+wide band, or the fringe reads as a cut-out. The slices must not show as
+layers. Low over the horizon a ray crosses them kilometres apart, so each
+would show its own rim and its own lumps, one over another in stripes;
+instead the density is integrated between each slice and the next (its ramp
+taken linear between them, the antiderivative of the smoothstep, so the rims
+are continuous along the ray), all slices take their lumps and rim lobes
+from the noise where the ray meets the base (drawn in, low over the horizon,
+to at most 250 m from it over the whole slab, so they agree on them), and
+above the base its outline is smoother, the base's mean (over a bay or a
+hole in the base the cloud above it, not the sky). The bottom lifts and
+thins toward the rim over a band that widens with it, and the noise is
+blurred by the pixel's footprint on the slice (stretched by 1 /
+sin(elevation), up to 25x), so far and grazing rims melt. The fringe, taken
+whole along the ray (4 a (1 - a) of its total opacity a, so no slice's edge
+shows), scatters the bright sky beyond it forward and takes its light;
+toward the sun its forward lobe (a two-lobed Henyey-Greenstein phase, g 0.75
+forward and -0.2 back) is the silver lining. Kilometres off, the haze
+(`field_air`) greys it into the sky.
 
 - The cloud mass: the rain-free base (flat-bottomed at 1.2 km where it is
   deep, its rim lifting up to ~300 m and thinning), the cloud over the
   core (its bottom soft, hidden by the rain falling out of it), up to
-  2.6 km over the base, narrower above it (so from under it its rim is the
-  base's own). Met in horizontal slices crowded near the base (Beer-Lambert
-  over each slice's slant thickness, capped at 20 degrees: a fringe seen
-  edge-on is thinner than a slice; early exit once opaque, what lies behind
+  2.6 km over the base, its outline above the base smoother (the base's
+  mean). Met in horizontal slices crowded near the base (Beer-Lambert over
+  the slant path from each slice to the next, the density integrated along
+  it, capped at 20 degrees: a fringe seen edge-on is thinner than a slice;
+  early exit once opaque, what lies behind
   faded out before it so the exit leaves no step; the air beyond weighted
   by the cloud's transmittance squared, so a nearly opaque base does not
   leak kilometres of sunlit haze into its colour): the
@@ -148,14 +159,11 @@ silver lining. Kilometres off, the haze (`field_air`) greys it into the sky.
   face. The funnel's top dissolves into its foot (`field_tornado.gdshader`:
   over its top 30 % it fades and takes the wall cloud's shade); the debris
   cloud thins upward and outward into the haze.
-- The flanking line (High and up): a vertical sheet along it, met analytically, its
-  towers lumpy domes (hashed heights and widths), flat-bottomed; backlit,
-  grey-blue inside, its edges blazing with the sun's forward lobe. It
-  fills the sun side beyond the base's western rim, which was bare hazy
-  sky (the sky toward the sun under a hazy summer sky is ~5 000-9 000 cd/m2,
-  4 stops over the storm's exposure: it clips on any camera exposed for the
-  storm, as it does here where it shows, and on Medium and below, which
-  skip the line for its cost).
+- The sun side: beyond the base's western rim, its soft fringe against
+  the clear hazy sky toward the sun (~5 000-9 000 cd/m2 under a hazy summer
+  sky, 4 stops over the storm's exposure: it clips on any camera exposed
+  for the storm, as it does here). (A flanking line of towers there, met
+  as a sheet, read as flat cut-out mountains, and is gone.)
 - Rain shafts (`field_air`): the rain hangs from the cloud, thinning into
   the base's soft bottom over its last few hundred metres; its shafts are
   soft streaks in the world (~600 m across, kilometres tall, leaning
@@ -279,10 +287,10 @@ vertex work is far slower than any phone GPU's):
 | High | 41-67 | 407-530k | 449-491 ms | + ~150k blades processed (~65k in view) |
 | Realistic | 36-65 | 460-600k (900k looking down) | | x1.15 blade density and reach |
 
-The draw calls past Medium are the grass tiles (up to ~35 visible); the
-rest is the sky, the ground, the tornado's two strips, the tree, the door,
-the rain (one draw, only while it rains) and a bolt (one, only while lit).
-On lavapipe High costs ~2.8x Medium because it transforms every blade on the
+The draw calls past Medium are the grass tiles (up to ~35 visible); the rest
+is the sky, the ground, the tornado's two strips, the tree, the door, the
+rain (one draw, only while it rains) and a bolt (one, only while lit). On
+lavapipe High costs ~2.8x Medium because it transforms every blade on the
 CPU; on a mid-range phone GPU the blades are ~0.75 M vertices of ~150 ALU
 (the wind field and the height: ~110 M ALU a frame) and thin overdraw in the
 lower half of the view, an estimated +3-5 ms over Medium, which is why the
@@ -291,18 +299,23 @@ Medium, 5 on Potato and Low, 4 in the radiance cubemap's pass), each a rain
 and sunlight lookup (value noise; one value-noise octave per step for the
 rain shafts, down from two and an atan); the ground does its air per vertex
 (~14k vertices), the tornado per vertex too. The cloud mass: on High and up
-up to 8 slices (+1 over the core) of 4 noise taps each, but the deep base
-stops after its first slice or two (opaque), so the full count runs only in
-the rim and the far edge, plus the flanking line (2 taps, a 3-tower loop)
-beyond the western rim, ~+3-10 % frame time on lavapipe at Realistic (an
-estimated +1-1.5 ms on a mid-range phone GPU at 1080p); on Medium 2 slices
-of 2 taps, no flanking line, and one air step fewer, which together with the
-cheaper rain shafts keeps it at the old cost (lavapipe, interleaved runs:
-150-162 ms before, 148-160 ms after, within its noise); Low 1 slice, no
-change (81-87 ms vs 84-88 ms). The draw calls are unchanged (the sky is one
-draw). CPU: FieldStorm ~0.1 ms a frame (the wind and rain fields where
-you stand, the meter, a few globals); the grass tiles move only when you
-cross a tile. Sounds +1.2 MB.
+up to 8 slices (+1 over the core, only where the core's cloud reaches) of 4
+noise taps each, but the deep base stops at its first slice (opaque within
+the next two), so the full count runs only in the rim and the far edge,
+~+3-10 % frame time on lavapipe at Realistic (an estimated +1-1.5 ms on a
+mid-range phone GPU at 1080p); on Medium 2 slices of 2 taps and one air step
+fewer, which together with the cheaper rain shafts keeps it at the old cost
+(lavapipe, interleaved runs: 150-162 ms before, 148-160 ms after, within its
+noise); Low 1 slice, no change (81-87 ms vs 84-88 ms). Taking the slices'
+density integrated between them (and the lumps from where the ray meets the
+base) costs a few ALU a slice; dropping the flanking line (2 taps and a
+3-tower loop a pixel on High and up) and the deep base's earlier exit paid
+for it (lavapipe, no blades, interleaved means: Medium 176-186 ms before,
+173-182 ms after; Realistic 251-279 ms before, 242-269 ms after, ~10 ms
+less, in the sun gap too). The draw calls are unchanged (the sky is one
+draw). CPU: FieldStorm ~0.1 ms a frame (the wind and rain fields where you
+stand, the meter, a few globals); the grass tiles move only when you cross a
+tile. Sounds +1.2 MB.
 
 ## Sources
 

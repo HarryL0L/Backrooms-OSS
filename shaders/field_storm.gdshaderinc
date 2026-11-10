@@ -96,13 +96,14 @@ float field_rain_at(vec2 p) {
 }
 
 // The rain's extinction (1/m): Marshall-Palmer drops' geometric cross
-// section (LucidRain.sigma).
+// section (LucidRain.sigma); none under ~0.05 mm/h, faded in, not cut (a
+// cut steps the air in bands where a long step's middle crosses it).
 float field_rain_sigma(float r) {
-	if (r < 0.05) {
+	if (r < 0.02) {
 		return 0.0;
 	}
 	float l = 4.1 * pow(r, -0.21);
-	return 0.0125664 / (l * l * l);
+	return 0.0125664 / (l * l * l) * smoothstep(0.02, 0.08, r);
 }
 
 // The mean wind at p (m/s at 2 m): the inflow, turned to the band's cold
@@ -135,10 +136,15 @@ vec3 field_wind_at(vec2 p) {
 	return vec3(m.xy * k, k);
 }
 
-// A cloud layer's cover at p: a disc with a ragged edge.
-float field_disc(vec2 p, vec2 c, float r, float rag) {
+// A cloud layer's cover at p: a disc with a ragged edge; w (m) widens its
+// edge, averaged over that much ground (a long step of a march).
+float field_disc_w(vec2 p, vec2 c, float r, float rag, float w) {
 	float n = field_vnoise(p * 0.00032) * 0.62 + field_vnoise(p * 0.0011 + 7.0) * 0.38;
-	return 1.0 - smoothstep(r * (1.0 - rag), r * (1.0 + rag * 0.4), length(p - c) + (n - 0.5) * r * rag * 1.6);
+	return 1.0 - smoothstep(r * (1.0 - rag) - w, r * (1.0 + rag * 0.4) + w, length(p - c) + (n - 0.5) * r * rag * 1.6);
+}
+
+float field_disc(vec2 p, vec2 c, float r, float rag) {
+	return field_disc_w(p, c, r, rag, 0.0);
 }
 
 float field_base_cover(vec2 p) {
@@ -151,7 +157,8 @@ float field_anvil_cover(vec2 p) {
 
 // Sunlight reaching p at height y (0 .. 1) past the storm's tower; with
 // anvil, under the anvil too (not the base: the sky's cloud shades itself).
-float field_lit_sky(vec2 p, float y, bool anvil_too) {
+// w (m): the shadows' edges averaged over that much ground.
+float field_lit_sky_w(vec2 p, float y, bool anvil_too, float w) {
 	vec3 s = field_sun.xyz;
 	float sl = max(length(s.xz), 1e-3);
 	vec2 sd = s.xz / sl;
@@ -160,27 +167,37 @@ float field_lit_sky(vec2 p, float y, bool anvil_too) {
 	float tc = dot(c, sd);
 	float b = length(c - sd * tc);
 	float tower = 0.0;
-	if (b < FIELD_TOWER_R * 1.1) {
-		float ti = tc - sqrt(max(FIELD_TOWER_R * FIELD_TOWER_R - b * b, 0.0));
-		if (tc + FIELD_TOWER_R > 0.0) {
-			tower = (1.0 - smoothstep(FIELD_TOWER_R * 0.8, FIELD_TOWER_R * 1.1, b))
-					* (1.0 - smoothstep(FIELD_TOWER_TOP * 0.8, FIELD_TOWER_TOP, y + max(ti, 0.0) * tn));
-		}
+	if (b < FIELD_TOWER_R * 1.1 + w) {
+		float sf = sqrt(max(FIELD_TOWER_R * FIELD_TOWER_R - b * b, 0.0));
+		float ti = tc - sf;
+		// Not on its sunward side (that edge soft too: cut, it stepped the
+		// air's glow in bands where the steps crossed it).
+		tower = (1.0 - smoothstep(FIELD_TOWER_R * 0.8 - w, FIELD_TOWER_R * 1.1 + w, b))
+				* (1.0 - smoothstep(FIELD_TOWER_TOP * 0.8, FIELD_TOWER_TOP, y + max(ti, 0.0) * tn))
+				* smoothstep(-sf - 0.15 * FIELD_TOWER_R - w, -sf + 0.15 * FIELD_TOWER_R + w, tc);
 	}
 	if (!anvil_too) {
 		return 1.0 - tower;
 	}
-	float anvil = field_anvil_cover(p + sd * max(field_cloud.y - y, 0.0) / tn);
+	float anvil = field_disc_w(p + sd * max(field_cloud.y - y, 0.0) / tn, field_cloud_c.zw, field_cloud.w, 0.18, w);
 	return (1.0 - tower) * (1.0 - anvil * 0.92);
 }
 
+float field_lit_sky(vec2 p, float y, bool anvil_too) {
+	return field_lit_sky_w(p, y, anvil_too, 0.0);
+}
+
 // Sunlight reaching p at height y (0 .. 1): not behind the storm's tower,
-// nor under the base's or the anvil's shadow.
-float field_lit(vec2 p, float y) {
+// nor under the base's or the anvil's shadow (their edges widened by w, m).
+float field_lit_w(vec2 p, float y, float w) {
 	vec3 s = field_sun.xyz;
 	float sl = max(length(s.xz), 1e-3);
-	float base = field_base_cover(p + s.xz / sl * max(field_cloud.x - y, 0.0) / (s.y / sl));
-	return field_lit_sky(p, y, true) * (1.0 - base);
+	float base = field_disc_w(p + s.xz / sl * max(field_cloud.x - y, 0.0) / (s.y / sl), field_cloud_c.xy, field_cloud.z, 0.2, w);
+	return field_lit_sky_w(p, y, true, w) * (1.0 - base);
+}
+
+float field_lit(vec2 p, float y) {
+	return field_lit_w(p, y, 0.0);
 }
 
 // The air's own light at p in the shade: brighter where no base hangs
@@ -235,8 +252,10 @@ vec4 field_air(vec3 eye, vec3 dir, float dist, int steps) {
 		float sig = sh + sr;
 		float tr = exp(-sig * (s - prev));
 		// Sunlit air: the haze's forward lobe (the sun's colour) and the
-		// air's own Rayleigh blue all round.
-		vec3 src = field_shade_at(q.xz) + field_sunair.rgb * (ph + vec3(0.16, 0.26, 0.5)) * field_lit(q.xz, y);
+		// air's own Rayleigh blue all round; the shadows' edges averaged
+		// over the step (the far steps are kilometres long: sampled at one
+		// point, each would step the glow under the base in a band).
+		vec3 src = field_shade_at(q.xz) + field_sunair.rgb * (ph + vec3(0.16, 0.26, 0.5)) * field_lit_w(q.xz, y, 0.5 * (s - prev) * length(dir.xz));
 		l += t * (1.0 - tr) * src;
 		t *= tr;
 		prev = s;
