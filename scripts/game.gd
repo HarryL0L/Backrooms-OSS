@@ -1428,11 +1428,16 @@ func _on_side_exit(to: String) -> void:
 	_transition = true
 	player.controls_enabled = false
 	await side.open_exit()
+	# Held where the exit's ride left you through the fade (it can end past
+	# the level's floor: a doorway, a hatch); back on once you're put down
+	# on the other side (the Backrooms: when its rooms are built).
+	player.set_physics_process(false)
 	await hud.fade_to(1.0, 0.8)
 	_leave_side()
 	if to != "" and SideLevels.exists(to):
 		_side_seed = gen.hashi(_side_seed & 0xFFFFF, to.hash() & 0xFFFF, 1307) & 0x7FFFFFFF
 		await _enter_side(to)
+		player.set_physics_process(true)
 		_announce_side(to)
 		await hud.fade_to(0.0, 1.6)
 		player.controls_enabled = true

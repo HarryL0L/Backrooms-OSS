@@ -426,6 +426,17 @@ func _build_door() -> void:
 	cs.position = Vector3(0, DOOR_H * 0.5, DOOR_W * 0.5)
 	col.add_child(cs)
 	_leaf.add_child(col)
+	# The landing behind it (the kit draws it but has no floor to stand on
+	# there): the ride through the door ends on it, and you'd drop through
+	# it into the dark while the screen fades.
+	var land := StaticBody3D.new()
+	var lcs := CollisionShape3D.new()
+	var lbs := BoxShape3D.new()
+	lbs.size = Vector3(3.05, 0.2, 3.8)
+	lcs.shape = lbs
+	land.add_child(lcs)
+	add_child(land)
+	land.global_position = _g(Vector2(-1.675, STAIR.y - 0.3), -0.1)
 	_exit = add_exit(Transform3D(Basis(Vector3.UP, PI * 0.5), _g(STAIR)), "none", "",
 			{"label": "Take the stairs", "walk_in": false})
 
