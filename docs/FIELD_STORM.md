@@ -99,29 +99,42 @@ the storm's shadow, the far fields to the west and south lie in sun.
 ## The clouds (`field_sky.gdshader`)
 
 What makes a storm cloud read as a volume of droplets and not a painted
-sheet: its edges thin out (cover ramps over ~1.5 km, frayed by the detail
-noise into wisps and holes, and the fringe's water evaporates in the drier
-air round it, so its extinction falls off as the square of its density);
-its rim is lit by the bright sky beyond it, which its thin droplets
-scatter forward, so the fringe takes the sky's light and dissolves into
-it; the sun behind the storm shines through only the thinnest fringes (the
-silver lining, a two-lobed Henyey-Greenstein phase, g 0.75 forward and
--0.2 back); kilometres off, the haze (`field_air`) greys it into the sky.
+sheet: its edges taper. Its cover ramps over ~2.3 km, frayed by the detail
+noise into wisps and holes; its density tapers with it over a wide band
+(never a threshold), and its extinction follows that density (Beer-Lambert),
+so its opacity climbs smoothly. That matters most against the bright gap:
+4 stops over the cloud, the sky behind a fringe only darkens as its optical
+depth climbs from ~1 to ~4, so the taper has to spread that climb over a
+wide band, or the fringe reads as a cut-out. The slices agree with each
+other (the detail barely shifts with height, the bottom lifts and thins
+toward the rim over a band that widens with it), so they fill each other
+in instead of stacking outlines; and the noise is blurred by the pixel's
+footprint on the slice (stretched by 1 / sin(elevation)), so far and
+grazing rims melt. The fringe, taken whole along the ray (4 a (1 - a) of
+its total opacity a, so no slice's edge shows), scatters the bright sky
+beyond it forward and takes its light; toward the sun its forward lobe (a
+two-lobed Henyey-Greenstein phase, g 0.75 forward and -0.2 back) is the
+silver lining. Kilometres off, the haze (`field_air`) greys it into the sky.
 
 - The cloud mass: the rain-free base (flat-bottomed at 1.2 km where it is
-  deep, its rim lifting up to ~450 m and softening), the cloud over the
+  deep, its rim lifting up to ~300 m and thinning), the cloud over the
   core (its bottom soft, hidden by the rain falling out of it), up to
   2.6 km over the base, narrower above it (so from under it its rim is the
   base's own). Met in horizontal slices crowded near the base (Beer-Lambert
-  over each slice's thickness along the ray, early exit once opaque): the
+  over each slice's slant thickness, capped at 20 degrees: a fringe seen
+  edge-on is thinner than a slice; early exit once opaque, what lies behind
+  faded out before it so the exit leaves no step; the air beyond weighted
+  by the cloud's transmittance squared, so a nearly opaque base does not
+  leak kilometres of sunlit haze into its colour): the
   lowest slice is the flat base itself, so it stays sharp from below, and
   each slice's cover is a smooth field, so nothing dithers or shimmers. An
   extinction of 0.012 /m (in a cumulonimbus 0.05-0.2 /m; averaged with the
   clear gaps between its lumps at a pixel's scale kilometres off).
   Light: the storm's shade light, darkest on the deep underside, lumpy
   (darker where the cloud over it is thicker, in broad swirls turning with
-  the mesocyclone), brighter up its flanks and in its rim; the sun's lobe
-  through the frayed rim where it gets past the tower and the anvil.
+  the mesocyclone), brighter up its flanks and in its rim; the fringe light
+  above, the sun's part only where the sun gets past the tower and the
+  anvil.
 - Noise: one 256 px simplex FBM map (five octaves), domain-warped for the
   rim (lobes and bays, not a circle), shifted with height (so the 2D map
   reads as 3D), mip-filtered by the pixel's footprint and faded to its mean
@@ -147,9 +160,8 @@ silver lining, a two-lobed Henyey-Greenstein phase, g 0.75 forward and
   the base's soft bottom over its last few hundred metres; its shafts are
   soft streaks in the world (~600 m across, kilometres tall, leaning
   downwind) at +-30 %, which average out along the ray: a grey veil, not
-  stripes. The air's steps are dithered per pixel in the sky (interleaved
-  gradient noise, steady in time): no step edges, so Medium takes 8 of them
-  (High and up 9, Low and Potato 5).
+  stripes. Medium takes 8 air steps (High and up 9, Low and Potato 5): one
+  fewer pays for its cloud slices.
 
 ## One wind field (`field_wind_at`)
 
@@ -282,11 +294,11 @@ rain shafts, down from two and an atan); the ground does its air per vertex
 up to 8 slices (+1 over the core) of 4 noise taps each, but the deep base
 stops after its first slice or two (opaque), so the full count runs only in
 the rim and the far edge, plus the flanking line (2 taps, a 3-tower loop)
-beyond the western rim, ~+7-10 % frame time on lavapipe at Realistic (an
+beyond the western rim, ~+3-10 % frame time on lavapipe at Realistic (an
 estimated +1-1.5 ms on a mid-range phone GPU at 1080p); on Medium 2 slices
 of 2 taps, no flanking line, and one air step fewer, which together with the
 cheaper rain shafts keeps it at the old cost (lavapipe, interleaved runs:
-161-175 ms before, 163-173 ms after, within its noise); Low 1 slice, no
+150-162 ms before, 148-160 ms after, within its noise); Low 1 slice, no
 change (81-87 ms vs 84-88 ms). The draw calls are unchanged (the sky is one
 draw). CPU: FieldStorm ~0.1 ms a frame (the wind and rain fields where
 you stand, the meter, a few globals); the grass tiles move only when you

@@ -74,7 +74,7 @@ void vertex() {
 	v_h = part == 1 ? debris_h : top_h;
 	vec3 dir = -to_cam;
 	float d = distance(a, cam);
-	v_air = field_air(cam, dir, d, 6, 0.5);
+	v_air = field_air(cam, dir, d, 6);
 	v_shade = field_shade_at(a.xz);
 	// What is behind it: the air beyond, lit by the sun where it reaches.
 	vec2 far = a.xz + normalize(dir.xz) * 9000.0;

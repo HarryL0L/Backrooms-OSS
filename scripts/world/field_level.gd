@@ -285,9 +285,9 @@ func _make_environment(low: bool) -> Environment:
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/field_sky.gdshader")
 	sky_mat.set_shader_parameter("noise", _noise_fine)
-	# The air's steps (dithered per pixel, so fewer show no step edges) and
-	# the cloud mass in slices: 9 and 8 on High and up, 8 and 2 on Medium,
-	# 5 and 1 below.
+	# The air's steps and the cloud mass in slices: 9 and 8 on High and up,
+	# 8 and 2 on Medium (one air step fewer pays for its slices), 5 and 1
+	# below.
 	var preset := int(Settings.get_value("graphics/preset"))
 	sky_mat.set_shader_parameter("steps", 5 if low else (9 if preset >= 3 else 8))
 	sky_mat.set_shader_parameter("cloud_steps", 8 if preset >= 3 else (1 if low else 2))

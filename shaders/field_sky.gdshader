@@ -10,7 +10,7 @@
 // towers, backlit. The wall cloud hanging under the base round the
 // mesocyclone, turning, and the inflow scud racing in under it: analytic.
 // Beyond them the clear sky. Then the air along the ray, by steps
-// (field_air, dithered per pixel): the haze and the rain shafts, each lit
+// (field_air): the haze and the rain shafts, each lit
 // by the storm's shade or by the sun behind the storm where it reaches, so
 // the horizon under the base glows, the core's curtain stands grey-green and
 // far cloud fades into the haze. A lightning flash lights the base from
@@ -93,7 +93,9 @@ float cloud_at(vec2 p, float h, float fp, int q, out float cov, out float rain, 
 	}
 	float rim = nzl(pw, 13000.0, fp);
 	float rb = field_cloud.z * (1.0 - 0.1 * smoothstep(0.0, 0.5, f));
-	float cb = 1.0 - smoothstep(-0.2 - 0.15 * f, 0.1, (length(pw - field_cloud_c.xy) - rb) / field_cloud.z + (rim - 0.5) * 0.6);
+	// Far rims softer: the ramps widen with the pixel's footprint.
+	float wf = min(fp * 0.003, 0.25);
+	float cb = 1.0 - smoothstep(-0.32 - 0.15 * f - wf, 0.14 + wf, (length(pw - field_cloud_c.xy) - rb) / field_cloud.z + (rim - 0.5) * 0.6);
 	float cc = 1.0 - smoothstep(-0.3, 0.05, (length(pw - field_core.xy) - field_core.z) / field_core.z + (rim - 0.5) * 0.5);
 	cov = max(cb, cc);
 	rain = cc * (1.0 - cb);
@@ -102,23 +104,30 @@ float cloud_at(vec2 p, float h, float fp, int q, out float cov, out float rain, 
 		return 0.0;
 	}
 	// Its lumps turn slowly with the mesocyclone and drift with the storm;
-	// shifted with height, so the 2D noise reads as 3D.
+	// shifted a little with height, so the 2D noise reads as 3D while the
+	// slices still agree (no stacked outlines); blurred a little past the
+	// footprint, so far and grazing rims melt.
 	vec2 pd = rot(p - field_meso.xy, field_meso.w * 0.2);
-	float dn = nzl(pd + vec2(0.9, 0.6) * h, 2600.0, fp);
+	float fs = fp * 1.5;
+	float dn = nzl(pd + vec2(0.3, 0.2) * h, 2600.0, fs);
 	if (q > 0) {
-		dn = dn * 0.78 + 0.22 * nzl(pd + vec2(-1.3, 1.1) * h + 517.0, 700.0, fp);
+		dn = dn * 0.78 + 0.22 * nzl(pd + vec2(-0.4, 0.35) * h + 517.0, 700.0, fs);
 	}
 	det = dn;
-	// Eroded by the detail where it is thin: the rim frays into soft wisps
-	// and holes.
-	// (Softer with one octave: its lumps alone would serrate the rim.)
+	// Eroded by the detail where it is thin: the rim frays into wisps and
+	// holes, its density tapering over a wide band (no threshold), so its
+	// opacity ramps smoothly (softer with one octave, whose lumps alone
+	// would serrate the rim).
 	float sq = q > 0 ? 0.0 : 1.0;
-	float d = smoothstep(dn * 0.6 - 0.25 - 0.1 * sq, dn * 0.6 + 0.5 + 0.15 * sq, cov);
-	// The bottom: flat and fairly sharp under the deep base, lifting and
-	// softening toward the rim, soft over the rain.
+	// (Its lower edge never below zero cover: no density is left where the
+	// cover ends, so nothing is cut off there.)
+	float d = smoothstep(max(dn * 0.5 - 0.45 - 0.2 * sq - wf, 0.0), dn * 0.5 + 0.6 + 0.2 * sq + wf, cov);
+	// The bottom: flat and sharp under the deep base (seen from below),
+	// lifting and thinning toward the rim over a band that widens with it
+	// (no cut where a slice leaves it), soft over the rain.
 	float e = 1.0 - cov;
-	float hbot = field_cloud.x + 450.0 * e * e - 200.0 * rain;
-	float bottom = smoothstep(hbot - 10.0, hbot + 25.0 + 300.0 * e + 400.0 * rain, h);
+	float x = h - field_cloud.x - 300.0 * e * e + 200.0 * rain;
+	float bottom = smoothstep(-40.0 - 400.0 * e - 400.0 * rain, 5.0 + 300.0 * e + 300.0 * rain, x);
 	// Ragged tops where the flanks end.
 	float top = 1.0 - smoothstep(0.45, 1.0, f + (dn - 0.5) * 0.6);
 	return d * bottom * top;
@@ -135,7 +144,8 @@ float cloud_at(vec2 p, float h, float fp, int q, out float cov, out float rain, 
 // parts where the sun gets past the tower and the anvil (the rims toward the
 // sun glow silver). Over the core a slice under the base, its soft bottom
 // over the rain. rgb: its light (premultiplied), a: the transmittance; tf:
-// the distance its opacity passes one half.
+// its mean distance, weighted by what each slice shows (smooth, so the air
+// in front of it does not jump where its opacity builds in another slice).
 vec4 cloud_march(vec3 eye, vec3 d, float ey, int n, vec3 bg, out float tf) {
 	tf = 1e9;
 	if (d.y < 0.004) {
@@ -160,10 +170,12 @@ vec4 cloud_march(vec3 eye, vec3 d, float ey, int n, vec3 bg, out float tf) {
 	float under = (0.92 + 0.16 * sw) * (1.0 - 0.15 * (1.0 - smoothstep(1500.0, 5000.0, r)));
 	vec3 l = vec3(0.0);
 	float tr = 1.0;
+	float tw = 0.0;
+	float tsum = 0.0;
 	float hprev = field_cloud.x - 250.0;
 	// Two slices (Medium): the base and one close over it, so its rim is a
 	// soft double edge rather than a second shelf.
-	float sp = n > 2 ? 1.2 : 2.5;
+	float sp = n > 2 ? 1.2 : 3.0;
 	for (int i = n > 2 ? -1 : 0; i < n; i++) {
 		float k = float(i) / float(n);
 		float h = i < 0 ? field_cloud.x - 160.0 : field_cloud.x + CLOUD_T * 0.85 * pow(max(k, 0.0), sp);
@@ -176,7 +188,9 @@ vec4 cloud_march(vec3 eye, vec3 d, float ey, int n, vec3 bg, out float tf) {
 		float cov;
 		float rain;
 		float det;
-		float dens = cloud_at(x.xz, h, ts * PIX, n > 2 ? 1 : 0, cov, rain, det);
+		// The footprint on the slice: a pixel stretched along the view by
+		// 1 / sin(elevation), so grazing rims blur (and do not alias).
+		float dens = cloud_at(x.xz, h, ts * PIX / max(d.y, 0.1), n > 2 ? 1 : 0, cov, rain, det);
 		if (i < 0) {
 			dens *= rain;
 		}
@@ -184,22 +198,22 @@ vec4 cloud_march(vec3 eye, vec3 d, float ey, int n, vec3 bg, out float tf) {
 			float f = clamp((h - field_cloud.x) / CLOUD_T, 0.0, 1.0);
 			// The slice's thickness along the ray (the base's own: what lies
 			// over its flat bottom up to the next slice).
-			// Its fringe evaporates into the drier air round it: its water,
-			// so its extinction, falls off faster than its cover (dens^2).
-			float a = 1.0 - exp(-CLOUD_SIG * dens * dens * (hn - max(h, hprev)) / d.y);
+			// Its extinction follows its density as it tapers (Beer-Lambert:
+			// against the bright sky, 4 stops over it, the fringe darkens the
+			// sky only as its optical depth climbs from ~1 to ~4, so a
+			// linear taper spreads that over the widest band).
+			// Its slant path through the slice (at most 300 m of it, 550 m
+			// for Medium's deep upper slice: the rim is thinner than they
+			// are), but no longer than at 20 degrees: a fringe seen edge-on
+			// is thinner than the slice.
+			float a = 1.0 - exp(-CLOUD_SIG * dens * min(hn - max(h, hprev), n > 2 ? 300.0 : 550.0) / max(d.y, 0.34));
 			// Lumpy underneath: darker where the cloud over it is thicker.
 			vec3 s = sh * (base_k * under * (1.25 - 0.5 * det) * (0.8 + 0.2 * dens) + 1.2 * f + 0.5 * (1.0 - cov)) * mix(1.0, 0.8, rain);
-			float e = 1.0 - cov;
-			// Its thin rim also scatters the bright sky beyond it forward,
-			// so the fringe takes the sky's light and dissolves into it.
-			s += bg * 0.3 * e * e * e;
-			// Toward the sun the light crosses the cloud: kilometres of it
-			// deep inside, only its frayed rim thin.
-			s += sun * exp(-30.0 * cov);
-			l += tr * a * s;
-			if (tr > 0.5 && tr * (1.0 - a) <= 0.5) {
-				tf = ts;
-			}
+			// What lies behind a nearly opaque cloud fades out before the
+			// early exit (no step where the exit cuts in).
+			l += tr * a * s * smoothstep(0.02, 0.08, tr);
+			tw += tr * a;
+			tsum += tr * a * ts;
 			tr *= 1.0 - a;
 			if (tr < 0.02) {
 				break;
@@ -207,6 +221,15 @@ vec4 cloud_march(vec3 eye, vec3 d, float ey, int n, vec3 bg, out float tf) {
 		}
 		hprev = h;
 	}
+	tf = tw > 1e-4 ? tsum / tw : 1e9;
+	tr *= smoothstep(0.02, 0.08, tr);
+	// Its thin rim, taken whole along the ray (so no slice's own edge shows
+	// as a bright line): the bright sky beyond it scattered forward through
+	// it, so the fringe takes the sky's light and dissolves into it, and
+	// toward the sun its forward lobe, the silver lining (deep inside the
+	// light crosses kilometres of cloud; only the half-transparent fringe
+	// lets it through). Zero where the cloud is clear or opaque.
+	l += (bg * 0.45 + sun * 0.012) * (1.0 - tr) * tr * 2.0;
 	return vec4(l, tr);
 }
 
@@ -254,10 +277,10 @@ vec4 flank_line(vec3 eye, vec3 d, float ey, vec3 bg, int q, out float t) {
 		depth = max(depth, (1.0 - length(e)) * 2.5 + (n - 0.5) * 1.2);
 	}
 	float c = smoothstep(0.0, 0.35, depth)
-			* smoothstep(q > 0 ? -60.0 : -200.0, q > 0 ? 300.0 : 500.0, h + (n - 0.5) * 200.0)
+			* pow(smoothstep(-300.0, 1100.0, h + (n - 0.5) * 400.0), 2.0)
 			* smoothstep(1500.0, 3500.0, u) * (1.0 - smoothstep(13000.0, 17000.0, u));
 	depth = clamp(depth, 0.0, 1.0);
-	float tau = 0.01 * c * c * 2400.0 / max(abs(dn) / max(length(d.xz), 1e-3), 0.3);
+	float tau = 0.005 * c * 2400.0 / max(abs(dn) / max(length(d.xz), 1e-3), 0.3);
 	float a = 1.0 - exp(-tau);
 	if (a < 0.002) {
 		return vec4(0.0);
@@ -303,11 +326,13 @@ vec4 wall_cloud(vec3 eye, vec3 d, float ey, out float tw) {
 	float core = 1.0 - smoothstep(0.55, 1.05, x);
 	float foot = smoothstep(-0.35, 0.4, u + 0.35 * (1.0 - x) + (nn - 0.5) * 0.6) * smoothstep(-0.9, -0.4, u);
 	float tau = 0.004 * chord * core * foot;
-	float a = (1.0 - exp(-tau)) * (1.0 - smoothstep(1.0, 1.1, u));
+	// Its top fades out over its last ~150 m into the base behind it (no
+	// outline of the drum's top against the base).
+	float a = (1.0 - exp(-tau)) * (1.0 - smoothstep(0.7, 1.0, u + (nn - 0.5) * 0.3));
 	// The base's own light carried down, darker toward its foot (thicker
 	// cloud over it), brighter at its thin rim (the light round it).
 	vec3 wl = field_light.rgb * base_k * mix(wall_k / base_k, 1.0, smoothstep(0.0, 1.0, u)) * (0.8 + 0.4 * nn)
-			* (1.0 + 0.6 * (1.0 - core)) * 0.85;
+			* (1.0 + 0.6 * (1.0 - core) * (1.0 - smoothstep(0.5, 1.0, u))) * 0.85;
 	return vec4(wl, a);
 }
 
@@ -318,9 +343,6 @@ void sky() {
 	vec3 col;
 	float dist = 40000.0;
 	int n = AT_CUBEMAP_PASS ? 4 : steps;
-	// Per-pixel dither (interleaved gradient noise, steady in time) for the
-	// steps' positions: no bands or step edges, no shimmer.
-	float jit = AT_CUBEMAP_PASS ? 0.5 : fract(52.9829189 * fract(dot(FRAGCOORD.xy, vec2(0.06711056, 0.00583715))));
 	if (d.y < -0.0004) {
 		// The ground beyond the mesh (the land is flat out there): the
 		// storm's shade, the sun where it gets under the storm.
@@ -360,7 +382,10 @@ void sky() {
 		float tf;
 		vec4 cm = cloud_march(eye, d, ey, AT_CUBEMAP_PASS ? min(cloud_steps, 2) : cloud_steps, col, tf);
 		col = col * cm.a + cm.rgb;
-		dist = mix(dist, min(dist, tf), 1.0 - cm.a);
+		// The air beyond shows only through what the cloud lets through:
+		// weighted by its transmittance squared, so a nearly opaque base
+		// does not leak kilometres of bright sunlit haze into its colour.
+		dist = mix(min(dist, tf), dist, cm.a * cm.a);
 		// The wall cloud.
 		float tw;
 		vec4 wc = wall_cloud(eye, d, ey, tw);
@@ -380,7 +405,7 @@ void sky() {
 			}
 		}
 	}
-	vec4 air = field_air(eye, d, dist, n, jit);
+	vec4 air = field_air(eye, d, dist, n);
 	col = col * air.a + air.rgb;
 	col += lucid_lightning_sky(d);
 	COLOR = col * lucid_exposure.rgb;

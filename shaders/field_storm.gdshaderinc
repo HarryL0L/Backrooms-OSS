@@ -203,10 +203,8 @@ float field_phase(float c) {
 
 // The air between the eye and dist along dir (Koschmieder, by steps): the
 // haze and the rain's extinction, lit by the shade or the sun where it is.
-// jitter (0 .. 1): where in each step it is sampled (0.5 the middle; the
-// sky dithers it per pixel so no step edges show). rgb: the airlight, a:
-// the transmittance.
-vec4 field_air(vec3 eye, vec3 dir, float dist, int steps, float jitter) {
+// rgb: the airlight, a: the transmittance.
+vec4 field_air(vec3 eye, vec3 dir, float dist, int steps) {
 	float ph = field_phase(dot(dir, field_sun.xyz));
 	vec3 l = vec3(0.0);
 	float t = 1.0;
@@ -216,7 +214,7 @@ vec4 field_air(vec3 eye, vec3 dir, float dist, int steps, float jitter) {
 	vec2 wd = field_wind.xy / max(length(field_wind.xy), 0.1);
 	// Step ends at dist (e^(K i / steps) - 1) / (e^K - 1), by products.
 	float er = exp(K / float(steps));
-	float ej = exp(K * jitter / float(steps));
+	float ej = exp(K * 0.5 / float(steps));
 	float e0 = 1.0;
 	for (int i = 1; i <= steps; i++) {
 		float s = dist * (e0 * er - 1.0) / ek;
