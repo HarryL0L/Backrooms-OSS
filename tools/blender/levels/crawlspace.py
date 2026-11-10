@@ -17,6 +17,7 @@ Run:  /tmp/claude-0/bpyenv/bin/python tools/blender/levels/crawlspace.py [out di
 import math
 import os
 import sys
+import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import level_kit as K  # noqa: E402
@@ -70,6 +71,8 @@ K.material("cable_tie", (0.08, 0.08, 0.08), rough=0.6)
 K.material("laminate", (0.60, 0.57, 0.52), rough=0.5)
 K.material("desk_metal", (0.22, 0.22, 0.23), rough=0.5, metal=0.4)
 K.material("chair_fabric", (0.07, 0.07, 0.08), rough=0.95)
+K.material("partition", (0.10, 0.118, 0.155), rough=0.95)
+K.material("lens_off", (0.45, 0.45, 0.45), rough=0.3)
 K.material("cabinet", (0.66, 0.65, 0.60), rough=0.5, metal=0.2)
 K.material("monitor", (0.02, 0.02, 0.02), rough=0.3)
 K.material("whiteboard", (0.9, 0.9, 0.88), rough=0.2)
@@ -115,8 +118,21 @@ ROOMS = [
     ((-12.8, 13.0, -7.2, 17.4), 1, "w"),   # plant room behind the fan
     ((-13.0, 28.4, -7.0, 33.6), 0, "w"),   # the faulty one
     ((-4.6, 33.4, 0.6, 38.6), 2, "s"),     # occupancy sensor
-    ((1.4, 41.0, 6.8, 47.2), 3, "e"),      # the way out
+    ((1.4, 39.0, 11.0, 54.0), 3, "n"),     # the way out: a corner of the office floor (open plan)
 ]
+EXIT_ROOM = 6
+
+
+def seed(*parts):
+    """A stable seed (Python's hash() of strings changes every run)."""
+    return zlib.crc32(repr(parts).encode()) & 0xFFFF
+
+
+# Bake-only occluders: the grille cores, drawn in Godot by a shader
+# (assets/levels/crawlspace/louvre.gdshader) instead of ~1200 sub-texel
+# strips whose bake came out black, still shade the light coming up into
+# the duct here. Linked into the scene for the duct's bake, never exported.
+OCC = K.Builder()
 
 
 def side_angle(a, b):
@@ -147,6 +163,7 @@ class Local:
         self.o = origin
         self.ang = ang
         self.c, self.s = math.cos(ang), math.sin(ang)
+        self.occ = K.Builder()
 
     def w(self, p):
         x, y, z = p
@@ -156,6 +173,8 @@ class Local:
         from mathutils import Matrix
         m = Matrix.Translation((self.o[0], self.o[1], 0.0)) @ Matrix.Rotation(self.ang, 4, "Z")
         self.kit.b.place(self.b, m)
+        if self.occ.mats:
+            OCC.place(self.occ, m)
 
     def col(self, size, loc):
         self.kit.col(size, self.w(loc), self.ang)
@@ -206,9 +225,10 @@ def grille_bars(b, cx, cy, z, across, along, angle_deg, m, rot_z=0.0):
         b.box((across, 0.003, dep), (p[0], p[1], z + dep / 2), m, rot=(math.radians(angle_deg), 0, rot_z))
 
 
-def eggcrate(b, cx, cy, z, across, along, m, rot_z=0.0):
+def eggcrate(b, cx, cy, z, across, along, m, rot_z=0.0, occ=None):
     """A lay-in eggcrate return grille: 1/2 x 1/2 x 1/2 in aluminium grid core
-    in a 1-1/4 in frame (face at z), centred (cx, cy), across x along."""
+    in a 1-1/4 in frame (face at z), centred (cx, cy), across x along. The
+    core goes into `occ` (bake only; the game draws it with louvre.gdshader)."""
     c, s = math.cos(rot_z), math.sin(rot_z)
 
     def w(x, y):
@@ -223,11 +243,13 @@ def eggcrate(b, cx, cy, z, across, along, m, rot_z=0.0):
         b.box((fr, along + 2 * fr, 0.004), (p[0], p[1], z - 0.002), m, rot=(0, 0, rot_z))
     # (each strip two quads 1.5 mm apart, its two faces)
     def strip(p0, p1, side):
+        if occ is None:
+            return
         for k in (-1, 1):
             q0 = (p0[0] + side[0] * k * 0.00075, p0[1] + side[1] * k * 0.00075)
             q1 = (p1[0] + side[0] * k * 0.00075, p1[1] + side[1] * k * 0.00075)
             pts = [(q0[0], q0[1], z), (q1[0], q1[1], z), (q1[0], q1[1], z + dep), (q0[0], q0[1], z + dep)]
-            b.oquad(pts, m, (q0[0] + side[0] * k, q0[1] + side[1] * k, z))
+            occ.oquad(pts, m, (q0[0] + side[0] * k, q0[1] + side[1] * k, z))
     n_a, n_l = int(across / cell), int(along / cell)
     for i in range(n_a + 1):
         u = -across / 2 + i * across / n_a
@@ -255,7 +277,7 @@ def register_neck(L, x, size, exit_=False):
             b.box((0.025, 0.03, 0.001), (x + sx * (along / 2 + 0.0125), t, 0.0005), "duct_galv")
             b.cyl(0.0045, 0.0045, 0.003, (x + sx * (along / 2 + 0.013), t, 0.0015), "screw", segs=6)
     if not exit_:            # (the exit's grille is a moving part, made in Godot)
-        eggcrate(b, x, 0.0, CEIL - 0.004, across, along, "grille", rot_z=math.pi / 2)
+        eggcrate(b, x, 0.0, CEIL - 0.004, across, along, "grille", rot_z=math.pi / 2, occ=L.occ)
     return (x0, x1, y0, y1)
 
 
@@ -282,7 +304,7 @@ def duct(kit, a, b_, feats):
     xs.append(x_end)
     hy, ctr_z = W / 2, H / 2
     import random
-    rng = random.Random(hash((a, b_)) & 0xFFFF)
+    rng = random.Random(seed(a, b_))
     for x0, x1 in zip(xs, xs[1:]):
         toward = ((x0 + x1) / 2, 0.0, ctr_z)
         # Floor panels sag under years of service crawls (dents), walls and
@@ -315,7 +337,7 @@ def duct(kit, a, b_, feats):
     # corners the longitudinal (Pittsburgh) seams.
     for x in xs:
         if not liner:
-            sealed_joint(b, x, hash((a, b_, round(x, 2))))
+            sealed_joint(b, x, seed(a, b_, round(x, 2)))
     # Hanger straps (18 ga band, 8 ft centres) are screwed to the sides near
     # the top: their screw tips come through.
     x = x_start + 0.5
@@ -566,15 +588,16 @@ def entry_grille(kit, p, q):
     flat(b, (x0, y, z0 + gh), (x1, y, z0 + gh), (x1, y, H), (x0, y, H), "duct_galv", ctr)
     flat(b, (x0, y, z0), (cx - gw / 2, y, z0), (cx - gw / 2, y, z0 + gh), (x0, y, z0 + gh), "duct_galv", ctr)
     flat(b, (cx + gw / 2, y, z0), (x1, y, z0), (x1, y, z0 + gh), (cx + gw / 2, y, z0 + gh), "duct_galv", ctr)
-    # The grille's blades (seen from behind: the duct side).
+    # The grille's blades (seen from behind: the duct side): bake only, the
+    # game draws them (louvre.gdshader) with the Backrooms behind them.
     n = int(gh / BAR)
     for i in range(n):
-        b.box((gw, 0.028, 0.0025), (cx, y - 0.016, z0 + (i + 0.5) * gh / n), "grille", rot=(math.radians(-40), 0, 0))
+        OCC.box((gw, 0.028, 0.0025), (cx, y - 0.016, z0 + (i + 0.5) * gh / n), "grille", rot=(math.radians(-25), 0, 0))
     for sx in (-1, 1):
         b.box((0.004, 0.03, gh), (cx + sx * gw / 2, y - 0.016, z0 + gh / 2), "grille")
         b.box((gw, 0.03, 0.004), (cx, y - 0.016, z0 + gh / 2 + sx * gh / 2), "grille")
     # Behind it: the Backrooms (its wallpaper, lit by its fluorescent hum).
-    b.box((gw + 0.3, 0.02, gh + 0.3), (cx, y - 0.45, z0 + gh / 2), "entry_glow")
+    OCC.box((gw + 0.3, 0.02, gh + 0.3), (cx, y - 0.45, z0 + gh / 2), "entry_glow")
     K.point_light(kit, (cx, y - 0.3, z0 + gh + 0.2), 4.0, color=(1.0, 0.88, 0.6), radius=0.3)
     kit.col((W + 0.4, 0.2, H), (cx, y - 0.1, H / 2))
 
@@ -779,6 +802,100 @@ def furnish(kit, rect, i):
         b.box((0.015, 1.22, 0.91), (x1 - 0.008, (y0 + y1) / 2, FLOOR + 1.45), "whiteboard")
 
 
+def ceiling_holes(b, x0, y0, x1, y1, z, holes, m, c):
+    """A ceiling over (x0, y0)-(x1, y1) at z with rectangular holes, as strips."""
+    hs = sorted(holes, key=lambda h: h[1])
+    ys = [y0]
+    for h in hs:
+        ys += [h[1], h[3]]
+    ys.append(y1)
+    for i in range(len(ys) - 1):
+        ya, yb = ys[i], ys[i + 1]
+        if yb - ya < 1e-4:
+            continue
+        inside = [h for h in hs if h[1] <= ya + 1e-6 and h[3] >= yb - 1e-6]
+        if inside:
+            h = inside[0]
+            flat(b, (x0, ya, z), (h[0], ya, z), (h[0], yb, z), (x0, yb, z), m, c)
+            flat(b, (h[2], ya, z), (x1, ya, z), (x1, yb, z), (h[2], yb, z), m, c)
+        else:
+            flat(b, (x0, ya, z), (x1, ya, z), (x1, yb, z), (x0, yb, z), m, c)
+
+
+def office_floor(kit, rect, holes):
+    """The way out: the return grille opens over a corner of the office floor
+    below (the "office" side level, The Dimming Floor, is where you land).
+    Open plan: an aisle under the grille, cubicles in a double row to the
+    east, desks along the west wall, a grid of 2 x 4 troffers on 8 ft
+    centres. The rows round the grille are lit (light group 3); further
+    north they're dimming, then out."""
+    import random
+    rng = random.Random(seed("office_floor"))
+    b = kit.b
+    x0, y0, x1, y1 = rect
+    z0, z1 = FLOOR, CEIL
+    c = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+    flat(b, (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0), "carpet", c)
+    ceiling_holes(b, x0, y0, x1, y1, z1, holes, "ceiling_tile", c)
+    walls = {"s": ((x0, y0), (x1, y0)), "n": ((x0, y1), (x1, y1)), "w": ((x0, y0), (x0, y1)), "e": ((x1, y0), (x1, y1))}
+    for k, (p, q) in walls.items():
+        flat(b, (*p, z0), (*q, z0), (*q, z1), (*p, z1), "wall_paint", c)
+        ln = math.hypot(q[0] - p[0], q[1] - p[1])
+        mx = (p[0] + q[0]) / 2 + (0.003 if k == "w" else -0.003 if k == "e" else 0.0)
+        my = (p[1] + q[1]) / 2 + (0.003 if k == "s" else -0.003 if k == "n" else 0.0)
+        b.box((ln if k in "ns" else 0.006, ln if k in "ew" else 0.006, 4 * IN), (mx, my, z0 + 2 * IN), "base")
+    # The way on: a door at the far (north) end, in the dark.
+    dw, dh = 36 * IN, 84 * IN
+    dx = x0 + 1.6
+    b.box((dw, 0.012, dh), (dx, y1 - 0.006, z0 + dh / 2), "door")
+    for s_ in (-1, 1):
+        b.box((0.05, 0.03, dh + 0.05), (dx + s_ * (dw / 2 + 0.025), y1 - 0.012, z0 + dh / 2), "door_frame")
+    b.box((dw + 0.1, 0.03, 0.05), (dx, y1 - 0.012, z0 + dh + 0.025), "door_frame")
+    b.box((0.13, 0.02, 0.02), (dx + dw / 2 - 0.13, y1 - 0.05, z0 + 0.96), "door_frame")
+    b.box((0.07, 0.006, 0.115), (dx + 0.9, y1 - 0.004, z0 + 1.22), "plate")
+    # Troffers: 3 columns x 6 rows, long axis north-south, clear of the hole.
+    for ty in (40.4, 42.8, 45.2, 47.6, 50.0, 52.4):
+        for tx in (2.6, 5.8, 9.0):
+            size = (TROFFER[0], TROFFER[1])
+            b.box((size[0] + 0.05, size[1] + 0.05, 0.01), (tx, ty, z1 - 0.003), "troffer_frame")
+            lit = ty < 46.0
+            dim = 46.0 < ty < 48.0
+            b.box((size[0] - 0.05, size[1] - 0.05, 0.004), (tx, ty, z1 - 0.009), "lamp_g3" if (lit or dim) else "lens_off")
+            if lit or dim:
+                K.area_light(kit, (tx, ty, z1 - 0.02), (size[0] - 0.05, size[1] - 0.05), TROFFER_W * (1.0 if lit else 0.35),
+                             color=CCT_4000K, group=3)
+    # Cubicles: a double row east of the aisle, a 65 in spine panel down the
+    # middle and 53 in side panels between them (as the office floor's
+    # workstations), navy fabric with a cap.
+    ph, pt = 53 * IN, 0.06
+    sh = 65 * IN
+    sx0, spine, sx1 = 6.6, 8.7, 10.8
+    rows = [39.6 + 2.2 * i for i in range(7)]
+    b.box((pt, rows[-1] - rows[0], sh), (spine, (rows[0] + rows[-1]) / 2, z0 + sh / 2), "partition")
+    b.box((pt + 0.01, rows[-1] - rows[0], 0.02), (spine, (rows[0] + rows[-1]) / 2, z0 + sh + 0.01), "desk_metal")
+    for ry in rows:
+        b.box((sx1 - sx0, pt, ph), ((sx0 + sx1) / 2, ry, z0 + ph / 2), "partition")
+        b.box((sx1 - sx0, pt + 0.01, 0.02), ((sx0 + sx1) / 2, ry, z0 + ph + 0.01), "desk_metal")
+    for ya, yb in zip(rows, rows[1:]):
+        yc = (ya + yb) / 2
+        if rng.random() < 0.9:
+            desk(b, spine - 0.42, yc, -math.pi / 2, rng)
+        if rng.random() < 0.9:
+            desk(b, spine + 0.42, yc, math.pi / 2, rng)
+    # Desks along the west wall, low panels between them.
+    for i, yc in enumerate((40.4, 42.7, 45.0, 47.3, 49.6, 51.9)):
+        if i != 2 or rng.random() < 0.5:
+            desk(b, x0 + 0.42, yc, math.pi / 2, rng)
+        b.box((1.5, pt, 1.07), (x0 + 0.75, yc + 1.15, z0 + 0.535), "partition")
+    # A pair of filing cabinets by the door, a bin in the aisle's corner.
+    cw, cd, ch = 15 * IN, 28 * IN, 52 * IN
+    for k in range(2):
+        b.box((cw, cd, ch), (x0 + 3.0 + k * (cw + 0.01), y1 - cd / 2 - 0.02, z0 + ch / 2), "cabinet")
+    b.cyl(0.14, 0.12, 0.38, (sx0 - 0.3, y0 + 0.4, z0 + 0.19), "desk_metal", segs=12)
+    kit.spot("spot_room_%d" % EXIT_ROOM, (c[0], c[1], z0), 0.0)
+    kit.col((x1 - x0, y1 - y0, 0.2), (c[0], c[1], z0 - 0.1))
+
+
 def build_rooms():
     kit = K.Kit("crawl_rooms")
     holes = []
@@ -795,6 +912,9 @@ def build_rooms():
     for rect, group, door in ROOMS:
         x0, y0, x1, y1 = rect
         mine = [h for h in holes if h[0] >= x0 and h[2] <= x1 and h[1] >= y0 and h[3] <= y1]
+        if ROOMS.index((rect, group, door)) == EXIT_ROOM:
+            office_floor(kit, rect, mine)
+            continue
         room(kit, rect, group, door, mine)
         furnish(kit, rect, ROOMS.index((rect, group, door)))
         # The slab above the ceiling (the plenum's floor is the tiles' back).
@@ -809,6 +929,9 @@ def build_duct():
         duct(kit, a, b_, f)
     damper_and_fan(kit)
     kit.spot("spot_arrival", (0.0, -0.05, 0.0), 0.0)
+    import bpy
+    occ = bpy.data.objects.new("_bake_occluders", OCC.to_mesh("_bake_occluders"))
+    bpy.context.scene.collection.objects.link(occ)
     kit.export(OUT, lm=1024, samples=160)
 
 

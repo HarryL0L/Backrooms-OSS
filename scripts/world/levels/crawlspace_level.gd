@@ -16,13 +16,17 @@ extends SideLevel
 ## shudder, something crawls in the parallel duct keeping pace with you,
 ## a light below fails, an occupancy sensor sees something in an empty
 ## office, and a pale hand pulls back round a bend ahead. The way out is the
-## return grille at the far end: push it out and drop into the office.
+## return grille at the far end: push it out and drop through the ceiling
+## onto the office floor below, the Dimming Floor (side level "office"),
+## where you land standing under the open grille hole.
 ##
 ## Layout and real-world sizes: assets/levels/crawlspace/SPEC.md (and
 ## tools/blender/levels/crawlspace.py, which builds the kits).
 
 const NAME := "Level 2.1 - The Crawlspace"
 const INTRO := "Hot air. Sheet metal. No room to turn round."
+## The exit grille drops you into the office floor below (a chain).
+const NEXT := "office"
 const DIR := "res://assets/levels/crawlspace/"
 const TEX := "res://assets/levels/crawlspace/textures"
 
@@ -61,12 +65,27 @@ const FAN_Y := 18.2
 ## The parallel duct (hidden) beside n3 -> n5, 1.3 m west of it.
 const TWIN_X := -11.35
 const CCT := Color(1.0, 0.95, 0.88)        # 4000 K
+## Baked light (E / pi, the level shader's units) at the ceiling of a lit
+## office below, what the grille cores see from underneath; and in the duct
+## above them, the torch aside.
+const ROOM_LIGHT := 0.32
+const DUCT_LIGHT := 0.012
+## The Backrooms behind the wall grille you came in by: its wallpaper under
+## its fluorescent light.
+const BACKROOMS_LIGHT := Vector3(0.95, 0.85, 0.55)
+const WALLPAPER := "res://assets/textures/wallpaper/albedo.jpg"
+const LOUVRE := "res://assets/levels/crawlspace/louvre.gdshader"
 
 var _o := Vector3(0.0, LEVEL_Y, 0.0)
 var _rng := RandomNumberGenerator.new()
 var _events := true
 var _t := 0.0
 var _torch_energy := -1.0
+var _slide0 := -1.0
+var _torch_col := Color(0, 0, 0, 0)        # Realistic: the torch's colour here (alpha 0: leave it)
+var _torch_col0 := Color.WHITE
+## The offices' 4000 K light (Realistic: as the camera records it).
+var _cct := CCT
 # Sounds.
 var _streams := {}
 var _pool: Array[AudioStreamPlayer3D] = []
@@ -121,7 +140,9 @@ var _hand_pose := 0.0
 var _hand_audio: AudioStreamPlayer3D
 # The exit grille.
 var _grille: Node3D
+var _grille_core: ShaderMaterial
 var _exit: LevelEntrance
+var _louvres: Array[ShaderMaterial] = []
 
 
 func _g(b: Vector2, z := 0.0) -> Vector3:
@@ -142,7 +163,11 @@ func build(p_seed: int) -> void:
 		"duct_floor": {"texture": "duct_floor", "scale": 1.0, "metallic": 0.2, "roughness": 1.0, "specular": 0.45,
 				"normal_depth": 0.5},
 		"vane": galv,
-		"mastic": {"color": Color(0.55, 0.57, 0.58), "roughness": 0.95, "specular": 0.25},
+		# Sealant brushed over glass-fibre tape: mid grey (~0.17), matt, the
+		# weave and brush marks in it (it read as flat white bands, a full
+		# diffuse 0.27 beside the galvanised sheet's 40 %).
+		"mastic": {"texture": "mastic", "color": _lin(0.34, 0.35, 0.36), "scale": 2.5, "roughness": 0.9,
+				"specular": 0.3, "normal_depth": 0.8},
 		"liner": {"texture": "liner", "scale": 2.0, "roughness": 1.0, "specular": 0.2},
 		"liner_pin": {"color": Color(0.32, 0.32, 0.31), "roughness": 0.7, "metallic": 0.3},
 		"grille": {"color": Color(0.86, 0.86, 0.84), "roughness": 0.45, "specular": 0.5},
@@ -152,7 +177,8 @@ func build(p_seed: int) -> void:
 		"ceiling_tile": {"texture": "ceiling_tile", "scale": 1.0 / (6.0 * 0.6096), "roughness": 1.0, "specular": 0.2},
 		"wall_paint": {"texture": "wall_paint", "scale": Vector2(0.35, 0.7), "roughness": 1.0, "specular": 0.3},
 		"base": {"color": Color(0.1, 0.1, 0.1), "roughness": 0.8},
-		"door": {"color": Color(0.6, 0.56, 0.5), "roughness": 0.6},
+		"door": {"texture": "laminate", "color": _lin(1.15, 1.1, 1.05), "scale": 0.8, "roughness": 0.55, "specular": 0.4,
+				"normal_depth": 0.4},
 		"door_frame": {"color": Color(0.28, 0.28, 0.29), "roughness": 0.5, "metallic": 0.3},
 		"troffer_frame": {"color": Color(0.85, 0.85, 0.84), "roughness": 0.5},
 		"plate": {"color": Color(0.9, 0.89, 0.86), "roughness": 0.6},
@@ -163,12 +189,22 @@ func build(p_seed: int) -> void:
 				"specular": 0.2},
 		"tape": {"color": Color(0.7, 0.71, 0.72), "roughness": 0.3, "metallic": 0.7},
 		"cable_tie": {"color": Color(0.08, 0.08, 0.08), "roughness": 0.6},
-		"laminate": {"color": Color(0.6, 0.57, 0.52), "roughness": 0.5},
-		"desk_metal": {"color": Color(0.22, 0.22, 0.23), "roughness": 0.5, "metallic": 0.4},
-		"chair_fabric": {"color": Color(0.07, 0.07, 0.08), "roughness": 0.95},
-		"cabinet": {"color": Color(0.66, 0.65, 0.6), "roughness": 0.5, "metallic": 0.2},
-		"monitor": {"color": Color(0.02, 0.02, 0.02), "roughness": 0.25, "specular": 0.6},
-		"whiteboard": {"color": Color(0.9, 0.9, 0.88), "roughness": 0.2, "specular": 0.6},
+		# The offices' furniture, as the office floor's: oak-look laminate
+		# tops (~0.33), powder-coated steel (orange-peel grain), black chair
+		# fabric and navy panels, measured albedos over each texture's mean.
+		"laminate": {"texture": "laminate", "color": _lin(1.45, 1.45, 1.4), "scale": 0.9, "roughness": 0.45,
+				"specular": 0.45, "normal_depth": 0.3},
+		"desk_metal": {"texture": "wall_paint", "color": _lin(0.15, 0.15, 0.16), "scale": 4.0, "roughness": 0.45,
+				"specular": 0.5, "normal_depth": 0.15},
+		"chair_fabric": {"texture": "fabric", "color": _lin(0.09, 0.09, 0.1), "scale": 3.0, "roughness": 0.95,
+				"specular": 0.2, "normal_depth": 0.7},
+		"partition": {"texture": "fabric", "color": _lin(0.2, 0.236, 0.31), "scale": 2.0, "roughness": 0.95,
+				"specular": 0.2, "normal_depth": 0.5},
+		"cabinet": {"texture": "wall_paint", "color": _lin(0.95, 0.9, 0.8), "scale": 4.0, "roughness": 0.4,
+				"specular": 0.5, "normal_depth": 0.15},
+		"monitor": {"color": _lin(0.025, 0.025, 0.027), "roughness": 0.15, "specular": 0.5},
+		"whiteboard": {"color": _lin(0.78, 0.79, 0.8), "roughness": 0.12, "specular": 0.5},
+		"lens_off": {"color": _lin(0.45, 0.45, 0.45), "roughness": 0.3, "specular": 0.5},
 	}
 	for g in 4:
 		surfaces["lamp_g%d" % g] = {"color": Color(1.0, 0.98, 0.94), "emit": 5.0, "group": g}
@@ -177,13 +213,15 @@ func build(p_seed: int) -> void:
 	low_view_range = 0.0
 	load_kit(DIR + "crawl_rooms.glb", lm + "crawl_rooms.png", TEX, surfaces, lm + "crawl_rooms_groups.png")
 	load_kit(DIR + "crawl_duct.glb", lm + "crawl_duct.png", TEX, surfaces, lm + "crawl_duct_groups.png")
-	set_light_group(0, CCT, 1.0)
-	set_light_group(1, CCT, 1.0)
-	set_light_group(2, CCT, 0.0)
-	set_light_group(3, CCT, 1.0)
+	set_light_group(0, _cct, 1.0)
+	set_light_group(1, _cct, 1.0)
+	set_light_group(2, _cct, 0.0)
+	set_light_group(3, _cct, 1.0)
 	_load_sounds()
 	_build_fan()
 	_build_grille()
+	_build_registers()
+	_build_entry()
 	_build_dust()
 	_build_hand()
 	_build_audio()
@@ -191,13 +229,33 @@ func build(p_seed: int) -> void:
 	# its own: open_exit() plays the grille and the drop). Its prompt sits on
 	# the grille (LevelEntrance puts it 1.05 m up and 0.08 m out).
 	var at := _g(EXIT_AT, 0.06)
-	_exit = add_exit(Transform3D(Basis(), at - Vector3(0.0, 1.05, 0.08)), "none", "",
+	# Through it you drop onto the office floor below: the next level.
+	_exit = add_exit(Transform3D(Basis(), at - Vector3(0.0, 1.05, 0.08)), "none", NEXT,
 			{"label": "Push the grille out", "walk_in": false})
 	environment = make_environment({"background": Color(0, 0, 0), "fog": Color(0.012, 0.011, 0.01),
 			"fog_density": 0.05, "exposure": 1.15, "glow": 0.2, "saturation": 0.92})
 	# Let the torch's hot spot on sheet metal a hand's length away roll off
 	# instead of clipping.
 	environment.tonemap_white = maxf(environment.tonemap_white, 6.0)
+	if Settings.is_realistic():
+		# Realistic's side-level grade is the night camera (balanced for
+		# moonlight: 0.78 / 0.91 / 1.0), which turned these offices and the
+		# torch icy blue. Here the camera is L.U.C.I.D.'s (Lucid.Camera):
+		# it balances half the way from 5500 K to the place's light, the
+		# torch in the duct (an LED torch, 6000 K: Lucid.FIXTURES); each
+		# light then shows as its temperature through that balance, the
+		# torch near white and the 4000 K offices below warm. Neutral grade.
+		var mn := Lucid.mired(5500.0)
+		var wb := 1.0e6 / (mn + (Lucid.mired(Lucid.FIXTURES.flashlight.kelvin) - mn) * 0.5)
+		_cct = _balanced(4000.0, wb)
+		_torch_col = _balanced(Lucid.FIXTURES.flashlight.kelvin, wb)
+		environment.adjustment_color_correction = EnvironmentFactory.camera_lut(Color(1, 1, 1),
+				Color(0.002, 0.002, 0.002))
+		set_light_group(3, _cct, 1.0)
+		# The grade's night exposure (x 0.85) and AgX's lower mid-grey left
+		# the torch-lit duct and the offices a stop under Medium's: put the
+		# torch's patch a hand's length away back at the same brightness.
+		environment.tonemap_exposure *= 1.4
 
 
 func _load_sounds() -> void:
@@ -357,19 +415,142 @@ func _build_grille() -> void:
 		parts.append([Vector3(fr, 0.004, s), Transform3D(Basis(), Vector3(sx * (s * 0.5 + fr * 0.5), -0.002, 0))])
 		parts.append([Vector3(s, dep, 0.003), Transform3D(Basis(), Vector3(0, dep * 0.5, sx * s * 0.5))])
 		parts.append([Vector3(0.003, dep, s), Transform3D(Basis(), Vector3(sx * s * 0.5, dep * 0.5, 0))])
-	var n := int(s / 0.01905)
-	for i in n:
-		var z := -s * 0.5 + (i + 0.5) * s / n
-		parts.append([Vector3(s, dep, 0.0025), Transform3D(Basis(Vector3.RIGHT, deg_to_rad(45.0)), Vector3(0, dep * 0.5, z))])
 	_grille = Node3D.new()
 	add_child(_grille)
 	_grille.global_position = _g(EXIT_AT, CEIL - 0.004)
+	# The frame: lit from the office under it, the duct's dark above.
 	var mi := MeshInstance3D.new()
 	mi.mesh = _boxes(parts)
 	mi.material_override = flat_material({"color": Color(0.86, 0.86, 0.84), "roughness": 0.45},
-			Color(0.06, 0.06, 0.06), Vector4(0.0, 0.0, 0.0, 0.55))
+			Color(0.02, 0.02, 0.02), Vector4(0.0, 0.0, 0.0, ROOM_LIGHT * 0.5))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_grille.add_child(mi)
+	# The bars (fixed at 45 deg on 3/4 in centres, 1 in deep) drawn by the
+	# louvre shader on one quad (they were 32 flat-lit boxes that read as a
+	# glowing panel): through them the lit office below, at a slant.
+	_grille_core = _louvre(Vector2(0.0, 0.01905), dep * 0.72, Vector2(0.0, 1.0), 0.0025, Color(0.86, 0.86, 0.84),
+			Vector3.ONE * DUCT_LIGHT, Vector4.ZERO, Vector3.ZERO, Vector4(0, 0, 0, ROOM_LIGHT))
+	_add_louvre(_grille_core, Vector2(s, s), Transform3D(Basis(), Vector3(0.0, dep, 0.0)), _grille)
+
+
+## A grille core (louvre.gdshader): walls every `pitch` (x, z; 0 none),
+## `depth` deep, leaning `slant`, lit from its top and bottom faces.
+func _louvre(pitch: Vector2, depth: float, slant: Vector2, thick: float, col: Color, top: Vector3, top_g: Vector4,
+		bottom: Vector3, bottom_g: Vector4) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load(LOUVRE)
+	m.set_shader_parameter("pitch", pitch)
+	m.set_shader_parameter("depth", depth)
+	m.set_shader_parameter("slant", slant)
+	m.set_shader_parameter("thick", thick)
+	m.set_shader_parameter("albedo", col)
+	m.set_shader_parameter("roughness", 0.45)
+	m.set_shader_parameter("light_top", top)
+	m.set_shader_parameter("groups_top", top_g)
+	m.set_shader_parameter("light_bottom", bottom)
+	m.set_shader_parameter("groups_bottom", bottom_g)
+	_louvres.append(m)
+	return m
+
+
+## A quad (size x by z, local +Y its top face) carrying a grille core.
+func _add_louvre(m: ShaderMaterial, size: Vector2, xf: Transform3D, parent: Node3D = null) -> MeshInstance3D:
+	var pm := PlaneMesh.new()
+	pm.size = size
+	var mi := MeshInstance3D.new()
+	mi.mesh = pm
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	(parent if parent else self).add_child(mi)
+	mi.transform = xf
+	if parent == null:
+		mi.global_transform = xf
+	return mi
+
+
+## The floor registers' eggcrate cores (1/2 in cells, 1/2 in deep, in the
+## kit's frames): the office's light coming up through them, the cells'
+## walls lit from below and dark towards the duct, see-through straight
+## down and closing up at a slant, as a real eggcrate does.
+func _build_registers() -> void:
+	# All of them in one mesh, one draw (each quad's light from below in its
+	# vertex colour and light groups' shares, see per_vertex in the shader).
+	var cl := Vector3(CCT.r, CCT.g, CCT.b)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_custom_format(0, SurfaceTool.CUSTOM_RGBA_FLOAT)
+	for r in REGISTERS:
+		if r[0] == EXIT_AT:
+			continue
+		var g: int = r[1]
+		var bottom := Vector3.ZERO
+		var bottom_g := Color(0, 0, 0, 0)
+		if g == -1:
+			bottom = cl * ROOM_LIGHT
+		elif g == -2:
+			bottom = Vector3.ONE * 0.004
+		else:
+			bottom_g[g] = ROOM_LIGHT
+		var e := _nearest_edge(r[0])
+		var d: Vector2 = (NODES[e[1]] - NODES[e[0]]).normalized()
+		# 24 in across the duct, 12 in along it.
+		var hs := Vector2(0.3048, 0.1524) if absf(d.y) > 0.5 else Vector2(0.1524, 0.3048)
+		var c := _g(r[0], CEIL - 0.004 + 0.0127)
+		var q := [c + Vector3(-hs.x, 0, -hs.y), c + Vector3(hs.x, 0, -hs.y), c + Vector3(hs.x, 0, hs.y), c + Vector3(-hs.x, 0, hs.y)]
+		for k in [0, 1, 2, 0, 2, 3]:
+			st.set_color(Color(bottom.x, bottom.y, bottom.z))
+			st.set_custom(0, bottom_g)
+			st.set_normal(Vector3.UP)
+			st.add_vertex(q[k])
+	var m := _louvre(Vector2(0.0127, 0.0127), 0.0127, Vector2.ZERO, 0.0005, Color(0.86, 0.86, 0.84),
+			Vector3.ONE * DUCT_LIGHT, Vector4.ZERO, Vector3.ZERO, Vector4.ZERO)
+	m.set_shader_parameter("per_vertex", true)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+## The wall grille you came in by (24 x 16 in, blades at 25 deg on 3/4 in
+## centres), at the start's end cap, and the Backrooms behind it: its
+## wallpaper under its own light (it was one flat glowing panel).
+func _build_entry() -> void:
+	var hw := W * 0.5
+	var gw := 0.6096
+	var gh := 0.4064
+	var c := _g(Vector2(0.0, -hw), 0.14 + gh * 0.5)
+	# Local +Y into the duct (north, -Z), local Z up: blades across Z.
+	var bas := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))
+	var m := _louvre(Vector2(0.0, 0.01905), 0.021, Vector2(0.0, 0.47), 0.0025, Color(0.62, 0.61, 0.58),
+			Vector3.ONE * DUCT_LIGHT, Vector4.ZERO, BACKROOMS_LIGHT * 0.8, Vector4.ZERO)
+	m.set_shader_parameter("reach", 0.05)
+	_add_louvre(m, Vector2(gw, gh), Transform3D(bas, c + Vector3(0.0, 0.0, 0.004)))
+	# (the Lobby's aged yellow wallpaper, ~0.58 / 0.49 / 0.14: Lucid.ALBEDO)
+	var wall := flat_material({"color": _lin(1.0, 0.82, 0.3), "roughness": 0.9, "scale": 1.6, "shade": 0.0},
+			Color(BACKROOMS_LIGHT.x, BACKROOMS_LIGHT.y, BACKROOMS_LIGHT.z))
+	wall.set_shader_parameter("albedo_tex", load(WALLPAPER))
+	var q := QuadMesh.new()
+	q.size = Vector2(gw + 0.3, gh + 0.3)
+	var back := MeshInstance3D.new()
+	back.mesh = q
+	back.material_override = wall
+	back.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(back)
+	back.global_transform = Transform3D(Basis(Vector3.UP, PI), c + Vector3(0.0, 0.0, 0.45))
+
+
+## A light of `kelvin` as a camera balanced at `wb` records it (brightest
+## channel 1).
+static func _balanced(kelvin: float, wb: float) -> Color:
+	var c := Lucid.kelvin_rgb(kelvin) * Lucid.wb_gains(wb)
+	return c / maxf(c.r, maxf(c.g, c.b))
+
+
+## A measured (linear) albedo as the Color the level shader's source_color
+## albedo expects.
+static func _lin(r: float, g: float, b: float) -> Color:
+	return Color(r, g, b).linear_to_srgb()
 
 
 func _build_dust() -> void:
@@ -473,16 +654,38 @@ func _pose_hand() -> void:
 
 func on_enter() -> void:
 	player.force_crawl = true
-	_torch_energy = player.flashlight.light_energy
-	player.flashlight.light_energy = _torch_energy * TORCH
+	# Push at a wall within 15 deg of head-on (CharacterBody3D's default
+	# wall_min_slide_angle) and you stop dead instead of sliding along it.
+	# In a 36 in duct that is every turn into a side branch taken a hand's
+	# width late: you crawled into the wall facing the branch and stuck
+	# there. Slide at any angle while in here.
+	_slide0 = player.wall_min_slide_angle
+	player.wall_min_slide_angle = 0.0
+	_dim_torch()
 	player.footstep.connect(_on_step)
 	var cs := get_tree().current_scene
 	_events = cs == null or not String(cs.scene_file_path).contains("level_shots")
 
 
+## The torch at TORCH of its own (legacy) output. Coming from the Realistic
+## Backrooms the player still has L.U.C.I.D.'s torch on for a frame: wait
+## for it to put its own back, or that frame's value was taken (and the
+## dimming lost, and the wrong value handed back on leaving).
+func _dim_torch() -> void:
+	if _torch_energy < 0.0 and not player._lucid_flash:
+		_torch_energy = player.flashlight.light_energy
+		player.flashlight.light_energy = _torch_energy * TORCH
+		_torch_col0 = player.flashlight.light_color
+		if _torch_col.a > 0.0:
+			player.flashlight.light_color = _torch_col
+
+
 func on_leave() -> void:
+	if player and _slide0 >= 0.0:
+		player.wall_min_slide_angle = _slide0
 	if player and _torch_energy >= 0.0:
 		player.flashlight.light_energy = _torch_energy
+		player.flashlight.light_color = _torch_col0
 	if player and player.footstep.is_connected(_on_step):
 		player.footstep.disconnect(_on_step)
 
@@ -532,6 +735,7 @@ func warm_materials() -> Array[Material]:
 	var out := super()
 	out.append(_mote_mat)
 	out.append(_blur_mat)
+	out.append_array(_louvres)
 	out.append_array(EntityBody.warm_materials())
 	return out
 
@@ -563,6 +767,7 @@ func _process(delta: float) -> void:
 	if player == null:
 		return
 	_t += delta
+	_dim_torch()
 	_update_dust(delta)
 	_update_air(delta)
 	_update_fan(delta)
@@ -780,7 +985,7 @@ func _update_fan(delta: float) -> void:
 	# chopped by each blade passing, steady (and dimmer) once it's a blur.
 	var blade := 0.5 + 0.5 * cos(_fan_angle * 6.0)
 	var chop := lerpf(0.55 + 0.45 * blade, 0.72, k)
-	set_light_group(1, CCT, chop)
+	set_light_group(1, _cct, chop)
 	if run > 0.3:
 		rumble = 0.0015 * run * clampf(1.0 - me.distance_to(Vector2(-10, FAN_Y)) / 6.0, 0.0, 1.0)
 	elif rumble > 0.0:
@@ -821,7 +1026,7 @@ func _update_lights(delta: float) -> void:
 			_play_at(_streams.get("ballast_start"), _g(REGISTERS[4][0], -0.4), -12.0, 1.0, 3500.0)
 		else:
 			_faulty = lv
-	set_light_group(0, CCT, _faulty)
+	set_light_group(0, _cct, _faulty)
 	# The occupancy sensor (group 2): the office is dark; pass over it and
 	# a moment later its lights come on. Nobody is in there.
 	var reg: Vector2 = REGISTERS[5][0]
@@ -843,7 +1048,7 @@ func _update_lights(delta: float) -> void:
 				_occ_state = 3
 		3:
 			_occupancy = maxf(_occupancy - delta * 0.6, 0.0)
-	set_light_group(2, CCT, _occupancy)
+	set_light_group(2, _cct, _occupancy)
 
 
 # --------------------------------------------------------------- the hand ---
@@ -979,6 +1184,8 @@ func open_exit() -> void:
 		_grille.global_transform = Transform3D(Basis(q) * tumble, pos)
 		await get_tree().process_frame
 	_grille.global_transform = land
+	# On the carpet both faces are in the office's light.
+	_grille_core.set_shader_parameter("groups_top", Vector4(0, 0, 0, ROOM_LIGHT))
 	_play_at(_streams.get("grille_land"), land.origin, -1.0, 0.9)
 	var bounce := create_tween()
 	bounce.tween_property(_grille, "position:y", _grille.position.y + 0.06, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -1031,32 +1238,41 @@ func shots() -> Array:
 		{"name": "register_angle", "transform": _view(Vector2(0, 4.75), 0.0, -0.75), "crawl": true, "flashlight": false},
 		{"name": "room_up", "transform": _view(Vector2(0.4, 4.0), 0.0, 0.75, CEIL - ROOM_H), "flashlight": false},
 		{"name": "hand_check", "transform": _view(Vector2(4, 36.3), 180.0, -0.2), "crawl": true, "flashlight": true},
-		{"name": "office_below", "transform": _view(Vector2(1.9, 41.5), -40.0, -0.1, CEIL - ROOM_H), "flashlight": false},
+		{"name": "office_below", "transform": _view(Vector2(4.0, 43.9), 0.0, -0.05, CEIL - ROOM_H), "flashlight": false},
+		{"name": "office_back", "transform": _view(Vector2(5.0, 52.0), 160.0, 0.05, CEIL - ROOM_H), "flashlight": false},
+		{"name": "exit_below", "transform": _view(Vector2(4.0, 42.9), 0.0, 0.85, CEIL - ROOM_H), "flashlight": false},
+		{"name": "entry", "transform": _view(Vector2(0, 0.25), 180.0, 0.0), "crawl": true, "flashlight": false},
 	]
 
 
-## Film: the first register with a run of pops; the fan spinning up behind
-## the damper; the hand round the bend; the way out.
+## Film: the last stretch, crawling north from the junction where the hand
+## was, over to the exit grille; push it out and drop through onto the
+## office floor below. (CRAWL_FILM=all: the old tour first: the first
+## register with a run of pops, the fan spinning up behind the damper, the
+## hand round the bend.)
 func film() -> void:
 	_events = true
 	_pop_next = 9999.0
 	player.force_crawl = true
 	player.set_flashlight(true)
-	player.teleport(_g(Vector2(0, 2.0)), 0.0, -0.1)
-	await get_tree().create_timer(0.6).timeout
-	_start_pops(true)
-	await _crawl_to(Vector2(0, 6.8), 8.0)
-	await get_tree().create_timer(1.0).timeout
-	player.teleport(_g(Vector2(-10, 23.4)), PI, -0.06)
-	await _crawl_to(Vector2(-10, 21.25), 5.0)
-	await get_tree().create_timer(9.0).timeout
-	player.teleport(_g(Vector2(0.9, 36)), -PI * 0.5, -0.1)
-	await _crawl_to(Vector2(2.3, 36), 4.0)
-	await get_tree().create_timer(2.5).timeout
-	player.teleport(_g(Vector2(4, 41.6)), 0.0, -0.3)
-	await _crawl_to(Vector2(4, 42.6), 3.0)
+	if OS.get_environment("CRAWL_FILM") == "all":
+		player.teleport(_g(Vector2(0, 2.0)), 0.0, -0.1)
+		await get_tree().create_timer(0.6).timeout
+		_start_pops(true)
+		await _crawl_to(Vector2(0, 6.8), 8.0)
+		await get_tree().create_timer(1.0).timeout
+		player.teleport(_g(Vector2(-10, 23.4)), PI, -0.06)
+		await _crawl_to(Vector2(-10, 21.25), 5.0)
+		await get_tree().create_timer(9.0).timeout
+		player.teleport(_g(Vector2(0.9, 36)), -PI * 0.5, -0.1)
+		await _crawl_to(Vector2(2.3, 36), 4.0)
+		await get_tree().create_timer(2.5).timeout
+	player.teleport(_g(Vector2(4, 37.2)), 0.0, -0.12)
+	await get_tree().create_timer(0.5).timeout
+	await _crawl_to(Vector2(4, 42.6), 12.0)
+	await get_tree().create_timer(0.4).timeout
 	await open_exit()
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(2.0).timeout
 
 
 ## Crawls (the forward key, steering towards it) until within 0.25 m of

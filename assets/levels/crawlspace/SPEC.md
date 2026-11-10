@@ -5,13 +5,15 @@ ceiling, at night. Galvanised rectangular duct you can only crawl through,
 lit by your torch and by what comes up through the registers from the
 offices below, which are still lit and empty. You get in through a wall vent
 in the Backrooms (LOBBY / PIPES, registry entrance) and get out by pushing
-the return grille at the far end out of the ceiling and dropping into the
-office (`exit_entered("")`, back to the Backrooms).
+the return grille at the far end out of the ceiling and dropping onto the
+office floor below: the Dimming Floor, side level `office` (`NEXT :=
+"office"`, the exit's `to`: a chain; the office level starts you standing
+under its open ceiling grille hole).
 
 Files: `scripts/world/levels/crawlspace_level.gd` (the level),
 `tools/blender/levels/crawlspace.py` (builds and bakes `crawl_duct.glb` and
 `crawl_rooms.glb`), `assets/levels/crawlspace/` (kits, lightmaps, textures,
-audio, `dust_mote.gdshader`, this file, LICENSE.md).
+audio, `dust_mote.gdshader`, `louvre.gdshader`, this file, LICENSE.md).
 
 ## Real-world values (and where they come from)
 
@@ -71,8 +73,13 @@ Main way: n0 - n1 - n2 - n3 - n5 - n6 - n7, about 70 m (93 s of crawling at
 0.75 m/s); spurs: n1-n8 (ends in whole vanes), the fan spur, w_end, s_end.
 Offices below: under each register (7 rooms), one dark, one whose lights fail
 (group 0), the plant room behind the fan (group 1, chopped by its blades),
-one with an occupancy sensor (group 2, off until you pass over), the exit
-office (group 3).
+one with an occupancy sensor (group 2, off until you pass over), and under
+the exit a corner of the open-plan office floor (group 3): 1.4..11 x 39..54,
+an aisle under the grille, a double row of workstations (65 in spine, 53 in
+side panels, navy fabric) to the east, desks along the west wall, 2 x 4
+troffers on 8 x 10 ft centres: lit round the grille, the next row dimming
+(35 %), the rest out, a door at the dark north end. It is the Dimming Floor
+seen from above, where the exit drops you.
 
 ## What happens
 
@@ -110,7 +117,8 @@ office (group 3).
 - The exit: Use on the return grille: you shove, it swings down on its last
   clip (two shoves, eased), drops the 2.74 m (0.75 s, tumbling), clatters and
   bounces on the carpet; you let yourself down through the hole, hang, drop
-  and land, and the game takes you back to the Backrooms.
+  and land in the office floor's aisle, and the game goes on into the
+  `office` level (you arrive standing under its open grille hole).
 
 ## Light, sound, budget
 
@@ -122,10 +130,41 @@ registers (air, the lights' hum below), the fan, the twin duct, the hand;
 the trunk air and air-handler hum everywhere; reverb small and bright
 (room 0.28, damp 0.15, wet 0.34).
 
-Budget (harness, worst view): 48k primitives, 15 draw calls (Potato: 47k, 12),
-<= 15 draw calls, 0 real-time lights besides the torch. Low/Potato: far
+Budget (harness, worst view, 2026-11): 50k primitives, 17 draw calls on
+Medium (Low: 50k, 14); was 48k / 15. The registers' cores are one mesh (one
+draw), the exit's and the entry's one each, the entry's backdrop one; the
+office floor adds ~4k triangles. 0 real-time lights besides the torch.
+Assets 7.8 MB (duct floor roughness map down to 512 px to make room). Low/Potato: far
 plane 18 m, thicker fog, 90 motes instead of 220. No `low_view_range` (each
 kit is one mesh across the whole network, so it would hide the kit).
+
+## Grilles, materials, Realistic (QA pass, 2026-11)
+
+- Grille cores (the eggcrate registers, the exit's 45 deg bar grille, the
+  entry's sidewall blades) are drawn by `louvre.gdshader` on one quad each:
+  per pixel it follows the view ray through the core (walls every pitch,
+  depth, lean), transparent where the ray gets through, else the wall it
+  hits, lit from both open faces by where it lands (light values passed as
+  Vector3/Vector4, never Color: see docs/LUCID.md on sRGB uniforms). The
+  see-through share is box-filtered over the pixel and goes to its mean far
+  off, so no shimmer or stair-steps without MSAA. In Blender the cores are
+  bake-only occluders (`OCC`), so the duct's bake still sees them.
+- Furniture: oak-look laminate (`laminate_*`, ambientCG Wood058), powder-
+  coated steel (the wall paint's grain at 4x), black chair fabric and navy
+  panels (`fabric_*`, from the liner's Fabric029), measured albedos over each
+  texture's linear mean. Mastic over tape: `mastic_*` (the weave, thick and
+  thin sealant, grime), ~0.17.
+- Realistic: the shared side-level grade is the night camera (balanced for
+  moonlight), which turned this level blue. The level replaces it with a
+  neutral grade and L.U.C.I.D.'s camera balance (half the way from 5500 K to
+  the torch's 6000 K): the torch shows near white, the 4000 K offices warm
+  (`_balanced()`); exposure x 1.4 to meet Medium's brightness.
+- The torch at 0.45 of its output is taken once the player's L.U.C.I.D.
+  torch is off (coming from the Realistic Backrooms it is still on for a
+  frame), and handed back on leaving.
+- Crawling: `wall_min_slide_angle` 0 while here (the default 15 deg stopped
+  you dead pushing at a wall nearly head-on: every turn into a side branch
+  taken a little late).
 
 ## Left to do / known simplifications
 

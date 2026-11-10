@@ -1,7 +1,9 @@
 extends Node
 # The Crawlspace for real (not the placeholder): in, kept prone, the exit
 # grille offered by the Use prompt where you look at it, and through it (the
-# push-out and drop) back into the Backrooms.
+# push-out and drop) on into the office floor below (the "office" level, The
+# Dimming Floor: its own script once it exists and loads, else the
+# placeholder room: either passes).
 #   ... res://_test/levels/crawlspace_exit_test.tscn
 # Prints PASS / FAIL lines and "crawlspace_exit_test: N failed".
 
@@ -25,9 +27,8 @@ func _until(cond: Callable, limit: float) -> bool:
 	return true
 
 
-func _back() -> bool:
-	return not game._in_side and not game._transition and game.state == game.State.PLAYING \
-			and game.player.global_position.y > -100.0
+func _in_office() -> bool:
+	return game._in_side and not game._transition and game.state == game.State.PLAYING and game.side_id == "office"
 
 
 func _ready() -> void:
@@ -60,9 +61,14 @@ func _run() -> void:
 	game._update_use()
 	var t: Array = game._use_target
 	check(not t.is_empty() and t[0] is LevelEntrance and t[2] == "Push the grille out", "the grille offers: %s" % [t])
+	check(SideLevels.info("crawlspace").next == "office", "the crawlspace's NEXT is the office")
 	game._use()
-	var back := await _until(_back, 60.0)
-	check(back, "through it and back in the Backrooms at %s" % p.global_position)
+	var on := await _until(_in_office, 90.0)
+	check(on, "through it and on into the office at %s" % p.global_position)
+	var lv2: SideLevel = game.side
+	check(lv2 != null and (lv2 is PlaceholderLevel or String(lv2.get_script().resource_path).ends_with("office_level.gd")),
+			"it's the office level (%s)" % ("placeholder" if lv2 is PlaceholderLevel else "built"))
 	check(not p.force_crawl, "on your feet again")
+	check(p.wall_min_slide_angle > 0.0, "the crawlspace's wall sliding put back")
 	print("crawlspace_exit_test: %d failed" % fails)
 	get_tree().quit(1 if fails > 0 else 0)

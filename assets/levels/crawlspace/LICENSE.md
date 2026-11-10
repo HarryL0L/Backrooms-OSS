@@ -16,6 +16,11 @@ and the texture/sound processing described in SPEC.md).
 | `carpet_*` | Carpet 012 (1K JPG) | ambientCG | https://ambientcg.com/view?id=Carpet012 | resized to 512 px (roughness 256) |
 | `ceiling_tile_*` | Office Ceiling 001 (1K JPG) | ambientCG | https://ambientcg.com/view?id=OfficeCeiling001 | resized to 512 px (roughness 256) |
 | `wall_paint_*` | Painted Plaster 017 (1K JPG) | ambientCG | https://ambientcg.com/view?id=PaintedPlaster017 | resized to 512 px (roughness 256) |
+| `laminate_*` (desk tops, doors) | Wood 058 (1K JPG) | ambientCG | https://ambientcg.com/view?id=Wood058 | resized to 512 px (roughness 256); checked 2026-11-10 |
+| `fabric_*`, `mastic_*` | Fabric 029 (via `liner_*` above) | ambientCG | https://ambientcg.com/view?id=Fabric029 | the liner's weave, neutral grey (fabric); with procedural sealant blots and grime (mastic) |
+
+The wall grille's backdrop uses the game's own Backrooms wallpaper
+(`assets/textures/wallpaper`, licensed in `assets/textures/LICENSE.md`).
 
 ## Sounds (Freesound, all "Creative Commons 0" on the page)
 

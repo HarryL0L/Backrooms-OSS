@@ -306,17 +306,21 @@ static func footstep(surface: int, variant: int) -> AudioStreamWAV:
 
 
 ## Step on sheet metal or grating (ducts, catwalks, gantries): a dull
-## hollow boom from the panel flexing, a few inharmonic rings that die fast,
-## and a short rattle of the loose edges.
+## hollow boom from the panel flexing, the panel's clang (noise in a few
+## broad inharmonic bands that die fast) and a short rattle of the loose
+## edges. (The clang was four pure sines: on every crawl pull in the
+## crawlspace's duct it rang as a 'twink'. Bands of noise, damped enough not
+## to ring as a tone, sound like the sheet.)
 static func _metal_step(rng: RandomNumberGenerator) -> AudioStreamWAV:
 	var n := int(RATE * 0.45)
 	var s := PackedFloat32Array()
 	s.resize(n)
 	var th := _Svf.new(180.0 * rng.randf_range(0.85, 1.2), 0.7)
-	var modes := []
+	var bands := []
 	for f in [430.0, 1130.0, 2270.0, 3610.0]:
-		modes.append([f * rng.randf_range(0.92, 1.08), rng.randf() * TAU, rng.randf_range(18.0, 34.0)])
+		bands.append([_Svf.new(f * rng.randf_range(0.92, 1.08), 0.55), rng.randf_range(18.0, 34.0)])
 	var toe := rng.randf_range(0.05, 0.08)
+	var lp := _Svf.new(4200.0, 0.9)      # (the bands' skirts would hiss up to Nyquist)
 	for i in n:
 		var t := float(i) / RATE
 		var x := rng.randf_range(-1.0, 1.0)
@@ -324,11 +328,14 @@ static func _metal_step(rng: RandomNumberGenerator) -> AudioStreamWAV:
 		var tt := t - toe
 		var hit := exp(-t * 40.0) * minf(t * RATE / 20.0, 1.0) + (0.0 if tt < 0.0 else exp(-tt * 55.0) * 0.6)
 		var ring := 0.0
-		for k in modes.size():
-			var m: Array = modes[k]
-			ring += sin(TAU * float(m[0]) * t + float(m[1])) * exp(-t * float(m[2]) * (1.0 + k * 0.6)) / (1.0 + k)
+		for k in bands.size():
+			var bd: Array = bands[k]
+			var f: _Svf = bd[0]
+			f.step(x)
+			ring += f.band * exp(-t * float(bd[1]) * (1.0 + k * 0.6)) / (1.0 + k)
 		var rattle := x * exp(-pow((t - 0.03) / 0.02, 2.0)) * 0.25
-		s[i] = th.low * hit * 3.0 + ring * 0.35 * minf(t * RATE / 30.0, 1.0) + rattle
+		lp.step(ring)
+		s[i] = th.low * hit * 3.0 + lp.low * 0.85 * minf(t * RATE / 30.0, 1.0) + rattle
 	for i in 200:
 		s[n - 1 - i] *= float(i) / 200.0
 	return to_wav(_normalize(s, 0.75))
