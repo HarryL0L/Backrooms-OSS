@@ -465,8 +465,9 @@ def make_labels():
                 hh = 11 * S
                 draw_text(dr, t, x + (w - text_width(t, hh)) / 2, y + (6 + li * 19) * S, hh, width=2 * S)
             continue
-        hh = 30 * S if len(n) <= 8 else 23 * S
-        draw_text(dr, n, x + (w - text_width(n, hh)) / 2, y + (h - hh) / 2, hh, width=4 * S)
+        k = h / (64 * S)                         # (the 13th sign's slot is smaller, the same shape)
+        hh = (30 * S if len(n) <= 8 else 23 * S) * k
+        draw_text(dr, n, x + (w - text_width(n, hh)) / 2, y + (h - hh) / 2, hh, width=max(2, round(4 * S * k)))
     # direction and range signs
     for n in FL.WIDE_SIGNS:
         x, y, w, h = at[n]
@@ -537,6 +538,19 @@ def make_labels():
             pa, pb = P(*a), P(*b)
             if d["kind"] in ("door", "gated"):
                 dr.line([pa, pb], fill=0, width=5 * S)
+        # the stair doors, marked on the wall: STAIR 1 (corridor A's west end)
+        # and, on the current revision only, STAIR 2 (corridor B's north end)
+        stairs = [("STAIR 1", FL.door_span(FL.DOORS[[d["id"] for d in FL.DOORS].index("stair1")]), "w")]
+        if not old:
+            stairs.append(("STAIR 2", FL.door_span(FL.DOORS[[d["id"] for d in FL.DOORS].index("stair")]), "n"))
+        for t, (a, b), side in stairs:
+            pa, pb = P(*a), P(*b)
+            dr.line([pa, pb], fill=255, width=4 * S)
+            hh = 6 * S
+            if side == "w":
+                draw_text(dr, t, pa[0] + 5 * S, (pa[1] + pb[1]) / 2 + 7 * S, hh, width=S + 1)
+            else:
+                draw_text(dr, t, (pa[0] + pb[0]) / 2 - text_width(t, hh) - 4 * S, pa[1] + 6 * S, hh, width=S + 1)
         if old:
             # the old revision: Bay 4's doors further west, and the exit at the stair
             for x in (14.4, 20.5):

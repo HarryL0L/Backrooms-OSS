@@ -29,19 +29,33 @@ the labels atlas, sounds), this folder (kits, lightmaps, textures, audio,
   back into the Backrooms somewhere else. The framework's `door` look; its
   ride ends 0.1 m in front of the wall over Bay 4's floor (each kit's floor
   collision covers its room and 0.35 m past every wall).
+- **Down**: STAIR 2, the door at the far (north) end of corridor B ("Take
+  the stairs down", Use): `exit_entered("stairwell")`, on into Level 4.1,
+  the Endless Stairwell, arriving on its top landing, B2, through the
+  stair's own door. A LevelEntrance door on the solid end wall (nothing
+  baked for it: no kit was re-baked), signed with the Stacks' own STAIR 2
+  plate. So you choose: escape through the exit, or go down. Corridor B is
+  reached only through moving shelving (Bay 3's banks, or Bay 4's from Bay
+  2 or a lined-up fire door), so the stair is as deep in the maze as the
+  exit (proved by `filing_maze_test`: with Bays 2-4's banks solid there is
+  no way to it, and it is reached in bounded time through the moving
+  shelving). Where it used to be (corridor A's west end, reachable from the
+  arrival through Bay 1's always-open aisle alone) there is now STAIR 1,
+  locked: still the door corridor A's "EXIT <-" sign points at, still the
+  old plan's exit.
 
 ## The floor plan (Blender x east, y north; Godot (x, z) = (x, -y) round LEVEL_Y)
 
 A top-down map with the routes: `python3 tools/blender/levels/filing_layout.py --map out.png`.
 
 ```
- y=30.7 +---------BAY 2-----+------------------BAY 4 (dark)---[EXIT]-------+ CORR
+ y=30.7 +---------BAY 2-----+------------------BAY 4 (dark)---[EXIT]-------+STAIR 2
         |main | 12 carriages|  24 carriages, 2 open aisles, 8-sect ranges   |  B
         |aisle| E-W ranges  |  handles on the north main aisle; far ends    |
         |  ^  | 9 sections  |  against corridor A (two fire doors open      |  |
         |  |  |rear aisle ->+--door into Bay 4's main aisle                 |  |
  y=19.1 +-d4--+-------------+--------[g1]--------------[g2]-------------+--+  |
-        |stair2  CORRIDOR A (72 in)                                      vault |
+        |stair1  CORRIDOR A (72 in)                                      vault |
  y=17.1 +------------d1-----+---d2---+------------------------d3---------+  |
         | BAY 1 (as built)  |SORTING |  BAY 3: two banks of 16,           d6--+
         | 2 banks of 12     |        |  2 open aisles each                |  |
@@ -53,12 +67,12 @@ A top-down map with the routes: `python3 tools/blender/levels/filing_layout.py -
 | Room | Size | Shelving |
 | --- | --- | --- |
 | Bay 1 (R1) | 11.61 x 16.87 m | 2 banks x 12 carriages, 1 open aisle each, 6-section (6.45 m) ranges; the cart in bank A's aisle |
-| Corridor A (C1) | 39.2 x 1.83 m | dead ends: STAIR 2 (locked, west, 5.2 m past Bay 2's door), VAULT (locked, east) |
+| Corridor A (C1) | 39.2 x 1.83 m | dead ends: STAIR 1 (locked, west, 5.2 m past Bay 2's door), VAULT (locked, east) |
 | Sorting (R2) | 7.19 x 10.06 m | none: two sorting tables, a pigeonhole case, a desk and terminal, three carts, the step stool, a floor plan |
 | Bay 3 (R3) | 15.83 x 16.87 m | 2 banks x 16 carriages, 2 open aisles each, 6-section ranges |
 | Bay 2 (R4) | 12.50 x 11.61 m | 1 bank x 12, 1 open aisle, ranges east-west, 9 sections (9.65 m); main aisle west, rear aisle east |
 | Bay 4 (R5) | 22.28 x 10.46 m | 1 bank x 24, 2 open aisles, 8 sections (8.58 m); far ends against corridor A, no rear aisle |
-| Corridor B (C3) | 1.83 x 27.56 m | dead end south: JANITOR (locked), a mop bucket |
+| Corridor B (C3) | 1.83 x 27.56 m | dead end south: JANITOR (locked), a mop bucket; at the north end STAIR 2, the way down (the stairwell) |
 | **Total** | **1035 m2** | 92 carriages, 12 fixed units |
 
 Doors (36 x 84 in hollow-metal fire doors, held open on magnets): Bay 1 /
@@ -81,9 +95,10 @@ Navigation aids: door signs (where the door goes, from each side), a range
 card on every end panel ("4A17": bay, bank, carriage), bay / range signs by
 the main aisles, direction signs in the corridors, and floor plans ("STORAGE
 FLOOR 1 REV C", with a red YOU ARE HERE dot) in corridor A, corridor B and
-sorting. Misleading on purpose: corridor A's "EXIT <-" points west, at the
-locked stair; Bay 2's floor plan is REV A (Bay 4's doors further west, no
-corridor B, the exit at the stair).
+sorting; REV C marks STAIR 1 (corridor A's west end) and STAIR 2 (corridor
+B's north end). Misleading on purpose: corridor A's "EXIT <-" points west, at
+STAIR 1, which is locked; Bay 2's floor plan is REV A (Bay 4's doors further
+west, no corridor B and no STAIR 2, the exit at the stair).
 
 Time to the exit: the walking bot in `filing_exit_test` (knows the plan, sees
 the shelving) takes 28-140 s depending on the shelving (it waits out closing aisles); a first-time player
@@ -192,8 +207,15 @@ grid (0.25 m cells where a 0.3 m radius person fits, `grid_free`):
    recorded shelving states at a walk, waiting allowed);
 3. at the start of every close, from every spot in that aisle, react + walk
    out is shorter than the time until it is narrower than a person;
-4. the walker is never crushed.
-Last run: 158 closes, the smallest walk-out margin 0.33 s (the SAFETY
+4. the walker is never crushed;
+5. STAIR 2 is reached within 150 s too, from the arrival and the same
+   sampled spots and moments (the same sweep);
+6. the shelving gates STAIR 2: with every bank but Bay 1's solid across its
+   footprint, a flood fill from the arrival reaches neither STAIR 2 nor the
+   exit, but does reach STAIR 1 (where the stair used to be).
+STAIR 2's last run: reached from every sampled spot and moment within 30 s
+(from the arrival 22-29 s); gated (0 of the 20 cells before its door
+reachable without the moving shelving). Last run: 158 closes, the smallest walk-out margin 0.33 s (the SAFETY
 built into `_warn_for`), the longest cut-off 6.0 s (a range rolling across
 the only aisle of Bay 1 bank B), the exit reached from every sampled spot
 and moment within 25 s by a walker who knows the way, the walker never

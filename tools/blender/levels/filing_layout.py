@@ -135,8 +135,9 @@ def to_world(b, u, v):
 # c: the centre of the opening on the wall's centre line; axis: the wall
 # runs along x or y; kind: door (open, held by its magnet), gated (open,
 # but the shelving stands across it unless an aisle lines up), arrive
-# (shut behind you), locked (a shut door: STAIR 2...), exit (the level's
-# way out: a LevelEntrance door on a solid wall).
+# (shut behind you), locked (a shut door: STAIR 1...), exit (the level's
+# way out: a LevelEntrance door on a solid wall), stair (STAIR 2, the way
+# on down to the stairwell: the same, with a door sign; nothing baked).
 G5 = BANKS[5]
 
 
@@ -168,19 +169,28 @@ DOORS = [
      "kind": "gated", "sign": "BAY 4"},
     {"id": "g2", "a": "C1", "b": "R5", "c": [_gated_x(16, 1), C1Y1 + WALL_T / 2], "axis": "x", "w": 1.0,
      "kind": "gated", "sign": "BAY 4"},
-    # Dead ends: doors that never open.
-    {"id": "stair", "a": "C1", "b": None, "c": [-4.2 - WALL_T / 2, (C1Y0 + C1Y1) / 2], "axis": "y", "w": DOOR_W,
-     "kind": "locked", "sign": "STAIR 2"},
+    # Dead ends: doors that never open. STAIR 1, at corridor A's west end
+    # (where corridor A's EXIT sign points), is chained shut.
+    {"id": "stair1", "a": "C1", "b": None, "c": [-4.2 - WALL_T / 2, (C1Y0 + C1Y1) / 2], "axis": "y", "w": DOOR_W,
+     "kind": "locked", "sign": "STAIR 1"},
     {"id": "vault", "a": "C1", "b": None, "c": [R5X1 + WALL_T / 2, (C1Y0 + C1Y1) / 2], "axis": "y", "w": DOOR_W,
      "kind": "locked", "sign": "VAULT"},
     {"id": "jan", "a": "C3", "b": None, "c": [(C3X0 + C3X1) / 2, 2.0 - WALL_T / 2], "axis": "x", "w": DOOR_W,
      "kind": "locked", "sign": "JANITOR"},
     {"id": "exit", "a": "R5", "b": None, "c": [24.6, R5Y1 + WALL_T / 2], "axis": "x", "w": DOOR_W, "kind": "exit",
      "sign": ""},
+    # STAIR 2: the service stair down (side level "stairwell"), at the far
+    # (north) end of corridor B. Corridor B is reached only through moving
+    # shelving (Bay 3's banks, or Bay 4's from Bay 2 / the fire doors), so the
+    # stair is as deep in the maze as the exit. A LevelEntrance door on a
+    # solid wall, like the exit (nothing baked for it).
+    {"id": "stair", "a": "C3", "b": None, "c": [(C3X0 + C3X1) / 2, R5Y1 + WALL_T / 2], "axis": "x", "w": DOOR_W,
+     "kind": "stair", "sign": "STAIR 2"},
 ]
 
 ARRIVAL = [1.0, MAIN1]          # facing east down Bay 1's main aisle
 EXIT = [24.6, R5Y1]             # the exit door's foot (north wall of Bay 4)
+STAIR = [(C3X0 + C3X1) / 2, R5Y1]   # STAIR 2's door foot (north end wall of corridor B)
 
 # ------------------------------------------------------------------- rows ---
 # Strip rows (two-lamp 4 ft T8 strips hung across the ranges, parallel to
@@ -286,7 +296,8 @@ SIGNS += [
     {"cell": "R3", "c": [R3X0 + 0.006, MAIN1 + 1.2, 2.55], "n": [1, 0], "size": [0.6, 0.2], "img": "range:R3"},
     {"cell": "R4", "c": [0.006, 24.9, 2.55], "n": [1, 0], "size": [0.6, 0.2], "img": "range:R4"},
     {"cell": "R5", "c": [R5X0 + 0.006, R5MAIN + 0.3, 2.55], "n": [1, 0], "size": [0.6, 0.2], "img": "range:R5"},
-    # directions in the corridors (one of them lies: the stair door is locked)
+    # directions in the corridors (one of them lies: it points at STAIR 1,
+    # which is chained shut; the stair that opens is STAIR 2, off corridor B)
     {"cell": "C1", "c": [4.0, C1Y1 - 0.006, 2.45], "n": [0, -1], "size": [0.6, 0.2], "img": "arrow:EXIT:W"},
     {"cell": "C1", "c": [22.0, C1Y0 + 0.006, 2.45], "n": [0, 1], "size": [0.6, 0.2], "img": "arrow:BAY 3:E"},
     {"cell": "C1", "c": [13.2, C1Y1 - 0.006, 2.45], "n": [0, -1], "size": [0.6, 0.2], "img": "arrow:BAY 2:W"},
@@ -373,7 +384,7 @@ def place_leaves():
 # The labels atlas (assets/levels/filing/textures/labels_diff.jpg, 1024 px,
 # drawn by filing.py --labels): pixel rects (x, y, w, h).
 DOOR_SIGNS = ["BAY 1", "BAY 2", "BAY 3", "BAY 4", "SORTING", "CORRIDOR A", "CORRIDOR B", "NO EXIT", "STAIR 2",
-              "VAULT", "JANITOR", "notice"]
+              "VAULT", "JANITOR", "notice", "STAIR 1"]
 WIDE_SIGNS = ["arrow:EXIT:W", "arrow:BAY 3:E", "arrow:BAY 2:W", "arrow:BAY 4:N", "range:R1", "range:R3", "range:R4",
               "range:R5"]
 PLAN_WORLD = [-5.4, -1.0, 38.2, 31.8]        # what a floor plan shows (Blender x0, y0, x1, y1)
@@ -386,7 +397,12 @@ def atlas():
     for i in range(ncards):
         a["card:%d" % i] = [(i % 16) * 64, (i // 16) * 42, 64, 42]
     for k, n in enumerate(DOOR_SIGNS):
-        a["door:" + n] = [(k % 4) * 256, 256 + (k // 4) * 64, 256, 64]
+        if k < 12:
+            a["door:" + n] = [(k % 4) * 256, 256 + (k // 4) * 64, 256, 64]
+        else:
+            # (the 13th: the free end of the last row of range cards, at the
+            # same 4:1 shape, 168 x 42 px)
+            a["door:" + n] = [768 + (k - 12) * 168, 210, 168, 42]
     a["notice"] = a["door:notice"]
     for k, n in enumerate(WIDE_SIGNS):
         a[n] = [(k % 4) * 256, 448 + (k // 4) * 85, 256, 85]
@@ -414,7 +430,7 @@ def area():
 
 def data():
     return {"cells": CELLS, "banks": BANKS, "doors": DOORS, "rows": ROWS, "sensors": sensor_rects(), "signs": SIGNS,
-            "carts": CARTS, "props": PROPS, "arrival": ARRIVAL, "exit": EXIT, "atlas": atlas(), "plan_world": PLAN_WORLD,
+            "carts": CARTS, "props": PROPS, "arrival": ARRIVAL, "exit": EXIT, "stair": STAIR, "atlas": atlas(), "plan_world": PLAN_WORLD,
             "plan_px": PLAN_PX,
             "consts": {"CAR_W": CAR_W, "FIX_W": FIX_W, "AISLE": AISLE, "SEC_W": SEC_W, "END_T": END_T,
                        "SHELF_D": SHELF_D, "CEIL": CEIL, "WALL_T": WALL_T, "MAIN": MAIN, "REAR": REAR}}
@@ -478,7 +494,7 @@ def draw_map(path, states=None):
     for d in DOORS:
         a, b = door_span(d)
         col = {"door": (226, 224, 216), "gated": (250, 200, 80), "arrive": (60, 140, 230), "locked": (120, 40, 40),
-               "exit": (230, 40, 30)}[d["kind"]]
+               "exit": (230, 40, 30), "stair": (170, 60, 200)}[d["kind"]]
         t = WALL_T / 2 + 0.02
         if d["axis"] == "x":
             dr.rectangle([P(a[0], a[1] + t), P(b[0], b[1] - t)], fill=col)
@@ -530,6 +546,7 @@ def draw_map(path, states=None):
         ((40, 110, 220), [(10.65, c1y + 0.2), (33.9, c1y + 0.2), (33.9, D1 - 0.5), (r3[0], D1 - 0.5), (r3[0], MAIN1),
                           ((C3X0 + C3X1) / 2, MAIN1), ((C3X0 + C3X1) / 2, R5MAIN), (EXIT[0] + 0.2, R5MAIN + 0.25),
                           (EXIT[0] + 0.2, R5Y1 - 0.3)]),
+        ((170, 60, 200), [((C3X0 + C3X1) / 2 + 0.25, R5MAIN - 2.0), ((C3X0 + C3X1) / 2 + 0.25, STAIR[1] - 0.3)]),
     ]
     for col, pts in routes:
         dr.line([P(*p) for p in pts], fill=col, width=5)
@@ -540,11 +557,16 @@ def draw_map(path, states=None):
     dr.ellipse([ax_ - 9, ay_ - 9, ax_ + 9, ay_ + 9], fill=(60, 140, 230))
     ex, ey = P(*EXIT)
     dr.ellipse([ex - 9, ey - 9, ex + 9, ey + 9], fill=(230, 40, 30))
-    dr.text((10, H - 50), "The Stacks, %.0f m2.  blue dot: arrival   red: exit   yellow: fire doors onto Bay 4's range "
-            "ends (open only when an aisle lines up)   dark red: locked" % area(), fill=(230, 230, 230))
+    sx_, sy_ = P(*STAIR)
+    dr.ellipse([sx_ - 9, sy_ - 9, sx_ + 9, sy_ + 9], fill=(170, 60, 200))
+    dr.text(P(STAIR[0] - 1.6, STAIR[1] + 0.9), "STAIR 2 (down)", fill=(230, 230, 230))
+    dr.text(P(-5.4, (C1Y0 + C1Y1) / 2 + 1.4), "STAIR 1 (locked)", fill=(230, 230, 230))
+    dr.text((10, H - 50), "The Stacks, %.0f m2.  blue dot: arrival   red: exit   purple: STAIR 2 (down to the "
+            "stairwell)   yellow: fire doors onto Bay 4's range ends (open only when an aisle lines up)   dark red: locked"
+            % area(), fill=(230, 230, 230))
     dr.text((10, H - 32), "routes: green  Bay 1 > corridor A > Bay 2 (any aisle) > Bay 4 main aisle > exit;  orange  "
-            "corridor A > a lined-up fire door > Bay 4 aisle;  blue  corridor A > Bay 3 (any aisle) > corridor B > Bay 4  "
-            "(shelving drawn in one of its states)",
+            "corridor A > a lined-up fire door > Bay 4 aisle;  blue  corridor A > Bay 3 (any aisle) > corridor B > Bay 4 "
+            "(and north up corridor B to STAIR 2)  (shelving drawn in one of its states)",
             fill=(230, 230, 230))
     im.save(path)
 

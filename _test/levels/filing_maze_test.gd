@@ -15,7 +15,14 @@ extends Node
 #  3. fair closes: at the moment every close starts warning, from every spot
 #     in the closing aisle a person who reacts after REACT s and walks at
 #     WALK m/s is out of it before it is narrower than CRUSH_GAP;
-#  4. the walker is never crushed.
+#  4. the walker is never crushed;
+#  5. STAIR 2 (the way down to the stairwell, at the far end of corridor B)
+#     is reached within EXIT_MAX s too, from the arrival and the same random
+#     spots and moments (the same sweep through the shelving states);
+#  6. the shelving gates STAIR 2: with every bank but Bay 1's standing solid
+#     across its footprint (no aisle anywhere in Bays 2, 3, 4), there is no
+#     way from the arrival to it (nor to the exit), while STAIR 1, where the
+#     stair used to be, is reachable that way: the maze can't be skipped.
 #   ... res://_test/levels/filing_maze_test.tscn [-- seeds=5 minutes=5]
 # Prints PASS / FAIL lines and "filing_maze_test: N failed".
 
@@ -80,7 +87,9 @@ func _run() -> void:
 	lv._events = true
 	game.player.controls_enabled = false
 	RenderingServer.render_loop_enabled = false
-	var worst := {"cut": 0.0, "exit": 0.0, "margin": INF, "crush": 0, "events": 0, "route": 0.0}
+	var worst := {"cut": 0.0, "exit": 0.0, "margin": INF, "crush": 0, "events": 0, "route": 0.0, "stair": 0.0,
+			"stair_arrival": 0.0}
+	_gating(lv)
 	var first := int(args.get("first", "0"))
 	for s in range(first, first + seeds):
 		var r: Dictionary = await _seed(lv, 1000 + s * 7919, minutes)
@@ -92,6 +101,10 @@ func _run() -> void:
 		worst.crush += r.crush
 		worst.events += r.events
 		worst.route = maxf(worst.route, r.route)
+		worst.stair = maxf(worst.stair, r.stair)
+		worst.stair_arrival = maxf(worst.stair_arrival, r.stair_arrival)
+		print("seed %d: STAIR 2 reached in max %.0f s (median %.0f s, from the arrival %.0f s)" % [s, r.stair,
+				r.stair_median, r.stair_arrival])
 		await get_tree().process_frame
 	RenderingServer.render_loop_enabled = true
 	check(worst.cut <= CUT_MAX, "no pocket: every spot rejoins the exit within %.0f s (longest cut-off %.1f s, %d seeds x %.0f min)" % [
@@ -101,6 +114,8 @@ func _run() -> void:
 	check(worst.margin >= 0.0 and worst.events > 0, "fair closes: out of every closing aisle at a walk after %.1f s of reaction (%d closes, min margin %.2f s)" % [
 			REACT, worst.events, worst.margin])
 	check(worst.crush == 0, "the walker (reacts in %.1f s, walks out) was never crushed (%d)" % [REACT, worst.crush])
+	check(worst.stair <= EXIT_MAX, "bounded: STAIR 2 reached within %.0f s from every sampled spot and moment (worst %.0f s, from the arrival %.0f s)" % [
+			EXIT_MAX, worst.stair, worst.stair_arrival])
 	print("filing_maze_test: %d failed" % fails)
 	_quit()
 
@@ -318,7 +333,7 @@ func _seed(lv, sd: int, minutes: float) -> Dictionary:
 	var nsnap := changes.size()
 	for j in 40:
 		starts.append([reachable[rng.randi() % reachable.size()], rng.randi_range(0, nsnap / 2)])
-	var arrivals: Array = await _sweep(lv, free0, changes, starts, gw)
+	var arrivals: Array = await _sweep(lv, free0, changes, starts, gw, lv.grid_exit)
 	var worst := 0.0
 	var ok_starts := 0
 	var times: Array = []
@@ -330,9 +345,51 @@ func _seed(lv, sd: int, minutes: float) -> Dictionary:
 		times.append(tt)
 		worst = maxf(worst, tt)
 	times.sort()
+	# 5. the same for STAIR 2
+	var st_arr: Array = await _sweep(lv, free0, changes, starts, gw, lv.grid_stair)
+	var st_worst := 0.0
+	var st_times: Array = []
+	for a in st_arr:
+		if a < -1.5:
+			continue
+		var tt: float = a if a >= 0.0 else INF
+		st_times.append(tt)
+		st_worst = maxf(st_worst, tt)
+	st_times.sort()
 	return {"events": nev, "margin": margin, "crush": lv.sim_crushes, "cut": max_cut, "route": max_route * L.GRID,
 			"exit": worst, "median": times[times.size() / 2] if not times.is_empty() else INF, "starts": ok_starts,
-			"never": never, "arrival": times[0] if false else (arrivals[0] if arrivals[0] >= 0.0 else INF)}
+			"never": never, "arrival": times[0] if false else (arrivals[0] if arrivals[0] >= 0.0 else INF),
+			"stair": st_worst, "stair_median": st_times[st_times.size() / 2] if not st_times.is_empty() else INF,
+			"stair_arrival": st_arr[0] if st_arr[0] >= 0.0 else INF}
+
+
+## 6. The gate: Bays 2, 3 and 4's banks solid across their whole footprints
+## (Bay 1's aisle, always open, left as free as it can be), a flood fill from
+## the arrival: STAIR 2 and the exit out of reach, STAIR 1 within it.
+func _gating(lv) -> void:
+	var f: PackedByteArray = lv.grid_free()
+	f = (lv._grid_static as PackedByteArray).duplicate()
+	for bk in lv.banks():
+		if bk.cell.id != "R1":
+			lv._grid_fill(f, (lv.bank_rect(bk) as Rect2).grow(L.PLAYER_R), 0)
+	var a: int = lv.grid_index(Vector2(LAYOUT.DATA.arrival[0], LAYOUT.DATA.arrival[1]))
+	var d: PackedInt32Array = lv.grid_bfs(f, PackedInt32Array([a]))
+	var st := 0
+	for i in lv.grid_stair((lv._grid_static as PackedByteArray)):
+		if d[i] >= 0:
+			st += 1
+	var ex := 0
+	for i in lv.grid_exit((lv._grid_static as PackedByteArray)):
+		if d[i] >= 0:
+			ex += 1
+	var y1 := (float(LAYOUT.DATA.cells.C1.rect[1]) + float(LAYOUT.DATA.cells.C1.rect[3])) * 0.5
+	var old: int = lv.grid_index(Vector2(float(LAYOUT.DATA.cells.C1.rect[0]) + 0.5, y1))
+	var near_static := 0
+	for i in lv.grid_stair((lv._grid_static as PackedByteArray)):
+		near_static += 1
+	check(near_static > 0 and st == 0 and ex == 0 and d[old] >= 0,
+			"gated: with Bays 2-4's shelving solid, STAIR 2 can't be reached from the arrival (%d of %d cells before its door reachable; the exit: %d) but STAIR 1's old place can (%d steps)" % [
+			st, near_static, ex, d[old]])
 
 
 ## One cell downhill on a distance field (staying where it is if none).
@@ -350,7 +407,7 @@ func _descend(lv, d: PackedInt32Array, pos: int, gw: int, f: PackedByteArray) ->
 ## (GRID-cell steps, 4 neighbours: no faster than that) can be at the exit,
 ## waiting wherever they like, through the recorded shelving states; -1 if
 ## never, -2 if the start isn't free.
-func _sweep(lv, free0: PackedByteArray, changes: Array, starts: Array, gw: int) -> Array:
+func _sweep(lv, free0: PackedByteArray, changes: Array, starts: Array, gw: int, goal: Callable) -> Array:
 	var free := free0.duplicate()
 	var ncell := free.size()
 	var steps := int(floor(SNAP * WALK / L.GRID))
@@ -374,7 +431,7 @@ func _sweep(lv, free0: PackedByteArray, changes: Array, starts: Array, gw: int) 
 				free[c] = 1
 			else:
 				free[-1 - c] = 0
-		var ex: PackedInt32Array = lv.grid_exit(free)
+		var ex: PackedInt32Array = goal.call(free)
 		exit_mask.fill(0)
 		for e in ex:
 			exit_mask[e] = 1

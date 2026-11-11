@@ -16,7 +16,12 @@ extends SideLevel
 ## A that opens straight onto Bay 4's range ends (only when an aisle lines
 ## up with it), or through Bay 3 and corridor B. Signs on the doors, range
 ## cards on every end panel and floor plans ("YOU ARE HERE"; one of them an
-## old revision) are what you find your way by.
+## old revision) are what you find your way by. The other way on is STAIR 2
+## at the far end of corridor B (as deep in the maze as the exit: corridor B
+## is reached only through Bay 3's or Bay 4's moving shelving): the service
+## stair down into Level 4.1, the Endless Stairwell. So you choose: escape
+## through the exit, or go down. Corridor A's EXIT sign points the other way,
+## at STAIR 1, which is locked (where the old plan in Bay 2 still has the exit).
 ##
 ## Ranges roll by themselves: the frames creak, the cartons shiver, the
 ## aisle light flickers out, the handles spin, the rails rumble, and the
@@ -1191,6 +1196,22 @@ func _add_exit() -> void:
 		r5.grp_on[g] = 1.0
 	add_exit(Transform3D(Basis(), _g(_v2(LAYOUT.DATA.exit))), "door", "", {"label": "Open the exit door"})
 	r5.grp_on = was
+	# STAIR 2, at the far (north) end of corridor B: the service stair, down
+	# into the stairwell (Level 4.1), arriving on its top landing, B2. Its
+	# sign is the Stacks' own (the door signs in the labels atlas).
+	var c3: Cell = _cells["C3"]
+	was = c3.grp_on.duplicate()
+	for g in 4:
+		c3.grp_on[g] = 1.0
+	var st := add_exit(Transform3D(Basis(), _g(_v2(LAYOUT.DATA.stair))), "door", "stairwell",
+			{"label": "Take the stairs down"})
+	c3.grp_on = was
+	# (lit as the baked doors round it are: the framework door's self-light
+	# from light_at alone leaves it black under the corridor's strips)
+	for m in st._mats.values():
+		var sm := m as StandardMaterial3D
+		if sm and sm.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
+			sm.emission = sm.albedo_color * 0.55
 
 
 # --------------------------------------------------------------- the game ---
@@ -2371,6 +2392,18 @@ func grid_exit(free: PackedByteArray) -> PackedInt32Array:
 	return out
 
 
+## The free cells in front of STAIR 2's door (the way down to the stairwell).
+func grid_stair(free: PackedByteArray) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var e := _v2(LAYOUT.DATA.stair)
+	for dx in range(-2, 3):
+		for dy in range(1, 5):
+			var i := grid_index(e + Vector2(dx * GRID, -dy * GRID))
+			if i >= 0 and free[i] == 1:
+				out.append(i)
+	return out
+
+
 ## Every bank (for tests).
 func banks() -> Array:
 	return _banks
@@ -2526,6 +2559,8 @@ func shots() -> Array:
 			c5.lit_dirty = true
 			_push_cell(c5)},
 		{"name": "corridor_b", "transform": _view(Vector2(36.14, 9.6), 0.0, -0.03), "call": _lights_on},
+		{"name": "stair2", "transform": _view(Vector2(36.14, 24.8), 0.0, 0.02), "call": _lights_on},
+		{"name": "stair1", "transform": _view(Vector2(-1.2, 17.98), 90.0, 0.0), "call": _lights_on},
 	]
 
 
@@ -2573,6 +2608,9 @@ func _sweep_shots(step: float) -> Array:
 ## opens onto shelving as the range rolls; Bay 4 in the dark, the knocking,
 ## lights going out behind you; the exit.
 func film() -> void:
+	if OS.get_environment("FILM") == "stair":
+		await _film_stair()
+		return
 	_events = true
 	player.set_flashlight(false)
 	_lights(0.0)
@@ -2627,9 +2665,31 @@ func film() -> void:
 	await _walk_to(Vector2(24.6, 29.0), 2.0)
 	for e in get_tree().get_nodes_in_group("usable"):
 		var le := e as LevelEntrance
-		if le and le.exit_of == self:
+		if le and le.exit_of == self and le.dest == "":
 			await le.enter(player)
 	await get_tree().create_timer(0.8).timeout
+
+
+## FILM=stair: up corridor B to STAIR 2 at its far end, and through it (the
+## opening of the stairwell's film).
+func _film_stair() -> void:
+	print("FILM_START frame %d" % Engine.get_frames_drawn())
+	_events = false
+	player.set_flashlight(false)
+	_lights_on()
+	var sx: float = LAYOUT.DATA.stair[0]
+	var sy: float = LAYOUT.DATA.stair[1]
+	player.teleport(_g(Vector2(sx, 19.5)), 0.0, -0.02)
+	await get_tree().create_timer(1.5).timeout
+	await _walk_to(Vector2(sx, sy - 1.6), 6.0)
+	await _turn_to(0.0, 0.08, 0.8)
+	await get_tree().create_timer(1.2).timeout
+	await _walk_to(Vector2(sx, sy - 0.9), 2.0)
+	for e in get_tree().get_nodes_in_group("usable"):
+		var le := e as LevelEntrance
+		if le and le.exit_of == self and le.dest == "stairwell":
+			await le.enter(player)
+	await get_tree().create_timer(0.6).timeout
 
 
 func _until(cond: Callable, limit: float) -> void:

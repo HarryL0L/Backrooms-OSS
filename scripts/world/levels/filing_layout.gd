@@ -267,14 +267,14 @@ const DATA := {
 			"leaf_rect": [26.0344, 18.7728, 27.0344, 18.8628],
 		},
 		{
-			"id": "stair",
+			"id": "stair1",
 			"a": "C1",
 			"b": null,
 			"c": [-4.3, 17.9784],
 			"axis": "y",
 			"w": 0.9144,
 			"kind": "locked",
-			"sign": "STAIR 2",
+			"sign": "STAIR 1",
 		},
 		{
 			"id": "vault",
@@ -305,6 +305,16 @@ const DATA := {
 			"w": 0.9144,
 			"kind": "exit",
 			"sign": "",
+		},
+		{
+			"id": "stair",
+			"a": "C3",
+			"b": null,
+			"c": [36.1394, 29.656],
+			"axis": "x",
+			"w": 0.9144,
+			"kind": "stair",
+			"sign": "STAIR 2",
 		},
 	],
 	"rows": [
@@ -800,7 +810,7 @@ const DATA := {
 			"c": [-4.194, 17.9784, 2.3936],
 			"n": [1, 0],
 			"size": [0.46, 0.115],
-			"img": "door:STAIR 2",
+			"img": "door:STAIR 1",
 		},
 		{
 			"cell": "C1",
@@ -815,6 +825,13 @@ const DATA := {
 			"n": [0, 1],
 			"size": [0.46, 0.115],
 			"img": "door:JANITOR",
+		},
+		{
+			"cell": "C3",
+			"c": [36.1394, 29.55, 2.3936],
+			"n": [0, -1],
+			"size": [0.46, 0.115],
+			"img": "door:STAIR 2",
 		},
 		{
 			"cell": "C1",
@@ -982,6 +999,7 @@ const DATA := {
 	],
 	"arrival": [1.0, 8.432],
 	"exit": [24.6, 29.556],
+	"stair": [36.1394, 29.556],
 	"atlas": {
 		"card:0": [0, 0, 64, 42],
 		"card:1": [64, 0, 64, 42],
@@ -1087,6 +1105,7 @@ const DATA := {
 		"door:VAULT": [256, 384, 256, 64],
 		"door:JANITOR": [512, 384, 256, 64],
 		"door:notice": [768, 384, 256, 64],
+		"door:STAIR 1": [768, 210, 168, 42],
 		"notice": [768, 384, 256, 64],
 		"arrow:EXIT:W": [0, 448, 256, 85],
 		"arrow:BAY 3:E": [256, 448, 256, 85],
