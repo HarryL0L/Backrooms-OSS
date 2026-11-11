@@ -1,9 +1,14 @@
 // The Stacks' surfaces: the side levels' shader (shaders/level_lit.gdshaderinc,
 // copied here unchanged but for the light) with light that follows the
-// moving shelving. The kit (the room) keeps its bake; the shelving, which
-// moves, is lit analytically from the same strip rows and the aisle light
-// bars. Regenerate from the framework's include if it changes (SPEC.md).
+// moving shelving. The kits (one per room) keep their bakes; the shelving,
+// which moves, is lit analytically from the same strip rows and the aisle
+// light bars. Regenerate from the framework's include if it changes (SPEC.md).
 //
+//  - Each room's materials carry their own light groups (room_light[4],
+//    instead of the framework's four global ones: the floor has 24) and the
+//    room's frame (frame_ax: the direction the carriages roll, in Godot x/z);
+//    everything below works in that frame (x along the motion, z along the
+//    ranges).
 //  - The rows: each row of 4 ft strips is a Lambertian line source along x
 //    (intensity per metre, engine units); a surface's irradiance is the
 //    exact integral over the part of the row it can see. In a slot between
@@ -17,6 +22,11 @@
 //    open aisle darkens as it would, plus the bars. lmode 1: all analytic.
 //  - vcol: albedo times the vertex colour (the shelving's colours with its
 //    ambient occlusion baked in); alpha < 0.5 marks an aisle bar's diffuser.
+//    UV2.y tags the part: 1 a carton (shivers: inst_shake), 2 the handle
+//    (turned by inst_hang round its hub), 3 the range card (its cell in the
+//    labels atlas from inst_card), 4 a sign (labels atlas UVs).
+//  - kit_vcol: a kit's merged "paint" surface: albedo in the vertex colour,
+//    lamps coded in its alpha (0.1-0.4: group 0-3, 0.5: always on).
 render_mode diffuse_burley, specular_schlick_ggx;
 #include "res://shaders/common.gdshaderinc"
 #include "res://shaders/ps1.gdshaderinc"
@@ -47,28 +57,33 @@ uniform bool has_group_map = false;
 uniform float group_scale = 4.0;
 uniform vec4 group_mix = vec4(0.0);
 uniform float alpha_cut = 0.5;
-global uniform vec4 level_light_0;
-global uniform vec4 level_light_1;
-global uniform vec4 level_light_2;
-global uniform vec4 level_light_3;
+uniform vec4 room_light[4];
 
 varying vec3 v_wpos;
 varying vec3 v_wn;
+varying flat float v_tag;
 
 vec3 group_light(int g) {
-	vec4 l = g == 0 ? level_light_0 : (g == 1 ? level_light_1 : (g == 2 ? level_light_2 : level_light_3));
+	vec4 l = room_light[clamp(g, 0, 3)];
 	return l.rgb * l.a;
 }
 
 // ------------------------------------------------------------- The Stacks ---
 uniform vec3 origin = vec3(0.0, -8000.0, 0.0);
+uniform vec2 frame_ax = vec2(1.0, 0.0);
 uniform int lmode = 0;
 uniform bool vcol = false;
-uniform float car_x[24];
-uniform float bar_on[24];
+uniform bool kit_vcol = false;
+uniform int nbank = 0;
+uniform int bank_n0 = 12;
+uniform int bank_n1 = 12;
+uniform float car_x[32];
+uniform float bar_on[32];
 uniform float fix_bar[4];
 uniform vec4 bank0 = vec4(0.471, 11.141, -7.518, -1.067);
 uniform vec4 bank1 = vec4(0.471, 11.141, -15.798, -9.347);
+uniform sampler2D label_tex : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_disable;
+uniform vec2 label_card = vec2(0.0625, 0.041016);
 uniform float car_half = 0.4065;
 uniform float stack_h = 2.30;
 uniform vec4 rows_a[8];
@@ -78,8 +93,16 @@ uniform vec3 night_rgb = vec3(1.0);
 uniform vec3 bar_rgb = vec3(0.5);
 uniform vec3 bar_emit = vec3(50.0);
 uniform float bounce = 0.3;
+// Light through the doorways from the next room (each opening a Lambertian
+// patch of that room's luminance): local position, w = L A / pi; its normal
+// (into this room).
+uniform vec4 spill_p[8];
+uniform vec4 spill_n[8];
+uniform int spill_count = 0;
 instance uniform float inst_bar = 0.0;
 instance uniform float inst_shake = 0.0;
+instance uniform float inst_hang = 0.0;
+instance uniform float inst_card = 0.0;
 
 float f2(float s, float r) {
 	float r2 = r * r;
@@ -108,25 +131,33 @@ vec4 bank_of(int b) {
 // returns (xl, xr, bar on the left face, bar on the right face).
 vec4 find_gap(int b, float px) {
 	vec4 bk = bank_of(b);
+	int base = b == 0 ? 0 : bank_n0;
+	int n = b == 0 ? bank_n0 : bank_n1;
 	float x = clamp(px, bk.x, bk.y);
-	for (int i = 0; i < 12; i++) {
-		float c = car_x[b * 12 + i];
+	for (int i = 0; i < 24; i++) {
+		if (i >= n) {
+			break;
+		}
+		float c = car_x[base + i];
 		if (abs(x - c) < car_half) {
 			x = x >= c ? c + car_half : c - car_half;
 		}
 	}
 	vec4 g = vec4(bk.x, bk.y, fix_bar[b * 2], fix_bar[b * 2 + 1]);
-	for (int i = 0; i < 12; i++) {
-		float c = car_x[b * 12 + i];
+	for (int i = 0; i < 24; i++) {
+		if (i >= n) {
+			break;
+		}
+		float c = car_x[base + i];
 		float rf = c + car_half;
 		float lf = c - car_half;
 		if (rf <= x + 0.002 && rf > g.x) {
 			g.x = rf;
-			g.z = bar_on[b * 12 + i];
+			g.z = bar_on[base + i];
 		}
 		if (lf >= x - 0.002 && lf < g.y) {
 			g.y = lf;
-			g.w = bar_on[b * 12 + i];
+			g.w = bar_on[base + i];
 		}
 	}
 	return g;
@@ -212,6 +243,9 @@ vec3 stacks_light(vec3 p, vec3 n, out float ratio) {
 	vec2 gx = vec2(-1000.0, 1000.0);
 	vec2 gz = vec2(0.0);
 	for (int b = 0; b < 2; b++) {
+		if (b >= nbank) {
+			break;
+		}
 		vec4 bk = bank_of(b);
 		float out_z = max(bk.z - q.z, q.z - bk.w);
 		if (out_z > 3.5) {
@@ -234,6 +268,21 @@ vec3 stacks_light(vec3 p, vec3 n, out float ratio) {
 			add += bar_rgb * e * mask;
 		}
 	}
+	for (int i = 0; i < 8; i++) {
+		if (i >= spill_count) {
+			break;
+		}
+		vec4 sp = spill_p[i];
+		if (sp.w <= 0.0) {
+			continue;
+		}
+		vec3 v = sp.xyz - q;
+		float d2 = max(dot(v, v), 0.6);
+		vec3 l = v * inversesqrt(d2);
+		float ce = max(-dot(spill_n[i].xyz, l), 0.0);
+		float cr = max(dot(n, l), 0.0);
+		add += night_rgb * (sp.w * ce * cr / d2);
+	}
 	float open_e;
 	vec3 direct = rows_light(q, n, any_slot, gx, gz, open_e);
 	float f = any_slot ? slot_open(q, gx, gz) : 1.0;
@@ -251,10 +300,29 @@ vec3 stacks_light(vec3 p, vec3 n, out float ratio) {
 	return direct + amb + add;
 }
 
+// A point, normal in the room's frame (x along the motion, z along the ranges).
+vec3 to_frame(vec3 v) {
+	return vec3(v.x * frame_ax.x + v.z * frame_ax.y, v.y, -v.x * frame_ax.y + v.z * frame_ax.x);
+}
+
 void vertex() {
-	if (inst_shake > 0.0) {
-		float h = UV2.x * 61.0;
-		VERTEX += vec3(sin(TIME * 31.0 + h) * 0.006, abs(sin(TIME * 23.0 + h * 1.7)) * 0.004, sin(TIME * 17.0 + h * 0.6) * 0.003) * inst_shake;
+	v_tag = 0.0;
+	if (vcol) {
+		v_tag = UV2.y;
+		if (UV2.y > 1.5 && UV2.y < 2.5) {
+			// the handle, turned round its hub (1.06 m up, axis along the range)
+			float c = cos(inst_hang);
+			float s = sin(inst_hang);
+			vec2 q = VERTEX.xy - vec2(0.0, 1.06);
+			VERTEX.xy = vec2(c * q.x - s * q.y, s * q.x + c * q.y) + vec2(0.0, 1.06);
+			NORMAL.xy = vec2(c * NORMAL.x - s * NORMAL.y, s * NORMAL.x + c * NORMAL.y);
+		} else if (UV2.y > 2.5 && UV2.y < 3.5) {
+			UV = (vec2(mod(inst_card, 16.0), floor(inst_card / 16.0)) + UV) * label_card;
+		}
+		if (inst_shake > 0.0 && UV2.y > 0.5 && UV2.y < 1.5) {
+			float h = UV2.x * 61.0;
+			VERTEX += vec3(sin(TIME * 31.0 + h) * 0.006, abs(sin(TIME * 23.0 + h * 1.7)) * 0.004, sin(TIME * 17.0 + h * 0.6) * 0.003) * inst_shake;
+		}
 	}
 	v_wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
@@ -275,12 +343,19 @@ void fragment() {
 		vec2 ts = max(vec2(textureSize(albedo_tex, 0)) * 0.125, vec2(4.0));
 		uv = (floor(uv * ts) + 0.5) / ts;
 	}
-	vec4 tex = texture(albedo_tex, uv);
+	vec4 tex = v_tag > 2.5 ? texture(label_tex, uv) : texture(albedo_tex, uv);
 	vec3 col = albedo * tex.rgb;
 	bool bar = false;
+	float lamp_on = 1.0;
+	int lamp_g = emit_group;
 	if (vcol) {
 		col *= COLOR.rgb;
 		bar = COLOR.a < 0.5;
+	} else if (kit_vcol) {
+		col *= COLOR.rgb;
+		float code = COLOR.a * 10.0;
+		lamp_on = code < 5.5 ? 1.0 : 0.0;
+		lamp_g = code < 4.5 ? int(code + 0.5) - 1 : -1;
 	}
 	float rough = clamp(roughness * texture(rough_tex, uv).g, 0.02, 1.0);
 	vec3 n_view = NORMAL;
@@ -300,7 +375,7 @@ void fragment() {
 	}
 	light += g.r * group_light(0) + g.g * group_light(1) + g.b * group_light(2) + g.a * group_light(3);
 	float ratio;
-	vec3 sl = stacks_light(v_wpos - origin, wn, ratio);
+	vec3 sl = stacks_light(to_frame(v_wpos - origin), to_frame(wn), ratio);
 	if (lmode == 1) {
 		light = sl;
 	} else {
@@ -309,7 +384,7 @@ void fragment() {
 	// Potato: the darkest places lifted a little (see dark_lift).
 	float lum = dot(light, vec3(0.3, 0.59, 0.11));
 	light += vec3(1.0, 0.95, 0.84) * dark_lift * (1.0 - smoothstep(0.0, 0.45, lum));
-	vec3 lamp = emit_group >= 0 ? group_light(emit_group) : vec3(1.0);
+	vec3 lamp = (lamp_g >= 0 ? group_light(lamp_g) : vec3(1.0)) * lamp_on;
 	vec3 n_world = normalize((INV_VIEW_MATRIX * vec4(n_view, 0.0)).xyz);
 	ALBEDO = col;
 	ROUGHNESS = rough;

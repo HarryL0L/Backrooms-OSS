@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bqm2te51a3ejt"
-path="res://.godot/imported/filing_room_groups.png-d68bf7e3e1a93c44c0f83b6c79aa8fef.ctex"
+uid="uid://cqay2oo8e7aem"
+path="res://.godot/imported/filing_R4.png-bcfef9c55755035d7e8dbca756deb8ad.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/levels/filing/lightmaps/filing_room_groups.png"
-dest_files=["res://.godot/imported/filing_room_groups.png-d68bf7e3e1a93c44c0f83b6c79aa8fef.ctex"]
+source_file="res://assets/levels/filing/lightmaps/filing_R4.png"
+dest_files=["res://.godot/imported/filing_R4.png-bcfef9c55755035d7e8dbca756deb8ad.ctex"]
 
 [params]
 
